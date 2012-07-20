@@ -33,7 +33,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import org.apache.cassandra.locator.SimpleStrategy;
 import org.infinispan.Cache;
 import org.infinispan.config.ConfigurationException;
 import org.infinispan.container.entries.InternalCacheEntry;
@@ -155,20 +154,17 @@ public class CassandraCacheStore extends AbstractCacheStore {
 
       @Override
       public ExpirationAndKey fromByteBuffer(ByteBuffer byteBuffer) {
-         byteBuffer.getShort();
-         long expiry = byteBuffer.getLong();
-         byteBuffer.get();
-         short size = byteBuffer.getShort();
-         Object key;
          try {
-            byte[] copy = new byte[size];
-            System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + byteBuffer.position(), copy, 0,
-                  size);
-            key = _marshaller.objectFromByteBuffer(copy);
+            byteBuffer.getShort();
+            long expiry = byteBuffer.getLong();
+            byteBuffer.get();
+            short size = byteBuffer.getShort();
+            Object key = _marshaller.objectFromByteBuffer(byteBuffer.array(),
+                  byteBuffer.arrayOffset() + byteBuffer.position(), size);
+            return new ExpirationAndKey(expiry, key);
          } catch (Exception e) {
             throw new SerializationException(e);
          }
-         return new ExpirationAndKey(expiry, key);
       }
    }
 
@@ -220,9 +216,8 @@ public class CassandraCacheStore extends AbstractCacheStore {
 
             size = byteBuffer.getShort();
             Object key;
-            byte[] copy = new byte[size];
-            System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + byteBuffer.position(), copy, 0, size);
-            key = _marshaller.objectFromByteBuffer(copy);
+            key = _marshaller.objectFromByteBuffer(byteBuffer.array(), 
+                  byteBuffer.arrayOffset() + byteBuffer.position(), size);
 
             return new PrefixAndKey(prefix, key);
          } catch (Exception e) {
@@ -268,10 +263,9 @@ public class CassandraCacheStore extends AbstractCacheStore {
       @Override
       public InternalCacheValue fromByteBuffer(ByteBuffer byteBuffer) {
          try {
-            byte[] copy = new byte[byteBuffer.remaining()];
-            System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + byteBuffer.position(), copy, 0,
-                  byteBuffer.remaining());
-            return (InternalCacheValue) _marshaller.objectFromByteBuffer(copy);
+            return (InternalCacheValue) _marshaller.objectFromByteBuffer(
+                  byteBuffer.array(), byteBuffer.arrayOffset()
+                  + byteBuffer.position(), byteBuffer.remaining());
          } catch (Exception e) {
             throw new SerializationException(e);
          }
@@ -367,7 +361,7 @@ public class CassandraCacheStore extends AbstractCacheStore {
          if (def == null) {
             _cluster.addKeyspace(_cluster.makeKeyspaceDefinition()
                   .setName(_keyspace.getKeyspaceName())
-                  .setStrategyClass(SimpleStrategy.class.getName())
+                  .setStrategyClass("org.apache.cassandra.locator.SimpleStrategy")
                   .addStrategyOption("replication_factor", Integer.toString(config.getReplicationFactor()))
                   .addColumnFamily(_cluster.makeColumnFamilyDefinition()
                         .setName(_entryColumnFamily.getName())
