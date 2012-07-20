@@ -26,6 +26,7 @@ import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
 import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
@@ -92,6 +93,7 @@ public class CassandraCacheStore extends AbstractCacheStore {
    private static final int SLICE_SIZE = 100;
    private static final Log log = LogFactory.getLog(CassandraCacheStore.class, Log.class);
    private static final boolean trace = log.isTraceEnabled();
+   private static Charset UTF8 = Charset.forName("UTF-8");
 
    private CassandraCacheStoreConfig config;
 
@@ -104,7 +106,7 @@ public class CassandraCacheStore extends AbstractCacheStore {
    private String cacheName;
    private ColumnFamily<PrefixAndKey, String> _entryColumnFamily;
    private ColumnFamily<String, ExpirationAndKey> _expirationColumnFamily;
-   private String entryKeyPrefix;
+   private byte[] entryKeyPrefix;
    private String expirationKey;
    
    private MarshallerSerializer _marshallerSerializer;
@@ -180,23 +182,19 @@ public class CassandraCacheStore extends AbstractCacheStore {
       @Override
       public ByteBuffer toByteBuffer(PrefixAndKey obj) {
          try {
-            ByteBuffer prefixBuffer = _marshaller.objectToBuffer(obj._prefix).toJDKByteBuffer();
             ByteBuffer keyBuffer = _marshaller.objectToBuffer(obj._key).toJDKByteBuffer();
-            int prefixRemaining = prefixBuffer.remaining();
             int keyRemaining = keyBuffer.remaining();
-            if (prefixRemaining > Short.MAX_VALUE) {
-               throw new IllegalArgumentException("Serialized prefix cannot be " + "larger than " + Short.MAX_VALUE
-                     + " bytes, was " + prefixRemaining);
-            } else if (keyRemaining > Short.MAX_VALUE) {
+            if (keyRemaining > Short.MAX_VALUE) {
                throw new IllegalArgumentException("Serialized key cannot be " + "larger than " + Short.MAX_VALUE
                      + " bytes, was " + keyRemaining);
             }
+            byte[] prefix = obj._prefix;
             // 6 is for the 2 shorts and 2 bytes
             // rest is for 2 buffers
-            ByteBuffer buffer = ByteBuffer.allocate(6 + prefixRemaining + keyRemaining);
+            ByteBuffer buffer = ByteBuffer.allocate(6 + prefix.length + keyRemaining);
             // Needs to be <size><data>EOC for each component
-            buffer.putShort((short) prefixRemaining);
-            buffer.put(prefixBuffer);
+            buffer.putShort((short) prefix.length);
+            buffer.put(prefix);
             buffer.put(END_OF_COMPONENT);
             // 
             buffer.putShort((short) keyRemaining);
@@ -215,15 +213,13 @@ public class CassandraCacheStore extends AbstractCacheStore {
       public PrefixAndKey fromByteBuffer(ByteBuffer byteBuffer) {
          try {
             short size = byteBuffer.getShort();
-            byte[] copy = new byte[size];
-            System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + byteBuffer.position(), copy, 0, size);
-            String prefix = (String) _marshaller.objectFromByteBuffer(copy);
-            byteBuffer.position(byteBuffer.position() + size);
+            byte[] prefix = new byte[size];
+            byteBuffer.get(prefix);
             byteBuffer.get();
 
             size = byteBuffer.getShort();
             Object key;
-            copy = new byte[size];
+            byte[] copy = new byte[size];
             System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + byteBuffer.position(), copy, 0, size);
             key = _marshaller.objectFromByteBuffer(copy);
 
@@ -245,12 +241,12 @@ public class CassandraCacheStore extends AbstractCacheStore {
    }
 
    private static class PrefixAndKey {
-      public PrefixAndKey(String prefix, Object key) {
+      public PrefixAndKey(byte[] prefix, Object key) {
          _prefix = prefix;
          _key = key;
       }
 
-      private final String _prefix;
+      private final byte[] _prefix;
       private final Object _key;
    }
 
@@ -330,7 +326,11 @@ public class CassandraCacheStore extends AbstractCacheStore {
             config.expirationColumnFamily, StringSerializer.get(), 
             new ExpirationAndKeySerializer(getMarshaller()));
          
-         entryKeyPrefix = ENTRY_KEY_PREFIX + (config.isSharedKeyspace() ? "_" + cacheName : "");
+         entryKeyPrefix = (ENTRY_KEY_PREFIX + (config.isSharedKeyspace() ? "_" + cacheName : "")).getBytes(UTF8);
+         if (entryKeyPrefix.length > Short.MAX_VALUE) {
+            throw new IllegalArgumentException("Serialized prefix cannot be " + 
+                  "larger than " + Short.MAX_VALUE + " bytes, was " + entryKeyPrefix.length);
+         }
          expirationKey = EXPIRATION_KEY + (config.isSharedKeyspace() ? "_" + cacheName : "");
          
          _preparedIndices = Arrays.asList(_entryColumnFamily
