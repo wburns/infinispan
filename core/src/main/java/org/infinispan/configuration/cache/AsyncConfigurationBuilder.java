@@ -53,6 +53,11 @@ public class AsyncConfigurationBuilder extends AbstractClusteringConfigurationCh
       return this;
    }
 
+   public AsyncConfigurationBuilder asyncMarshalling(boolean async) {
+      this.asyncMarshalling = async;
+      return this;
+   }
+
    /**
     * Enables synchronous marshalling. You can find more information at <a
     * href="https://docs.jboss.org/author/display/ISPN/Asynchronous+Options"
@@ -82,6 +87,14 @@ public class AsyncConfigurationBuilder extends AbstractClusteringConfigurationCh
    public AsyncConfigurationBuilder replQueueInterval(long interval) {
       this.replicationQueueInterval = interval;
       return this;
+   }
+
+   /**
+    * If useReplQueue is set to true, this attribute controls how often the asynchronous thread used
+    * to flush the replication queue runs.
+    */
+   public AsyncConfigurationBuilder replQueueInterval(long interval, TimeUnit unit) {
+      return replQueueInterval(unit.toMillis(interval));
    }
 
    /**

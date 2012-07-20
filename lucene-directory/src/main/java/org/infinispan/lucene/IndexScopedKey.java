@@ -28,4 +28,6 @@ public interface IndexScopedKey {
 
    String getIndexName();
 
+   <T> T accept(KeyVisitor<T> visitor) throws Exception;
+
 }

@@ -47,7 +47,7 @@ import static junit.framework.Assert.assertEquals;
  * @author Mircea.Markus@jboss.com
  * @since 4.1
  */
-public class BaseKeyAffinityServiceTest extends BaseDistFunctionalTest {
+public abstract class BaseKeyAffinityServiceTest extends BaseDistFunctionalTest {
 
    protected ThreadFactory threadFactory = new ThreadFactory() {
       public Thread newThread(Runnable r) {
@@ -57,7 +57,7 @@ public class BaseKeyAffinityServiceTest extends BaseDistFunctionalTest {
    protected ExecutorService executor  = Executors.newSingleThreadExecutor(threadFactory);
    protected KeyAffinityServiceImpl<Object> keyAffinityService;
 
-   @AfterTest
+   @AfterTest(alwaysRun = true)
    public void stopExecutorService() throws InterruptedException {
       keyAffinityService.stop();
       executor.shutdown();
@@ -93,7 +93,7 @@ public class BaseKeyAffinityServiceTest extends BaseDistFunctionalTest {
 
    protected void assertEventualFullCapacity(List<Address> addresses) throws InterruptedException {
       Map<Address, BlockingQueue<Object>> blockingQueueMap = keyAffinityService.getAddress2KeysMapping();
-      long maxWaitTime = 20 * 60 * 1000; // No more than 20 minutes per address since any more is ridiculous!
+      long maxWaitTime = 60 * 1000; // No more than 1 minute per address since any more is ridiculous!
       for (Address addr : addresses) {
          BlockingQueue<Object> queue = blockingQueueMap.get(addr);
          long giveupTime = System.currentTimeMillis() + maxWaitTime;
@@ -103,6 +103,9 @@ public class BaseKeyAffinityServiceTest extends BaseDistFunctionalTest {
       }
       assertEquals(keyAffinityService.getMaxNumberOfKeys(), keyAffinityService.existingKeyCount.get());
       assertEquals(addresses.size() * 100, keyAffinityService.existingKeyCount.get());
+
+      // give the worker thread some time to shut down
+      Thread.sleep(200);
       assertEquals(false, keyAffinityService.isKeyGeneratorThreadActive());
    }
 

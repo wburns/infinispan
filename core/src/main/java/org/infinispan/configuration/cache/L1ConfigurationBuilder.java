@@ -74,11 +74,25 @@ public class L1ConfigurationBuilder extends AbstractClusteringConfigurationChild
    }
 
    /**
+    * Maximum lifespan of an entry placed in the L1 cache.
+    */
+   public L1ConfigurationBuilder lifespan(long lifespan, TimeUnit unit) {
+      return lifespan(unit.toMillis(lifespan));
+   }
+
+   /**
     * How often the L1 requestors map is cleaned up of stale items
     */
    public L1ConfigurationBuilder cleanupTaskFrequency(long frequencyMillis) {
       this.cleanupTaskFrequency = frequencyMillis;
       return this;
+   }
+
+   /**
+    * How often the L1 requestors map is cleaned up of stale items
+    */
+   public L1ConfigurationBuilder cleanupTaskFrequency(long frequencyMillis, TimeUnit unit) {
+      return cleanupTaskFrequency(unit.toMillis(frequencyMillis));
    }
 
    /**
@@ -102,6 +116,11 @@ public class L1ConfigurationBuilder extends AbstractClusteringConfigurationChild
     */
    public L1ConfigurationBuilder disableOnRehash() {
       this.onRehash = false;
+      return this;
+   }
+
+   public L1ConfigurationBuilder l1OnRehash(boolean l1OnRehash) {
+      this.onRehash = l1OnRehash;
       return this;
    }
 
@@ -143,10 +162,10 @@ public class L1ConfigurationBuilder extends AbstractClusteringConfigurationChild
    L1Configuration create() {
       boolean finalOnRehash;
       if (onRehash != null) {
-         finalOnRehash = onRehash.booleanValue();
+         finalOnRehash = onRehash;
       } else {
          finalOnRehash = false;
-         if (enabled && onRehash == null) {
+         if (enabled) {
             log.debug("L1 is enabled and L1OnRehash was not defined, enabling it");
             finalOnRehash = true;
          }

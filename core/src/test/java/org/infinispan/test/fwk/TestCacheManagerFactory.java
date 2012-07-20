@@ -33,7 +33,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.config.Configuration;
-import org.infinispan.config.FluentConfiguration;
 import org.infinispan.config.GlobalConfiguration;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
@@ -110,6 +109,10 @@ public class TestCacheManagerFactory {
       return fromStream(is, keepJmxDomainName);
    }
 
+   public static EmbeddedCacheManager fromXml(String globalXmlFile, String defaultXmlFile, String namedXmlFile) throws IOException {
+      return new DefaultCacheManager(globalXmlFile, defaultXmlFile, namedXmlFile, true);
+   }
+
    public static EmbeddedCacheManager fromStream(InputStream is) throws IOException {
       return fromStream(is, false);
    }
@@ -140,14 +143,32 @@ public class TestCacheManagerFactory {
       return newDefaultCacheManager(true, globalConfiguration, c, false);
    }
 
+   /**
+    * @deprecated Use {@link #markAsTransactional(
+    * boolean, org.infinispan.configuration.cache.ConfigurationBuilder)}
+    * instead
+    */
+   @Deprecated
    private static void markAsTransactional(boolean transactional, Configuration c) {
       c.fluent().transaction().transactionMode(transactional ? TransactionMode.TRANSACTIONAL : TransactionMode.NON_TRANSACTIONAL);
+      if (transactional)
+         // Set volatile stores just in case...
+         JBossTransactionsUtils.setVolatileStores();
    }
 
    private static void markAsTransactional(boolean transactional, ConfigurationBuilder builder) {
       builder.transaction().transactionMode(transactional ? TransactionMode.TRANSACTIONAL : TransactionMode.NON_TRANSACTIONAL);
+      if (transactional)
+         // Set volatile stores just in case...
+         JBossTransactionsUtils.setVolatileStores();
    }
 
+   /**
+    * @deprecated Use {@link #updateTransactionSupport(
+    * boolean, org.infinispan.configuration.cache.ConfigurationBuilder)}
+    * instead
+    */
+   @Deprecated
    private static void updateTransactionSupport(Configuration c) {
       if (c.isTransactionalCache()) amendJTA(c);
    }
@@ -156,6 +177,11 @@ public class TestCacheManagerFactory {
       if (transactional) amendJTA(builder);
    }
 
+   /**
+    * @deprecated Use {@link #amendJTA(
+    * org.infinispan.configuration.cache.ConfigurationBuilder)} instead
+    */
+   @Deprecated
    private static void amendJTA(Configuration c) {
       if (c.isTransactionalCache() && c.getTransactionManagerLookupClass() == null && c.getTransactionManagerLookup() == null) {
          c.setTransactionManagerLookupClass(TransactionSetup.getManagerLookup());
@@ -238,6 +264,10 @@ public class TestCacheManagerFactory {
 
    public static EmbeddedCacheManager createCacheManager(GlobalConfigurationBuilder globalBuilder, ConfigurationBuilder builder) {
       return newDefaultCacheManager(true, globalBuilder, builder, false);
+   }
+
+   public static EmbeddedCacheManager createCacheManager(GlobalConfigurationBuilder globalBuilder, ConfigurationBuilder builder, boolean keepJmxDomain) {
+      return newDefaultCacheManager(true, globalBuilder, builder, keepJmxDomain);
    }
 
    /**
@@ -331,6 +361,20 @@ public class TestCacheManagerFactory {
     */
    public static EmbeddedCacheManager createCacheManagerEnforceJmxDomain(String jmxDomain) {
       return createCacheManagerEnforceJmxDomain(jmxDomain, true, true);
+   }
+
+   public static EmbeddedCacheManager createClusteredCacheManagerEnforceJmxDomain(String jmxDomain, ConfigurationBuilder builder) {
+      return createClusteredCacheManagerEnforceJmxDomain(jmxDomain, true, builder);
+   }
+
+   public static EmbeddedCacheManager createClusteredCacheManagerEnforceJmxDomain(String jmxDomain, boolean exposeGlobalJmx, ConfigurationBuilder builder) {
+      GlobalConfigurationBuilder globalBuilder = GlobalConfigurationBuilder.defaultClusteredBuilder();
+      amendGlobalConfiguration(globalBuilder, new TransportFlags());
+      globalBuilder.globalJmxStatistics()
+               .jmxDomain(jmxDomain)
+               .mBeanServerLookup(new PerThreadMBeanServerLookup())
+               .enabled(exposeGlobalJmx);
+      return createCacheManager(globalBuilder, builder, true);
    }
 
    /**

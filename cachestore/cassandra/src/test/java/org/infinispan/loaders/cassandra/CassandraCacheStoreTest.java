@@ -38,7 +38,7 @@ public class CassandraCacheStoreTest extends BaseCacheStoreTest {
 
    /**
     * Set embedded cassandra up and spawn it in a new thread.
-    * 
+    *
     * @throws TTransportException
     * @throws IOException
     * @throws InterruptedException
@@ -51,7 +51,7 @@ public class CassandraCacheStoreTest extends BaseCacheStoreTest {
       embedded.setup();
    }
 
-   @AfterClass
+   @AfterClass(alwaysRun = true)
    public static void cleanup() throws IOException {
       EmbeddedServerHelper.teardown();
       embedded = null;

@@ -520,10 +520,10 @@ public class RemoteCacheManager implements BasicCacheContainer {
             if (!cacheName.equals(BasicCacheContainer.DEFAULT_CACHE_NAME) &&
                   ping(result) == PingResult.CACHE_DOES_NOT_EXIST) {
                return null;
-            } else {
-               cacheName2RemoteCache.put(cacheName, rcc);
-               return result;
             }
+            // If cache is not defined in server
+            cacheName2RemoteCache.put(cacheName, rcc);
+            return result;
          } else {
             return (RemoteCache<K, V>) cacheName2RemoteCache.get(cacheName).remoteCache;
          }
@@ -535,12 +535,7 @@ public class RemoteCacheManager implements BasicCacheContainer {
          return PingResult.FAIL;
       }
 
-      Transport transport = transportFactory.getTransport();
-      try {
-         return cache.ping(transport);
-      } finally {
-        transportFactory.releaseTransport(transport);
-      }
+      return cache.ping();
    }
 
    private void startRemoteCache(RemoteCacheHolder remoteCacheHolder) {

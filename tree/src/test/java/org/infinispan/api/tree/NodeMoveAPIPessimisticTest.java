@@ -1,6 +1,6 @@
 /*
  * JBoss, Home of Professional Open Source
- * Copyright 2009 Red Hat Inc. and/or its affiliates and other
+ * Copyright 2012 Red Hat Inc. and/or its affiliates and other
  * contributors as indicated by the @author tags. All rights reserved.
  * See the copyright.txt in the distribution for a full listing of
  * individual contributors.
@@ -20,25 +20,28 @@
  * Software Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA
  * 02110-1301 USA, or see the FSF site: http://www.fsf.org.
  */
-package org.infinispan.query.test;
+package org.infinispan.api.tree;
 
-import org.hibernate.search.annotations.Field;
-import org.hibernate.search.annotations.Indexed;
+import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.transaction.LockingMode;
+import org.infinispan.util.concurrent.IsolationLevel;
+import org.testng.annotations.Test;
 
 /**
- * @author Navin Surtani (<a href="mailto:nsurtani@redhat.com">nsurtani@redhat.com</a>)
+ * Exercises and tests the new move() api using pessimistic locking.
+ *
+ * @author anistor@redhat.com
  */
-@Indexed
-public class BrokenProvided {
-   @Field
-   public String name;
+@Test(groups = "functional", testName = "api.tree.NodeMoveAPIPessimisticTest")
+public class NodeMoveAPIPessimisticTest extends BaseNodeMoveAPITest {
 
-   @Field
-   public int age;
-
-   public void setBoth(String name, int age) {
-      this.name = name;
-      this.age = age;
+   @Override
+   protected ConfigurationBuilder createConfigurationBuilder() {
+      ConfigurationBuilder cb = new ConfigurationBuilder();
+      cb.invocationBatching().enable()
+            .locking().lockAcquisitionTimeout(1000)
+            .isolationLevel(IsolationLevel.REPEATABLE_READ)
+            .transaction().lockingMode(LockingMode.PESSIMISTIC);
+      return cb;
    }
-
 }

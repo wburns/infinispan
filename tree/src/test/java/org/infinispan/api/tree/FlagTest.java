@@ -24,7 +24,8 @@ package org.infinispan.api.tree;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.Cache;
-import org.infinispan.config.Configuration;
+import org.infinispan.configuration.cache.CacheMode;
+import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.context.Flag;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.tree.Fqn;
@@ -41,16 +42,16 @@ import org.testng.annotations.Test;
  */
 @Test(groups = "functional", testName = "api.tree.FlagTest")
 public class FlagTest extends MultipleCacheManagersTest {
-   private Cache cache1, cache2;
-   private TreeCache treeCache1, treeCache2;
+   private Cache<String, String> cache1, cache2;
+   private TreeCache<String, String> treeCache1, treeCache2;
    private static final String KEY = "key";
    private static final Log log = LogFactory.getLog(FlagTest.class);
 
    @Override
    protected void createCacheManagers() throws Throwable {
-      Configuration c = getDefaultClusteredConfig(Configuration.CacheMode.INVALIDATION_SYNC, true);
-      c.setInvocationBatchingEnabled(true);
-      createClusteredCaches(2, "invalidatedFlagCache", c);
+      ConfigurationBuilder cb = getDefaultClusteredCacheConfig(CacheMode.INVALIDATION_SYNC, true);
+      cb.invocationBatching().enable();
+      createClusteredCaches(2, "invalidatedFlagCache", cb);
       cache1 = cache(0, "invalidatedFlagCache");
       cache2 = cache(1, "invalidatedFlagCache");
       TreeCacheFactory tcf = new TreeCacheFactory();
@@ -73,10 +74,10 @@ public class FlagTest extends MultipleCacheManagersTest {
    }
 
    public void testWithFlags() {
-      AdvancedCache localCache1 = cache1.getAdvancedCache().withFlags(Flag.CACHE_MODE_LOCAL);
-      AdvancedCache localCache2 = cache2.getAdvancedCache().withFlags(Flag.CACHE_MODE_LOCAL);
-      TreeCache treeCache1 = new TreeCacheFactory().createTreeCache(localCache1);
-      TreeCache treeCache2 = new TreeCacheFactory().createTreeCache(localCache2);
+      AdvancedCache<String, String> localCache1 = cache1.getAdvancedCache().withFlags(Flag.CACHE_MODE_LOCAL);
+      AdvancedCache<String, String> localCache2 = cache2.getAdvancedCache().withFlags(Flag.CACHE_MODE_LOCAL);
+      TreeCache<String, String> treeCache1 = new TreeCacheFactory().createTreeCache(localCache1);
+      TreeCache<String, String> treeCache2 = new TreeCacheFactory().createTreeCache(localCache2);
       final Fqn fqn = Fqn.fromElements("TEST_WITH_FLAGS");
       treeCache1.put(fqn, KEY, "1");
       treeCache2.put(fqn, KEY, "2");

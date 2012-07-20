@@ -25,7 +25,6 @@ import org.apache.lucene.search.Query;
 import org.apache.lucene.search.TermQuery;
 import org.hibernate.search.annotations.Field;
 import org.hibernate.search.annotations.Indexed;
-import org.hibernate.search.annotations.ProvidedId;
 import org.hibernate.search.annotations.Store;
 import org.infinispan.Cache;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
@@ -39,8 +38,6 @@ import org.infinispan.test.AbstractInfinispanTest;
 import org.infinispan.test.TestingUtil;
 import org.testng.annotations.AfterClass;
 import org.testng.annotations.BeforeClass;
-import org.testng.annotations.Optional;
-import org.testng.annotations.Parameters;
 import org.testng.annotations.Test;
 import java.io.File;
 import java.io.Serializable;
@@ -131,7 +128,6 @@ public class InconsistentIndexesAfterRestartTest extends AbstractInfinispanTest 
         return q.list();
     }
 
-    @ProvidedId
     @Indexed
     public static class SEntity implements Serializable {
 
@@ -188,7 +184,7 @@ public class InconsistentIndexesAfterRestartTest extends AbstractInfinispanTest 
        new File(TMP_DIR).mkdirs();
     }
 
-    @AfterClass
+    @AfterClass(alwaysRun = true)
     protected void clearTempDir() {
        TestingUtil.recursiveFileRemove(TMP_DIR);
     }
