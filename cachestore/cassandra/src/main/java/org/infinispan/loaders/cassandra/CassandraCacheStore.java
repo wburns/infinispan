@@ -22,24 +22,17 @@
  */
 package org.infinispan.loaders.cassandra;
 
-import net.dataforte.cassandra.pool.DataSource;
-import org.apache.cassandra.thrift.Cassandra;
-import org.apache.cassandra.thrift.CfDef;
-import org.apache.cassandra.thrift.Column;
-import org.apache.cassandra.thrift.ColumnOrSuperColumn;
-import org.apache.cassandra.thrift.ColumnParent;
-import org.apache.cassandra.thrift.ColumnPath;
-import org.apache.cassandra.thrift.ConsistencyLevel;
-import org.apache.cassandra.thrift.Deletion;
-import org.apache.cassandra.thrift.KeyRange;
-import org.apache.cassandra.thrift.KeySlice;
-import org.apache.cassandra.thrift.KsDef;
-import org.apache.cassandra.thrift.Mutation;
-import org.apache.cassandra.thrift.NotFoundException;
-import org.apache.cassandra.thrift.SlicePredicate;
-import org.apache.cassandra.thrift.SliceRange;
-import org.apache.cassandra.thrift.SuperColumn;
-import org.apache.cassandra.utils.ByteBufferUtil;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+import java.nio.ByteBuffer;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import org.apache.cassandra.locator.SimpleStrategy;
 import org.infinispan.Cache;
 import org.infinispan.config.ConfigurationException;
 import org.infinispan.container.entries.InternalCacheEntry;
@@ -49,40 +42,52 @@ import org.infinispan.loaders.CacheLoaderConfig;
 import org.infinispan.loaders.CacheLoaderException;
 import org.infinispan.loaders.CacheLoaderMetadata;
 import org.infinispan.loaders.cassandra.logging.Log;
-import org.infinispan.loaders.keymappers.TwoWayKey2StringMapper;
-import org.infinispan.loaders.keymappers.UnsupportedKeyTypeException;
 import org.infinispan.loaders.modifications.Modification;
 import org.infinispan.loaders.modifications.Remove;
 import org.infinispan.loaders.modifications.Store;
+import org.infinispan.marshall.Marshaller;
 import org.infinispan.marshall.StreamingMarshaller;
-import org.infinispan.util.Util;
 import org.infinispan.util.logging.LogFactory;
 
-import java.io.IOException;
-import java.io.ObjectInput;
-import java.io.ObjectOutput;
-import java.nio.ByteBuffer;
-import java.nio.charset.Charset;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import com.netflix.astyanax.AstyanaxContext;
+import com.netflix.astyanax.Cluster;
+import com.netflix.astyanax.Keyspace;
+import com.netflix.astyanax.MutationBatch;
+import com.netflix.astyanax.connectionpool.NodeDiscoveryType;
+import com.netflix.astyanax.connectionpool.exceptions.ConnectionException;
+import com.netflix.astyanax.connectionpool.exceptions.NotFoundException;
+import com.netflix.astyanax.connectionpool.exceptions.SerializationException;
+import com.netflix.astyanax.connectionpool.impl.ConnectionPoolConfigurationImpl;
+import com.netflix.astyanax.connectionpool.impl.ConnectionPoolType;
+import com.netflix.astyanax.connectionpool.impl.CountingConnectionPoolMonitor;
+import com.netflix.astyanax.ddl.KeyspaceDefinition;
+import com.netflix.astyanax.impl.AstyanaxConfigurationImpl;
+import com.netflix.astyanax.model.Column;
+import com.netflix.astyanax.model.ColumnFamily;
+import com.netflix.astyanax.model.ColumnList;
+import com.netflix.astyanax.model.ConsistencyLevel;
+import com.netflix.astyanax.model.Row;
+import com.netflix.astyanax.model.Rows;
+import com.netflix.astyanax.query.IndexQuery;
+import com.netflix.astyanax.query.PreparedIndexExpression;
+import com.netflix.astyanax.query.RowQuery;
+import com.netflix.astyanax.serializers.AbstractSerializer;
+import com.netflix.astyanax.serializers.StringSerializer;
+import com.netflix.astyanax.thrift.ThriftFamilyFactory;
+import com.netflix.astyanax.util.RangeBuilder;
 
 /**
  * A persistent <code>CacheLoader</code> based on Apache Cassandra project. See
  * http://cassandra.apache.org/
  *
- * @author Tristan Tarrant
+ * @author wburns
  */
 @CacheLoaderMetadata(configurationClass = CassandraCacheStoreConfig.class)
 public class CassandraCacheStore extends AbstractCacheStore {
 
-   private static final String ENTRY_KEY_PREFIX = "entry_";
+   private static final String ENTRY_KEY_PREFIX = "entry";
    private static final String ENTRY_COLUMN_NAME = "entry";
+   private static final String CACHENAME_COLUMN_NAME = "cacheName";
    private static final String EXPIRATION_KEY = "expiration";
    private static final int SLICE_SIZE = 100;
    private static final Log log = LogFactory.getLog(CassandraCacheStore.class, Log.class);
@@ -90,20 +95,193 @@ public class CassandraCacheStore extends AbstractCacheStore {
 
    private CassandraCacheStoreConfig config;
 
-   private DataSource dataSource;
-
    private ConsistencyLevel readConsistencyLevel;
    private ConsistencyLevel writeConsistencyLevel;
+   
+   private Cluster _cluster;
+   private Keyspace _keyspace;
 
    private String cacheName;
-   private ColumnPath entryColumnPath;
-   private ColumnParent entryColumnParent;
-   private ColumnParent expirationColumnParent;
+   private ColumnFamily<PrefixAndKey, String> _entryColumnFamily;
+   private ColumnFamily<String, ExpirationAndKey> _expirationColumnFamily;
    private String entryKeyPrefix;
-   private ByteBuffer expirationKey;
-   private TwoWayKey2StringMapper keyMapper;
+   private String expirationKey;
+   
+   private MarshallerSerializer _marshallerSerializer;
+   private Collection<PreparedIndexExpression<PrefixAndKey, String>> _preparedIndices;
 
-   static private Charset UTF8Charset = Charset.forName("UTF-8");
+   private static byte END_OF_COMPONENT = 0;
+   
+   private static class ExpirationAndKeySerializer extends AbstractSerializer<ExpirationAndKey> {
+
+      private final Marshaller _marshaller;
+
+      public ExpirationAndKeySerializer(Marshaller marshaller) {
+         _marshaller = marshaller;
+      }
+
+      @Override
+      public ByteBuffer toByteBuffer(ExpirationAndKey obj) {
+         ByteBuffer objBuffer;
+         try {
+            objBuffer = _marshaller.objectToBuffer(obj._key).toJDKByteBuffer();
+            int remaining = objBuffer.remaining();
+            // 6 is for the 2 shorts and 2 bytes
+            // 8 is for the long and the rest is the byte bufer
+            ByteBuffer buffer = ByteBuffer.allocate(6 + 8 + remaining);
+            // Needs to be <size><data>EOC for each component
+            buffer.putShort((short) 8);
+            buffer.putLong(obj._expiry);
+            buffer.put(END_OF_COMPONENT);
+            // 
+            if (remaining > Short.MAX_VALUE) {
+               throw new IllegalArgumentException("Key serialized form cannot be larger than " + Short.MAX_VALUE
+                     + " bytes");
+            }
+            buffer.putShort((short) remaining);
+            buffer.put(objBuffer);
+            buffer.put(END_OF_COMPONENT);
+
+            buffer.flip();
+
+            return buffer;
+         } catch (Exception e) {
+            throw new SerializationException(e);
+         }
+      }
+
+      @Override
+      public ExpirationAndKey fromByteBuffer(ByteBuffer byteBuffer) {
+         byteBuffer.getShort();
+         long expiry = byteBuffer.getLong();
+         byteBuffer.get();
+         short size = byteBuffer.getShort();
+         Object key;
+         try {
+            byte[] copy = new byte[size];
+            System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + byteBuffer.position(), copy, 0,
+                  size);
+            key = _marshaller.objectFromByteBuffer(copy);
+         } catch (Exception e) {
+            throw new SerializationException(e);
+         }
+         return new ExpirationAndKey(expiry, key);
+      }
+   }
+
+   private static class PrefixAndKeySerializer extends AbstractSerializer<PrefixAndKey> {
+
+      private final Marshaller _marshaller;
+
+      public PrefixAndKeySerializer(Marshaller marshaller) {
+         _marshaller = marshaller;
+      }
+
+      @Override
+      public ByteBuffer toByteBuffer(PrefixAndKey obj) {
+         try {
+            ByteBuffer prefixBuffer = _marshaller.objectToBuffer(obj._prefix).toJDKByteBuffer();
+            ByteBuffer keyBuffer = _marshaller.objectToBuffer(obj._key).toJDKByteBuffer();
+            int prefixRemaining = prefixBuffer.remaining();
+            int keyRemaining = keyBuffer.remaining();
+            if (prefixRemaining > Short.MAX_VALUE) {
+               throw new IllegalArgumentException("Serialized prefix cannot be " + "larger than " + Short.MAX_VALUE
+                     + " bytes, was " + prefixRemaining);
+            } else if (keyRemaining > Short.MAX_VALUE) {
+               throw new IllegalArgumentException("Serialized key cannot be " + "larger than " + Short.MAX_VALUE
+                     + " bytes, was " + keyRemaining);
+            }
+            // 6 is for the 2 shorts and 2 bytes
+            // rest is for 2 buffers
+            ByteBuffer buffer = ByteBuffer.allocate(6 + prefixRemaining + keyRemaining);
+            // Needs to be <size><data>EOC for each component
+            buffer.putShort((short) prefixRemaining);
+            buffer.put(prefixBuffer);
+            buffer.put(END_OF_COMPONENT);
+            // 
+            buffer.putShort((short) keyRemaining);
+            buffer.put(keyBuffer);
+            buffer.put(END_OF_COMPONENT);
+
+            buffer.flip();
+
+            return buffer;
+         } catch (Exception e) {
+            throw new SerializationException(e);
+         }
+      }
+
+      @Override
+      public PrefixAndKey fromByteBuffer(ByteBuffer byteBuffer) {
+         try {
+            short size = byteBuffer.getShort();
+            byte[] copy = new byte[size];
+            System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + byteBuffer.position(), copy, 0, size);
+            String prefix = (String) _marshaller.objectFromByteBuffer(copy);
+            byteBuffer.position(byteBuffer.position() + size);
+            byteBuffer.get();
+
+            size = byteBuffer.getShort();
+            Object key;
+            copy = new byte[size];
+            System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + byteBuffer.position(), copy, 0, size);
+            key = _marshaller.objectFromByteBuffer(copy);
+
+            return new PrefixAndKey(prefix, key);
+         } catch (Exception e) {
+            throw new SerializationException(e);
+         }
+      }
+   }
+
+   private static class ExpirationAndKey {
+      public ExpirationAndKey(long expiry, Object key) {
+         _expiry = expiry;
+         _key = key;
+      }
+
+      private final long _expiry;
+      private final Object _key;
+   }
+
+   private static class PrefixAndKey {
+      public PrefixAndKey(String prefix, Object key) {
+         _prefix = prefix;
+         _key = key;
+      }
+
+      private final String _prefix;
+      private final Object _key;
+   }
+
+   public static class MarshallerSerializer extends AbstractSerializer<InternalCacheValue> {
+      public MarshallerSerializer(Marshaller marshaller) {
+         _marshaller = marshaller;
+      }
+
+      @Override
+      public ByteBuffer toByteBuffer(InternalCacheValue obj) {
+         try {
+            return _marshaller.objectToBuffer(obj).toJDKByteBuffer();
+         } catch (Exception e) {
+            throw new SerializationException(e);
+         }
+      }
+
+      @Override
+      public InternalCacheValue fromByteBuffer(ByteBuffer byteBuffer) {
+         try {
+            byte[] copy = new byte[byteBuffer.remaining()];
+            System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + byteBuffer.position(), copy, 0,
+                  byteBuffer.remaining());
+            return (InternalCacheValue) _marshaller.objectFromByteBuffer(copy);
+         } catch (Exception e) {
+            throw new SerializationException(e);
+         }
+      }
+
+      private final Marshaller _marshaller;
+   }
 
    @Override
    public Class<? extends CacheLoaderConfig> getConfigurationClass() {
@@ -118,38 +296,58 @@ public class CassandraCacheStore extends AbstractCacheStore {
       this.config = (CassandraCacheStoreConfig) clc;
    }
 
+   @SuppressWarnings("unchecked")
    @Override
    public void start() throws CacheLoaderException {
 
       try {
-         if (!config.autoCreateKeyspace)
-            config.poolProperties.setKeySpace(config.keySpace);
-         dataSource = new DataSource(config.getPoolProperties());
-         readConsistencyLevel = ConsistencyLevel.valueOf(config.readConsistencyLevel);
-         writeConsistencyLevel = ConsistencyLevel.valueOf(config.writeConsistencyLevel);
-         entryColumnPath = new ColumnPath(config.entryColumnFamily).setColumn(ENTRY_COLUMN_NAME
-                  .getBytes(UTF8Charset));
-         entryColumnParent = new ColumnParent(config.entryColumnFamily);
-         entryKeyPrefix = ENTRY_KEY_PREFIX + (config.isSharedKeyspace() ? cacheName + "_" : "");
-         expirationColumnParent = new ColumnParent(config.expirationColumnFamily);
-         expirationKey = ByteBufferUtil.bytes(EXPIRATION_KEY
-                  + (config.isSharedKeyspace() ? "_" + cacheName : ""));
-         keyMapper = (TwoWayKey2StringMapper) Util.getInstance(config.getKeyMapper(), config.getClassLoader());
+         readConsistencyLevel = ConsistencyLevel.valueOf("CL_" + config.readConsistencyLevel);
+         writeConsistencyLevel = ConsistencyLevel.valueOf("CL_" + config.writeConsistencyLevel);
+         
+         AstyanaxContext<Cluster> context = new AstyanaxContext.Builder()
+         .forKeyspace(config.getKeySpace())
+         .withAstyanaxConfiguration(new AstyanaxConfigurationImpl()
+             .setDiscoveryType(NodeDiscoveryType.TOKEN_AWARE)
+             .setConnectionPoolType(ConnectionPoolType.TOKEN_AWARE)
+             .setDefaultReadConsistencyLevel(readConsistencyLevel)
+             .setDefaultWriteConsistencyLevel(writeConsistencyLevel)
+         )
+         .withConnectionPoolConfiguration(new ConnectionPoolConfigurationImpl("MyConnectionPool")
+             .setPort(config.getPort())
+             .setSeeds(config.getHost())
+         )
+         .withConnectionPoolMonitor(new CountingConnectionPoolMonitor())
+         .buildCluster(ThriftFamilyFactory.getInstance());
+         
+         context.start();
+         _cluster = context.getEntity();
+         
+         _entryColumnFamily = ColumnFamily.newColumnFamily(
+             config.entryColumnFamily, new PrefixAndKeySerializer(getMarshaller()), 
+             StringSerializer.get());
+         
+         _expirationColumnFamily = ColumnFamily.newColumnFamily(
+            config.expirationColumnFamily, StringSerializer.get(), 
+            new ExpirationAndKeySerializer(getMarshaller()));
+         
+         entryKeyPrefix = ENTRY_KEY_PREFIX + (config.isSharedKeyspace() ? "_" + cacheName : "");
+         expirationKey = EXPIRATION_KEY + (config.isSharedKeyspace() ? "_" + cacheName : "");
+         
+         _preparedIndices = Arrays.asList(_entryColumnFamily
+                .newIndexClause().whereColumn(CACHENAME_COLUMN_NAME).equals().value(cacheName));
+         
+         _marshallerSerializer = new MarshallerSerializer(getMarshaller());
       } catch (Exception e) {
          throw new ConfigurationException(e);
       }
 
+      _keyspace = _cluster.getKeyspace(config.getKeySpace());
+      
       if (config.autoCreateKeyspace) {
          log.debug("automatically create keyspace");
-         try {
-            createKeySpace();
-         } finally {
-            dataSource.close(); // Make sure all connections are closed
-         }
-         dataSource.setKeySpace(config.keySpace); // Set the keyspace we have
-                                                  // created
+         createKeySpace();
       }
-
+      
       log.debug("cleaning up expired entries...");
       purgeInternal();
 
@@ -158,68 +356,89 @@ public class CassandraCacheStore extends AbstractCacheStore {
    }
 
    private void createKeySpace() throws CacheLoaderException {
-      Cassandra.Client cassandraClient = null;
       try {
-         cassandraClient = dataSource.getConnection();
-         // check if the keyspace exists
-         try {
-            cassandraClient.describe_keyspace(config.keySpace);
-            return;
-         } catch (NotFoundException e) {
-            KsDef keySpace = new KsDef();
-            keySpace.setName(config.keySpace);
-            keySpace.setStrategy_class("org.apache.cassandra.locator.SimpleStrategy");
-            Map<String, String> strategy_options = new HashMap<String, String>();
-            strategy_options.put("replication_factor", "1");
-            keySpace.setStrategy_options(strategy_options);
-
-            CfDef entryCF = new CfDef();
-            entryCF.setName(config.entryColumnFamily);
-            entryCF.setKeyspace(config.keySpace);
-            entryCF.setComparator_type("BytesType");
-            keySpace.addToCf_defs(entryCF);
-
-            CfDef expirationCF = new CfDef();
-            expirationCF.setName(config.expirationColumnFamily);
-            expirationCF.setKeyspace(config.keySpace);
-            expirationCF.setColumn_type("Super");
-            expirationCF.setComparator_type("LongType");
-            expirationCF.setSubcomparator_type("BytesType");
-            keySpace.addToCf_defs(expirationCF);
-
-            cassandraClient.system_add_keyspace(keySpace);
+         // Make sure to remove the previous keyspace if there was one
+         KeyspaceDefinition def = _cluster.describeKeyspace(_keyspace.getKeyspaceName());
+         if (def == null) {
+            _cluster.addKeyspace(_cluster.makeKeyspaceDefinition()
+                  .setName(_keyspace.getKeyspaceName())
+                  .setStrategyClass(SimpleStrategy.class.getName())
+                  .addStrategyOption("replication_factor", Integer.toString(config.getReplicationFactor()))
+                  .addColumnFamily(_cluster.makeColumnFamilyDefinition()
+                        .setName(_entryColumnFamily.getName())
+                        .setKeyValidationClass("BytesType")
+                        .setComparatorType("UTF8Type")
+                        .addColumnDefinition(_cluster.makeColumnDefinition()
+                              .setName(ENTRY_COLUMN_NAME)
+                              .setValidationClass("BytesType")
+                        )
+                        // Make a secondary index on cacheName
+                        .addColumnDefinition(_cluster.makeColumnDefinition()
+                              .setName(CACHENAME_COLUMN_NAME)
+                              .setValidationClass("UTF8Type")
+                              .setKeysIndex("cacheName")
+                        )
+                  )
+                  .addColumnFamily(_cluster.makeColumnFamilyDefinition()
+                        .setName(_expirationColumnFamily.getName())
+                        .setKeyValidationClass("UTF8Type")
+                        .setComparatorType("CompositeType(LongType,BytesType)")
+                  )
+            );
          }
-      } catch (Exception e) {
+      } catch (ConnectionException e) {
          throw new CacheLoaderException("Could not create keyspace/column families", e);
-      } finally {
-         dataSource.releaseConnection(cassandraClient);
       }
-
    }
 
-   @Override
-   public InternalCacheEntry load(Object key) throws CacheLoaderException {
-      String hashKey = hashKey(key);
-      Cassandra.Client cassandraClient = null;
-      try {
-         cassandraClient = dataSource.getConnection();
-         ColumnOrSuperColumn column = cassandraClient.get(ByteBufferUtil.bytes(hashKey),
-                  entryColumnPath, readConsistencyLevel);
-         InternalCacheEntry ice = unmarshall(column.getColumn().getValue(), key);
-         if (ice != null && ice.isExpired(System.currentTimeMillis())) {
-            remove(key);
+    @Override
+    public InternalCacheEntry load(Object key) throws CacheLoaderException {
+        Column<String> column;
+        try {
+            column = _keyspace.prepareQuery(_entryColumnFamily)
+                    .getKey(new PrefixAndKey(entryKeyPrefix, key))
+                    .getColumn(ENTRY_COLUMN_NAME)
+                    .execute()
+                    .getResult();
+        }
+        catch (NotFoundException nfe) {
+           log.debugf("Key '%s' not found", key);
+           return null;
+        }
+        catch (Exception e) {
+            throw new CacheLoaderException(e);
+        }
+        // If we have a column should be good, not tombstoned
+        if (column == null) {
+            log.debugf("Key '%s' not found", key);
             return null;
-         }
-         return ice;
-      } catch (NotFoundException nfe) {
-         log.debugf("Key '%s' not found", hashKey);
-         return null;
-      } catch (Exception e) {
-         throw new CacheLoaderException(e);
-      } finally {
-         dataSource.releaseConnection(cassandraClient);
-      }
-   }
+        }
+        InternalCacheValue value = column.getValue(_marshallerSerializer);
+        InternalCacheEntry ice = null;
+        if (value != null) {
+            if (value.isExpired(System.currentTimeMillis())) {
+               MutationBatch mb = _keyspace.prepareMutationBatch()
+                     .setConsistencyLevel(writeConsistencyLevel);
+                remove0(key, mb);
+                try {
+                   mb.execute();
+                }
+                catch (NotFoundException nfe) {
+                   // TODO: This could happen if it was removed by someone else, ignore usually
+                   throw new CacheLoaderException(nfe);
+                }
+                catch (Exception e) {
+                    throw new CacheLoaderException(e);
+                }
+                ice = null;
+            }
+            else {
+               ice = value.toInternalCacheEntry(key);
+            }
+        }
+        
+        return ice;
+    }
 
    @Override
    public Set<InternalCacheEntry> loadAll() throws CacheLoaderException {
@@ -228,104 +447,81 @@ public class CassandraCacheStore extends AbstractCacheStore {
 
    @Override
    public Set<InternalCacheEntry> load(int numEntries) throws CacheLoaderException {
-      Cassandra.Client cassandraClient = null;
+      Set<InternalCacheEntry> s = new HashSet<InternalCacheEntry>();
       try {
-         cassandraClient = dataSource.getConnection();
-         Set<InternalCacheEntry> s = new HashSet<InternalCacheEntry>();
-         SlicePredicate slicePredicate = new SlicePredicate();
-         slicePredicate.setSlice_range(new SliceRange(ByteBuffer.wrap(entryColumnPath.getColumn()),
-                  ByteBufferUtil.EMPTY_BYTE_BUFFER, false, 1));
-         String startKey = "";
-
-         // Get the keys in SLICE_SIZE blocks
-         int sliceSize = Math.min(SLICE_SIZE, numEntries);
-         for (boolean complete = false; !complete;) {
-            KeyRange keyRange = new KeyRange(sliceSize);
-            keyRange.setStart_token(startKey);
-            keyRange.setEnd_token("");
-            List<KeySlice> keySlices = cassandraClient.get_range_slices(entryColumnParent,
-                     slicePredicate, keyRange, readConsistencyLevel);
-
-            // Cycle through all the keys
-            for (KeySlice keySlice : keySlices) {
-               Object key = unhashKey(keySlice.getKey());
-               if (key == null) // Skip invalid keys
+         IndexQuery<PrefixAndKey, String> query = 
+               _keyspace.prepareQuery(_entryColumnFamily)
+                  .searchWithIndex()
+                  .setRowLimit(Math.min(SLICE_SIZE, numEntries))
+                  .autoPaginateRows(true)
+                  .addPreparedExpressions(_preparedIndices)
+                  .withColumnSlice(ENTRY_COLUMN_NAME);
+         
+         boolean reachedLimit = false;
+         Rows<PrefixAndKey, String> rows;
+         while (!reachedLimit && !(rows = query.execute().getResult()).isEmpty()) {
+            for (Row<PrefixAndKey, String> row : rows) {
+               Object key = row.getKey()._key;
+               if (key == null) {
                   continue;
-               List<ColumnOrSuperColumn> columns = keySlice.getColumns();
-               if (columns.size() > 0) {
+               }
+               // If we have a row columns should be good, not tombstoned
+               if (!row.getColumns().isEmpty()) {
                   if (log.isDebugEnabled()) {
                      log.debugf("Loading %s", key);
                   }
-                  byte[] value = columns.get(0).getColumn().getValue();
-                  InternalCacheEntry ice = unmarshall(value, key);
-                  s.add(ice);
-               } else if (log.isDebugEnabled()) {
+                  ByteBuffer bytes = row.getColumns().getByteBufferValue(ENTRY_COLUMN_NAME, null);
+                  if (bytes != null) {
+                     InternalCacheValue ice = _marshallerSerializer.fromByteBuffer(bytes);
+                     s.add(ice.toInternalCacheEntry(key));
+                     if (s.size() >= numEntries) {
+                        reachedLimit = true;
+                        break;
+                     }
+                  }
+                  else if (log.isDebugEnabled()) {
+                     log.debugf("Entry %s not found, skipping", key);
+                  }
+               }
+               else if (log.isDebugEnabled()){
                   log.debugf("Skipping empty key %s", key);
                }
             }
-            if (keySlices.size() < sliceSize) {
-               // Cassandra has returned less keys than what we asked for.
-               // Assume we have finished
-               complete = true;
-            } else {
-               // Cassandra has returned exactly the amount of keys we
-               // asked for. If we haven't reached the required quota yet,
-               // assume we need to cycle again starting from
-               // the last returned key (excluded)
-               sliceSize = Math.min(SLICE_SIZE, numEntries - s.size());
-               if (sliceSize == 0) {
-                  complete = true;
-               } else {
-                  startKey = new String(keySlices.get(keySlices.size() - 1).getKey(), UTF8Charset);
-               }
-            }
-
          }
          return s;
       } catch (Exception e) {
          throw new CacheLoaderException(e);
-      } finally {
-         dataSource.releaseConnection(cassandraClient);
       }
    }
 
    @Override
    public Set<Object> loadAllKeys(Set<Object> keysToExclude) throws CacheLoaderException {
-      Cassandra.Client cassandraClient = null;
+      Set<Object> keys = new HashSet<Object>();
       try {
-         cassandraClient = dataSource.getConnection();
-         Set<Object> s = new HashSet<Object>();
-         SlicePredicate slicePredicate = new SlicePredicate();
-         slicePredicate.setSlice_range(new SliceRange(ByteBuffer.wrap(entryColumnPath.getColumn()),
-                  ByteBufferUtil.EMPTY_BYTE_BUFFER, false, 1));
-         String startKey = "";
-         boolean complete = false;
-         // Get the keys in SLICE_SIZE blocks
-         while (!complete) {
-            KeyRange keyRange = new KeyRange(SLICE_SIZE);
-            keyRange.setStart_token(startKey);
-            keyRange.setEnd_token("");
-            List<KeySlice> keySlices = cassandraClient.get_range_slices(entryColumnParent,
-                     slicePredicate, keyRange, readConsistencyLevel);
-            if (keySlices.size() < SLICE_SIZE) {
-               complete = true;
-            } else {
-               startKey = new String(keySlices.get(keySlices.size() - 1).getKey(), UTF8Charset);
-            }
-
-            for (KeySlice keySlice : keySlices) {
-               if (keySlice.getColumnsSize() > 0) {
-                  Object key = unhashKey(keySlice.getKey());
-                  if (key != null && (keysToExclude == null || !keysToExclude.contains(key)))
-                     s.add(key);
+         IndexQuery<PrefixAndKey, String> query = 
+               _keyspace.prepareQuery(_entryColumnFamily)
+                  .searchWithIndex()
+                  .setRowLimit(SLICE_SIZE)
+                  .autoPaginateRows(true)
+                  .addPreparedExpressions(_preparedIndices)
+                  .withColumnSlice(ENTRY_COLUMN_NAME);
+         
+         Rows<PrefixAndKey, String> rows;
+         while (!(rows = query.execute().getResult()).isEmpty()) {
+            for (Row<PrefixAndKey, String> row : rows) {
+               // If we have a row columns should be good, not tombstoned
+               if (!row.getColumns().isEmpty()) {
+                  Object key = row.getKey()._key;
+                  if (key != null && 
+                        (keysToExclude == null || !keysToExclude.contains(key))) {
+                     keys.add(key);
+                  }
                }
             }
          }
-         return s;
+         return keys;
       } catch (Exception e) {
          throw new CacheLoaderException(e);
-      } finally {
-         dataSource.releaseConnection(cassandraClient);
       }
    }
 
@@ -340,144 +536,117 @@ public class CassandraCacheStore extends AbstractCacheStore {
 
    @Override
    public void clear() throws CacheLoaderException {
-      Cassandra.Client cassandraClient = null;
       try {
-         cassandraClient = dataSource.getConnection();
-         SlicePredicate slicePredicate = new SlicePredicate();
-         slicePredicate.setSlice_range(new SliceRange(ByteBuffer.wrap(entryColumnPath.getColumn()),
-                  ByteBufferUtil.EMPTY_BYTE_BUFFER, false, 1));
-         String startKey = "";
-         boolean complete = false;
+         // TODO: do we care about the expiry entry?  My thought it is no, it 
+         // handles misses itself
+         IndexQuery<PrefixAndKey, String> query = 
+               _keyspace.prepareQuery(_entryColumnFamily)
+                  .searchWithIndex()
+                  .setRowLimit(SLICE_SIZE)
+                  .autoPaginateRows(true)
+                  .addPreparedExpressions(_preparedIndices)
+                  .withColumnSlice(ENTRY_COLUMN_NAME);
          // Get the keys in SLICE_SIZE blocks
-         while (!complete) {
-            KeyRange keyRange = new KeyRange(SLICE_SIZE);
-            keyRange.setStart_token(startKey);
-            keyRange.setEnd_token("");
-            List<KeySlice> keySlices = cassandraClient.get_range_slices(entryColumnParent,
-                     slicePredicate, keyRange, readConsistencyLevel);
-            if (keySlices.size() < SLICE_SIZE) {
-               complete = true;
-            } else {
-               startKey = new String(keySlices.get(keySlices.size() - 1).getKey(), UTF8Charset);
+         Rows<PrefixAndKey, String> rows;
+         while (!(rows = query.execute().getResult()).isEmpty()) {
+            MutationBatch mb = _keyspace.prepareMutationBatch()
+                  .setConsistencyLevel(writeConsistencyLevel);
+            for (Row<PrefixAndKey, String> row : rows) {
+               // If we have row columns then it is not tombstoned, so delete it
+               if (!row.getColumns().isEmpty()) {
+                  mb.withRow(_entryColumnFamily, row.getKey()).delete();
+               }
             }
-            Map<ByteBuffer, Map<String, List<Mutation>>> mutationMap = new HashMap<ByteBuffer, Map<String, List<Mutation>>>();
-
-            for (KeySlice keySlice : keySlices) {
-               remove0(ByteBuffer.wrap(keySlice.getKey()), mutationMap);
-            }
-            cassandraClient.batch_mutate(mutationMap, ConsistencyLevel.ALL);
+            mb.execute();
          }
       } catch (Exception e) {
          throw new CacheLoaderException(e);
-      } finally {
-         dataSource.releaseConnection(cassandraClient);
       }
-
    }
 
    @Override
    public boolean remove(Object key) throws CacheLoaderException {
-      if (trace)
-         log.tracef("remove(\"%s\") ", key);
-      String hashKey = hashKey(key);
-      Cassandra.Client cassandraClient = null;
       try {
-         cassandraClient = dataSource.getConnection();
-         // Check if the key exists before attempting to remove it
-         try {
-        	 cassandraClient.get(ByteBufferUtil.bytes(hashKey), entryColumnPath, readConsistencyLevel);
-         } catch (NotFoundException e) {
-        	 return false;
-         }
-         Map<ByteBuffer, Map<String, List<Mutation>>> mutationMap = new HashMap<ByteBuffer, Map<String, List<Mutation>>>();
-         remove0(ByteBufferUtil.bytes(hashKey), mutationMap);
-         cassandraClient.batch_mutate(mutationMap, writeConsistencyLevel);
-         return true;
+         if (trace)
+            log.tracef("remove(\"%s\") ", key);
+         return innerRemove(key);
       } catch (Exception e) {
-         log.errorRemovingKey(key, e);
-         return false;
-      } finally {
-         dataSource.releaseConnection(cassandraClient);
+          log.errorRemovingKey(key, e);
+          return false;
       }
    }
-
-   private void remove0(ByteBuffer key, Map<ByteBuffer, Map<String, List<Mutation>>> mutationMap) {
-      addMutation(mutationMap, key, config.entryColumnFamily, null, null);
+   
+   private boolean innerRemove(Object key) throws CacheLoaderException {
+      Column<String> column;
+      try {
+          column = _keyspace.prepareQuery(_entryColumnFamily)
+                  .getKey(new PrefixAndKey(entryKeyPrefix, key))
+                  .getColumn(ENTRY_COLUMN_NAME)
+                  .execute()
+                  .getResult();
+          
+         boolean removed;
+         if (column != null) {
+            MutationBatch mb = _keyspace.prepareMutationBatch()
+                  .setConsistencyLevel(writeConsistencyLevel);
+            remove0(key, mb);
+            mb.execute();
+            removed = true;
+         } else {
+            removed = false;
+         }
+         return removed;
+      }
+      catch (NotFoundException e) {
+         log.debugf("Key '%s' not removed due to not being not found", key);
+         return false;
+      }
+      catch (ConnectionException e) {
+          throw new CacheLoaderException(e);
+      }
    }
-
-   private byte[] marshall(InternalCacheEntry entry) throws IOException, InterruptedException {
-      return getMarshaller().objectToByteBuffer(entry.toInternalCacheValue());
-   }
-
-   private InternalCacheEntry unmarshall(Object o, Object key) throws IOException,
-            ClassNotFoundException {
-      if (o == null)
-         return null;
-      byte b[] = (byte[]) o;
-      InternalCacheValue v = (InternalCacheValue) getMarshaller().objectFromByteBuffer(b);
-      return v.toInternalCacheEntry(key);
+   
+   private void remove0(Object key, MutationBatch mutationBatch) {
+      mutationBatch.withRow(_entryColumnFamily, new PrefixAndKey(entryKeyPrefix, key)).delete();
    }
 
    @Override
    public void store(InternalCacheEntry entry) throws CacheLoaderException {
-      Cassandra.Client cassandraClient = null;
-
       try {
-         cassandraClient = dataSource.getConnection();
-         Map<ByteBuffer, Map<String, List<Mutation>>> mutationMap = new HashMap<ByteBuffer, Map<String, List<Mutation>>>(
-                  2);
-         store0(entry, mutationMap);
-
-         cassandraClient.batch_mutate(mutationMap, writeConsistencyLevel);
+         MutationBatch mb = _keyspace.prepareMutationBatch()
+            .setConsistencyLevel(writeConsistencyLevel);
+         store0(entry, mb);
+         mb.execute();
       } catch (Exception e) {
          throw new CacheLoaderException(e);
-      } finally {
-         dataSource.releaseConnection(cassandraClient);
       }
    }
 
    private void store0(InternalCacheEntry entry,
-            Map<ByteBuffer, Map<String, List<Mutation>>> mutationMap) throws IOException,
-            UnsupportedKeyTypeException {
+            MutationBatch mutationBatch) throws CacheLoaderException {
       Object key = entry.getKey();
       if (trace)
          log.tracef("store(\"%s\") ", key);
-      String cassandraKey = hashKey(key);
-      try {
-         addMutation(mutationMap, ByteBufferUtil.bytes(cassandraKey), config.entryColumnFamily,
-                  ByteBuffer.wrap(entryColumnPath.getColumn()), ByteBuffer.wrap(marshall(entry)));
-         if (entry.canExpire()) {
-            addExpiryEntry(cassandraKey, entry.getExpiryTime(), mutationMap);
-         }
-      } catch (InterruptedException ie) {
-         if (trace)
-            log.trace("Interrupted while trying to marshall entry");
-         Thread.currentThread().interrupt();
-      }
-   }
-
-   private void addExpiryEntry(String cassandraKey, long expiryTime,
-            Map<ByteBuffer, Map<String, List<Mutation>>> mutationMap) {
-      try {
-         addMutation(mutationMap, expirationKey, config.expirationColumnFamily,
-                  ByteBufferUtil.bytes(expiryTime), ByteBufferUtil.bytes(cassandraKey),
-                  ByteBufferUtil.EMPTY_BYTE_BUFFER);
-      } catch (Exception e) {
-         // Should not happen
+      mutationBatch.withRow(_entryColumnFamily, new PrefixAndKey(entryKeyPrefix, key))
+         .putColumn(ENTRY_COLUMN_NAME, entry.toInternalCacheValue(), 
+            _marshallerSerializer, null)
+         .putColumn(CACHENAME_COLUMN_NAME, cacheName, null);
+      if (entry.canExpire()) {
+         mutationBatch.withRow(_expirationColumnFamily, expirationKey)
+            .putEmptyColumn(new ExpirationAndKey(entry.getExpiryTime(), key), 
+                  null);
       }
    }
 
    /**
-    * Writes to a stream the number of entries (long) then the entries themselves.
+    * Writes to a stream the entries terminated by a null value.
     */
    @Override
    public void toStream(ObjectOutput out) throws CacheLoaderException {
       try {
          Set<InternalCacheEntry> loadAll = loadAll();
-         int count = 0;
          for (InternalCacheEntry entry : loadAll) {
             getMarshaller().objectToObjectStream(entry, out);
-            count++;
          }
          getMarshaller().objectToObjectStream(null, out);
       } catch (IOException e) {
@@ -486,14 +655,12 @@ public class CassandraCacheStore extends AbstractCacheStore {
    }
 
    /**
-    * Reads from a stream the number of entries (long) then the entries themselves.
+    * Reads from a stream the entries terminated by a null.
     */
    @Override
    public void fromStream(ObjectInput in) throws CacheLoaderException {
       try {
-         int count = 0;
          while (true) {
-            count++;
             InternalCacheEntry entry = (InternalCacheEntry) getMarshaller().objectFromObjectStream(
                      in);
             if (entry == null)
@@ -520,151 +687,83 @@ public class CassandraCacheStore extends AbstractCacheStore {
    protected void purgeInternal() throws CacheLoaderException {
       if (trace)
          log.trace("purgeInternal");
-      Cassandra.Client cassandraClient = null;
       try {
-         cassandraClient = dataSource.getConnection();
-         // We need to get all supercolumns from the beginning of time until
-         // now, in SLICE_SIZE chunks
-         SlicePredicate predicate = new SlicePredicate();
-         predicate.setSlice_range(new SliceRange(ByteBufferUtil.EMPTY_BYTE_BUFFER, ByteBufferUtil
-                  .bytes(System.currentTimeMillis()), false, SLICE_SIZE));
-
-         for (boolean complete = false; !complete;) {
-            Map<ByteBuffer, Map<String, List<Mutation>>> mutationMap = new HashMap<ByteBuffer, Map<String, List<Mutation>>>(SLICE_SIZE);
-            // Get all columns
-            List<ColumnOrSuperColumn> slice = cassandraClient.get_slice(expirationKey,
-                     expirationColumnParent, predicate, readConsistencyLevel);
-            complete = slice.size() < SLICE_SIZE;
-            // Delete all keys returned by the slice
-            for (ColumnOrSuperColumn crumb : slice) {
-               SuperColumn scol = crumb.getSuper_column();
-               for (Iterator<Column> i = scol.getColumnsIterator(); i.hasNext();) {
-                  Column col = i.next();
-                  // Remove the entry row
-                  remove0(ByteBuffer.wrap(col.getName()), mutationMap);
+         // TODO: we could use a column range max, but don't know easiest way without manually serializing the value
+         // instead we just keep going until we find they haven't hit the current time which should work alright, 
+         // at worst case we select 100 rows for no reason
+         RowQuery<String, ExpirationAndKey> query = _keyspace
+            .prepareQuery(_expirationColumnFamily)
+            .setConsistencyLevel(readConsistencyLevel)
+            .getKey(expirationKey)
+            .autoPaginate(true)
+            .withColumnRange(new RangeBuilder()
+                    .setLimit(100)
+                    .build()
+            );
+         
+         boolean processMore = true;
+         ColumnList<ExpirationAndKey> columns;
+         while (processMore && !(columns = query.execute().getResult()).isEmpty()) {
+            MutationBatch mb = _keyspace.prepareMutationBatch()
+                  .setConsistencyLevel(writeConsistencyLevel);
+            for (Column<ExpirationAndKey> column : columns) {
+               ExpirationAndKey name = column.getName();
+               if (name._expiry > System.currentTimeMillis()) {
+                  processMore = false;
+                  break;
                }
-               // Remove the expiration supercolumn
-               addMutation(mutationMap, expirationKey, config.expirationColumnFamily,
-                        ByteBuffer.wrap(scol.getName()), null, null);
+               mb.withRow(_entryColumnFamily, new PrefixAndKey(entryKeyPrefix, name._key)).delete();
+               mb.withRow(_expirationColumnFamily, expirationKey).deleteColumn(name);
             }
-            cassandraClient.batch_mutate(mutationMap, writeConsistencyLevel);
+            mb.execute();
          }
       } catch (Exception e) {
          throw new CacheLoaderException(e);
-      } finally {
-         dataSource.releaseConnection(cassandraClient);
       }
-
    }
 
    @Override
    protected void applyModifications(List<? extends Modification> mods) throws CacheLoaderException {
-      Cassandra.Client cassandraClient = null;
-
       try {
-         cassandraClient = dataSource.getConnection();
-         Map<ByteBuffer, Map<String, List<Mutation>>> mutationMap = new HashMap<ByteBuffer, Map<String, List<Mutation>>>();
-
+         MutationBatch mb = _keyspace.prepareMutationBatch()
+                 .setConsistencyLevel(writeConsistencyLevel);
          for (Modification m : mods) {
             switch (m.getType()) {
                case STORE:
-                  store0(((Store) m).getStoredEntry(), mutationMap);
+                  store0(((Store) m).getStoredEntry(), mb);
                   break;
                case CLEAR:
                   clear();
+                  // TODO: I don't know if this is right, but it would seem
+                  // if a clear came down then all the previous mutations would
+                  // be mute, so ignoring rest by starting a new batch
+                  mb = _keyspace.prepareMutationBatch()
+                        .setConsistencyLevel(writeConsistencyLevel);
                   break;
                case REMOVE:
-                  remove0(ByteBufferUtil.bytes(hashKey(((Remove) m).getKey())), mutationMap);
+                  Object key = ((Remove)m).getKey();
+                  if (trace)
+                     log.tracef("remove(\"%s\") ", key);
+                  remove0(key, mb);
+                  break;
+               case PURGE_EXPIRED:
+                  // TODO: this seems right...?
+                  purgeInternal();
                   break;
                default:
-                  throw new AssertionError();
+                  throw new IllegalArgumentException("Unknown modification type " + m.getType());
             }
          }
 
-         cassandraClient.batch_mutate(mutationMap, writeConsistencyLevel);
+         mb.execute();
 
       } catch (Exception e) {
          throw new CacheLoaderException(e);
-      } finally {
-         dataSource.releaseConnection(cassandraClient);
       }
-
    }
 
    @Override
    public String toString() {
       return "CassandraCacheStore";
-   }
-
-   private String hashKey(Object key) throws UnsupportedKeyTypeException {
-      if (!keyMapper.isSupportedType(key.getClass())) {
-         throw new UnsupportedKeyTypeException(key);
-      }
-
-      return entryKeyPrefix + keyMapper.getStringMapping(key);
-   }
-
-   private Object unhashKey(byte[] key) {
-      String skey = new String(key, UTF8Charset);
-
-      if (skey.startsWith(entryKeyPrefix))
-         return keyMapper.getKeyMapping(skey.substring(entryKeyPrefix.length()));
-      else
-         return null;
-   }
-
-   private static void addMutation(Map<ByteBuffer, Map<String, List<Mutation>>> mutationMap,
-            ByteBuffer key, String columnFamily, ByteBuffer column, ByteBuffer value) {
-      addMutation(mutationMap, key, columnFamily, null, column, value);
-   }
-
-   private static void addMutation(Map<ByteBuffer, Map<String, List<Mutation>>> mutationMap,
-            ByteBuffer key, String columnFamily, ByteBuffer superColumn, ByteBuffer columnName,
-            ByteBuffer value) {
-      Map<String, List<Mutation>> keyMutations = mutationMap.get(key);
-      // If the key doesn't exist yet, create the mutation holder
-      if (keyMutations == null) {
-         keyMutations = new HashMap<String, List<Mutation>>();
-         mutationMap.put(key, keyMutations);
-      }
-      // If the columnfamily doesn't exist yet, create the mutation holder
-      List<Mutation> columnFamilyMutations = keyMutations.get(columnFamily);
-      if (columnFamilyMutations == null) {
-         columnFamilyMutations = new ArrayList<Mutation>();
-         keyMutations.put(columnFamily, columnFamilyMutations);
-      }
-
-      if (value == null) { // Delete
-         Deletion deletion = new Deletion();
-         deletion.setTimestamp(microTimestamp());
-         if (superColumn != null) {
-            deletion.setSuper_column(superColumn);
-         }
-         if (columnName != null) { // Single column delete
-            deletion.setPredicate(new SlicePredicate().setColumn_names(Collections
-                     .singletonList(columnName)));
-         } // else Delete entire column family or supercolumn
-         columnFamilyMutations.add(new Mutation().setDeletion(deletion));
-      } else { // Insert/update
-         ColumnOrSuperColumn cosc = new ColumnOrSuperColumn();
-         if (superColumn != null) {
-            List<Column> columns = new ArrayList<Column>();
-            Column col = new Column(columnName);
-            col.setValue(value);
-            col.setTimestamp(microTimestamp());
-            columns.add(col);
-            cosc.setSuper_column(new SuperColumn(superColumn, columns));
-         } else {
-            Column col = new Column(columnName);
-            col.setValue(value);
-            col.setTimestamp(microTimestamp());
-            cosc.setColumn(col);
-         }
-         columnFamilyMutations.add(new Mutation().setColumn_or_supercolumn(cosc));
-      }
-   }
-
-   private static long microTimestamp() {
-      return System.currentTimeMillis() * 1000l;
    }
 }

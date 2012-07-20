@@ -22,22 +22,14 @@
  */
 package org.infinispan.loaders.cassandra;
 
-import java.io.IOException;
-import java.io.InputStream;
-import java.util.Properties;
-
-import net.dataforte.cassandra.pool.PoolProperties;
-
-import org.infinispan.loaders.CacheLoaderException;
 import org.infinispan.loaders.LockSupportCacheStoreConfig;
-import org.infinispan.loaders.keymappers.DefaultTwoWayKey2StringMapper;
-import org.infinispan.util.FileLookupFactory;
-import org.infinispan.util.Util;
 
 /**
  * Configures {@link CassandraCacheStore}.
  */
 public class CassandraCacheStoreConfig extends LockSupportCacheStoreConfig {
+   /** The serialVersionUID */
+   private static final long serialVersionUID = -1731271362015494304L;
 
    /**
     * @configRef desc="The Cassandra keyspace"
@@ -57,7 +49,7 @@ public class CassandraCacheStoreConfig extends LockSupportCacheStoreConfig {
    /**
     * @configRef desc="Whether the keySpace is shared between multiple caches"
     */
-   boolean sharedKeyspace = false;
+   boolean sharedKeyspace = true;
 
    /**
     * @configRef desc="Which Cassandra consistency level to use when reading"
@@ -69,29 +61,26 @@ public class CassandraCacheStoreConfig extends LockSupportCacheStoreConfig {
     */
    String writeConsistencyLevel = "ONE";
 
-   /**
-    * @configRef desc=
-    *            "An optional properties file for configuring the underlying cassandra connection pool"
-    */
-   String configurationPropertiesFile;
-
-   /**
-    * @configRef desc=
-    *            "The keymapper for converting keys to strings (uses the DefaultTwoWayKey2Stringmapper by default)"
-    */
-   String keyMapper = DefaultTwoWayKey2StringMapper.class.getName();
-
+   // TODO: add support for tweaking connection pool?
+   
    /**
     * @configRef desc=
     *            "Whether to automatically create the keyspace with the appropriate column families (true by default)"
     */
    boolean autoCreateKeyspace = true;
 
-   protected PoolProperties poolProperties;
+   String host = "localhost";
+   
+   int port = 9160;
+   
+   String password = null;
+   
+   String username = null;
+   
+   int replicationFactor = 3;
 
    public CassandraCacheStoreConfig() {
       setCacheLoaderClassName(CassandraCacheStore.class.getName());
-      poolProperties = new PoolProperties();
    }
 
    public String getKeySpace() {
@@ -142,97 +131,36 @@ public class CassandraCacheStoreConfig extends LockSupportCacheStoreConfig {
       this.writeConsistencyLevel = writeConsistencyLevel;
    }
 
-   public PoolProperties getPoolProperties() {
-      return poolProperties;
-   }
-
    public void setHost(String host) {
-      poolProperties.setHost(host);
+      this.host = host;
    }
 
    public String getHost() {
-      return poolProperties.getHost();
+      return host;
    }
 
    public void setPort(int port) {
-      poolProperties.setPort(port);
+      this.port = port;
    }
 
    public int getPort() {
-      return poolProperties.getPort();
-   }
-
-   public boolean isFramed() {
-      return poolProperties.isFramed();
+      return port;
    }
 
    public String getPassword() {
-      return poolProperties.getPassword();
+      return password;
    }
 
    public String getUsername() {
-      return poolProperties.getUsername();
-   }
-
-   public void setFramed(boolean framed) {
-      poolProperties.setFramed(framed);
-
+      return username;
    }
 
    public void setPassword(String password) {
-      poolProperties.setPassword(password);
+      this.password = password;
    }
 
    public void setUsername(String username) {
-      poolProperties.setUsername(username);
-   }
-
-   public void setDatasourceJndiLocation(String location) {
-      poolProperties.setDataSourceJNDI(location);
-   }
-
-   public String getDatasourceJndiLocation() {
-      return poolProperties.getDataSourceJNDI();
-   }
-
-   public String getConfigurationPropertiesFile() {
-      return configurationPropertiesFile;
-   }
-
-   public void setConfigurationPropertiesFile(String configurationPropertiesFile)
-            throws CacheLoaderException {
-      this.configurationPropertiesFile = configurationPropertiesFile;
-      readConfigurationProperties();
-   }
-
-   private void readConfigurationProperties() throws CacheLoaderException {
-      if (configurationPropertiesFile == null || configurationPropertiesFile.trim().length() == 0)
-         return;
-      InputStream i = FileLookupFactory.newInstance().lookupFile(configurationPropertiesFile, getClassLoader());
-      if (i != null) {
-         Properties p = new Properties();
-         try {
-            p.load(i);
-         } catch (IOException ioe) {
-            throw new CacheLoaderException("Unable to read environment properties file "
-                     + configurationPropertiesFile, ioe);
-         } finally {
-            Util.close(i);
-         }
-
-         // Apply all properties to the PoolProperties object
-         for (String propertyName : p.stringPropertyNames()) {
-            poolProperties.set(propertyName, p.getProperty(propertyName));
-         }
-      }
-   }
-
-   public String getKeyMapper() {
-      return keyMapper;
-   }
-
-   public void setKeyMapper(String keyMapper) {
-      this.keyMapper = keyMapper;
+      this.username = username;
    }
 
    public boolean isAutoCreateKeyspace() {
@@ -242,6 +170,12 @@ public class CassandraCacheStoreConfig extends LockSupportCacheStoreConfig {
    public void setAutoCreateKeyspace(boolean autoCreateKeyspace) {
       this.autoCreateKeyspace = autoCreateKeyspace;
    }
-   
-   
+
+   public int getReplicationFactor() {
+      return replicationFactor;
+   }
+
+   public void setReplicationFactor(int replicationFactor) {
+      this.replicationFactor = replicationFactor;
+   }
 }
