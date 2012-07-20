@@ -73,6 +73,7 @@ import com.netflix.astyanax.query.IndexQuery;
 import com.netflix.astyanax.query.PreparedIndexExpression;
 import com.netflix.astyanax.query.RowQuery;
 import com.netflix.astyanax.serializers.AbstractSerializer;
+import com.netflix.astyanax.serializers.BytesArraySerializer;
 import com.netflix.astyanax.serializers.StringSerializer;
 import com.netflix.astyanax.thrift.ThriftFamilyFactory;
 import com.netflix.astyanax.util.RangeBuilder;
@@ -105,9 +106,9 @@ public class CassandraCacheStore extends AbstractCacheStore {
 
    private String cacheName;
    private ColumnFamily<PrefixAndKey, String> _entryColumnFamily;
-   private ColumnFamily<String, ExpirationAndKey> _expirationColumnFamily;
+   private ColumnFamily<byte[], ExpirationAndKey> _expirationColumnFamily;
    private byte[] entryKeyPrefix;
-   private String expirationKey;
+   private byte[] expirationKey;
    
    private MarshallerSerializer _marshallerSerializer;
    private Collection<PreparedIndexExpression<PrefixAndKey, String>> _preparedIndices;
@@ -323,7 +324,7 @@ public class CassandraCacheStore extends AbstractCacheStore {
              StringSerializer.get());
          
          _expirationColumnFamily = ColumnFamily.newColumnFamily(
-            config.expirationColumnFamily, StringSerializer.get(), 
+            config.expirationColumnFamily, BytesArraySerializer.get(), 
             new ExpirationAndKeySerializer(getMarshaller()));
          
          entryKeyPrefix = (ENTRY_KEY_PREFIX + (config.isSharedKeyspace() ? "_" + cacheName : "")).getBytes(UTF8);
@@ -331,7 +332,11 @@ public class CassandraCacheStore extends AbstractCacheStore {
             throw new IllegalArgumentException("Serialized prefix cannot be " + 
                   "larger than " + Short.MAX_VALUE + " bytes, was " + entryKeyPrefix.length);
          }
-         expirationKey = EXPIRATION_KEY + (config.isSharedKeyspace() ? "_" + cacheName : "");
+         expirationKey = (EXPIRATION_KEY + (config.isSharedKeyspace() ? "_" + cacheName : "")).getBytes();
+         if (expirationKey.length > Short.MAX_VALUE) {
+            throw new IllegalArgumentException("Serialized expiration key cannot be " + 
+                  "larger than " + Short.MAX_VALUE + " bytes, was " + expirationKey.length);
+         }
          
          _preparedIndices = Arrays.asList(_entryColumnFamily
                 .newIndexClause().whereColumn(CACHENAME_COLUMN_NAME).equals().value(cacheName));
@@ -691,7 +696,7 @@ public class CassandraCacheStore extends AbstractCacheStore {
          // TODO: we could use a column range max, but don't know easiest way without manually serializing the value
          // instead we just keep going until we find they haven't hit the current time which should work alright, 
          // at worst case we select 100 rows for no reason
-         RowQuery<String, ExpirationAndKey> query = _keyspace
+         RowQuery<byte[], ExpirationAndKey> query = _keyspace
             .prepareQuery(_expirationColumnFamily)
             .setConsistencyLevel(readConsistencyLevel)
             .getKey(expirationKey)
