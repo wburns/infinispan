@@ -109,11 +109,11 @@
       <version.apacheds.jdbm>1.5.7</version.apacheds.jdbm>
       <version.arquillian>1.0.0.CR5</version.arquillian>
       <version.arquillian.container.weld>1.0.0.CR2</version.arquillian.container.weld>
+      <version.astyanax>1.0.4</version.astyanax>
       <version.avro>1.3.3</version.avro>
       <version.bdbje>5.0.34</version.bdbje>
       <version.c3p0>0.9.1.2</version.c3p0>
-      <version.cassandra>1.0.2</version.cassandra>
-      <version.cassandra.pool>1.0.0.CR1</version.cassandra.pool>
+      <version.cassandra>1.1.2</version.cassandra>
       <version.cdi>1.0-SP4</version.cdi>
       <version.com.intellij.forms_rt>6.0.5</version.com.intellij.forms_rt>
       <version.commons.compress>1.4</version.commons.compress>
@@ -358,11 +358,6 @@
             <version>${version.mysql.driver}</version>
          </dependency>
          <dependency>
-            <groupId>net.dataforte.cassandra</groupId>
-            <artifactId>cassandra-connection-pool</artifactId>
-            <version>${version.cassandra.pool}</version>
-         </dependency>
-         <dependency>
             <groupId>org.apache.hbase</groupId>
             <artifactId>hbase</artifactId>
             <version>${version.hbase}</version>
@@ -386,6 +381,11 @@
             <groupId>org.apache.cassandra</groupId>
             <artifactId>cassandra-all</artifactId>
             <version>${version.cassandra}</version>
+         </dependency>
+         <dependency>
+            <groupId>com.netflix.astyanax</groupId>
+            <artifactId>astyanax</artifactId>
+            <version>${version.astyanax}</version>
          </dependency>
          <dependency>
             <groupId>org.apache.commons</groupId>
