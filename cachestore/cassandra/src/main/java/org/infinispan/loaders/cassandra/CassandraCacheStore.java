@@ -159,8 +159,12 @@ public class CassandraCacheStore extends AbstractCacheStore {
             long expiry = byteBuffer.getLong();
             byteBuffer.get();
             short size = byteBuffer.getShort();
-            Object key = _marshaller.objectFromByteBuffer(byteBuffer.array(),
-                  byteBuffer.arrayOffset() + byteBuffer.position(), size);
+            byte[] copy = new byte[size];
+            System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + 
+                  byteBuffer.position(), copy, 0, size);
+            Object key = _marshaller.objectFromByteBuffer(copy);
+//            Object key = _marshaller.objectFromByteBuffer(byteBuffer.array(),
+//                  byteBuffer.arrayOffset() + byteBuffer.position(), size);
             return new ExpirationAndKey(expiry, key);
          } catch (Exception e) {
             throw new SerializationException(e);
@@ -216,8 +220,12 @@ public class CassandraCacheStore extends AbstractCacheStore {
 
             size = byteBuffer.getShort();
             Object key;
-            key = _marshaller.objectFromByteBuffer(byteBuffer.array(), 
-                  byteBuffer.arrayOffset() + byteBuffer.position(), size);
+            byte[] copy = new byte[size];
+            System.arraycopy(byteBuffer.array(), byteBuffer.arrayOffset() + 
+                  byteBuffer.position(), copy, 0, size);
+            key = _marshaller.objectFromByteBuffer(copy);
+//            key = _marshaller.objectFromByteBuffer(byteBuffer.array(), 
+//                  byteBuffer.arrayOffset() + byteBuffer.position(), size);
 
             return new PrefixAndKey(prefix, key);
          } catch (Exception e) {
@@ -550,7 +558,8 @@ public class CassandraCacheStore extends AbstractCacheStore {
          while (!(rows = query.execute().getResult()).isEmpty()) {
             MutationBatch mb = _keyspace.prepareMutationBatch()
                   .setConsistencyLevel(writeConsistencyLevel);
-            for (Row<PrefixAndKey, String> row : rows) {
+            for (int i = 0; i < rows.size(); ++i) {
+               Row<PrefixAndKey, String> row = rows.getRowByIndex(i);
                // If we have row columns then it is not tombstoned, so delete it
                if (!row.getColumns().isEmpty()) {
                   mb.withRow(_entryColumnFamily, row.getKey()).delete();
