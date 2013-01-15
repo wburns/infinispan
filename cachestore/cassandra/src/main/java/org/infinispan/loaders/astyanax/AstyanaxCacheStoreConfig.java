@@ -82,7 +82,7 @@ public class AstyanaxCacheStoreConfig extends AbstractCacheStoreConfig {
    int replicationFactor = 3;
 
    public AstyanaxCacheStoreConfig() {
-      setCacheLoaderClassName(CassandraCacheStore.class.getName());
+      setCacheLoaderClassName(AstyanaxCacheStore.class.getName());
    }
 
    public String getKeySpace() {

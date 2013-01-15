@@ -63,7 +63,6 @@ public class XmlFileParsingTest extends AbstractInfinispanTest {
 
       AstyanaxCacheStoreConfiguration store = (AstyanaxCacheStoreConfiguration) buildCacheManagerWithCacheStore(config);
       assert !store.autoCreateKeyspace();
-      assert store.framed();
       assert store.servers().size() == 2;
       assert store.readConsistencyLevel().equals(ConsistencyLevel.EACH_QUORUM);
       assert store.writeConsistencyLevel().equals(ConsistencyLevel.ANY);

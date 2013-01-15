@@ -7,7 +7,7 @@ max_hint_window_in_ms: 3600000 # one hour
 #hinted_handoff_throttle_delay_in_ms: 50
 authenticator: org.apache.cassandra.auth.AllowAllAuthenticator
 authority: org.apache.cassandra.auth.AllowAllAuthority
-partitioner: org.apache.cassandra.dht.OrderPreservingPartitioner
+partitioner: org.apache.cassandra.dht.RandomPartitioner
 data_file_directories:
 - ${java.io.tmpdir}/${project.artifactId}-1/data
 commitlog_directory: ${java.io.tmpdir}/${project.artifactId}-1/commitlog

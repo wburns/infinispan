@@ -30,6 +30,7 @@ import java.nio.charset.Charset;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 
@@ -42,7 +43,7 @@ import org.infinispan.loaders.CacheLoaderConfig;
 import org.infinispan.loaders.CacheLoaderException;
 import org.infinispan.loaders.CacheLoaderMetadata;
 import org.infinispan.loaders.astyanax.AstyanaxCacheStoreConfig;
-import org.infinispan.loaders.astyanax.logging.Log;
+import org.infinispan.loaders.cassandra.logging.Log;
 import org.infinispan.loaders.modifications.Modification;
 import org.infinispan.loaders.modifications.Remove;
 import org.infinispan.loaders.modifications.Store;
@@ -538,27 +539,52 @@ public class AstyanaxCacheStore extends AbstractCacheStore {
    public void clear() throws CacheLoaderException {
       try {
          // TODO: do we care about the expiry entry?  My thought it is no, it 
-         // handles misses itself
-         IndexQuery<PrefixAndKey, String> query = 
-               _keyspace.prepareQuery(_entryColumnFamily)
-                  .searchWithIndex()
-                  .setRowLimit(SLICE_SIZE)
-                  .autoPaginateRows(true)
-                  .addPreparedExpressions(_preparedIndices)
-                  .withColumnSlice(ENTRY_COLUMN_NAME);
-         // Get the keys in SLICE_SIZE blocks
-         Rows<PrefixAndKey, String> rows;
-         while (!(rows = query.execute().getResult()).isEmpty()) {
-            MutationBatch mb = _keyspace.prepareMutationBatch()
-                  .setConsistencyLevel(writeConsistencyLevel);
-            for (Row<PrefixAndKey, String> row : rows) {
-               // If we have row columns then it is not tombstoned, so delete it
-               if (!row.getColumns().isEmpty()) {
-                  mb.withRow(_entryColumnFamily, row.getKey()).delete();
-               }
-            }
-            mb.execute();
-         }
+			// handles misses itself
+         if (config.isSharedKeyspace()) {
+	         IndexQuery<PrefixAndKey, String> query = 
+	               _keyspace.prepareQuery(_entryColumnFamily)
+	                  .searchWithIndex()
+	                  .setRowLimit(SLICE_SIZE)
+	                  .autoPaginateRows(true)
+	                  .addPreparedExpressions(_preparedIndices)
+	                  .withColumnSlice(ENTRY_COLUMN_NAME);
+	         // Get the keys in SLICE_SIZE blocks
+	         Rows<PrefixAndKey, String> rows;
+	         // TODO the last key is a bit hacky, if we could fix the astyanax pagination to work with people deleting contents behind it we can change this to what it should be
+	         PrefixAndKey lastKey = null;
+	         while (!(rows = query.execute().getResult()).isEmpty()) {
+	            MutationBatch mb = _keyspace.prepareMutationBatch()
+	                  .setConsistencyLevel(writeConsistencyLevel);
+	            if (lastKey != null) {
+	            	mb.withRow(_entryColumnFamily, lastKey).delete();
+	            }
+	            // We can't delete the last row as we need it to query the next
+	            Iterator<Row<PrefixAndKey, String>> iter = rows.iterator();
+	            while (iter.hasNext()) {
+	            	Row<PrefixAndKey, String> row = iter.next();
+	            	if (iter.hasNext()) {
+		            	// If we have row columns then it is not tombstoned, so delete it
+		                if (!row.getColumns().isEmpty()) {
+		                   mb.withRow(_entryColumnFamily, row.getKey()).delete();
+		            	}
+	            	}
+	            	else {
+	            		lastKey = row.getKey();
+	            	}
+	            }
+	            mb.execute();
+	         }
+	         if (lastKey != null) {
+	            MutationBatch mb = _keyspace.prepareMutationBatch()
+	                     .setConsistencyLevel(writeConsistencyLevel);
+				mb.withRow(_entryColumnFamily, lastKey).delete();
+				mb.execute();
+	         }
+    	  }
+    	  else {
+    		  // If we have a shared keyspace, just blow away the entire column family - the expired ones will work themselves out
+    		  _keyspace.truncateColumnFamily(_entryColumnFamily);
+    	  }
       } catch (Exception e) {
          throw new CacheLoaderException(e);
       }
@@ -764,6 +790,6 @@ public class AstyanaxCacheStore extends AbstractCacheStore {
 
    @Override
    public String toString() {
-      return "CassandraCacheStore";
+      return "AstyanaxCacheStore";
    }
 }

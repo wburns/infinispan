@@ -112,13 +112,14 @@
       <version.apacheds.jdbm>1.5.7</version.apacheds.jdbm>
       <version.arquillian>1.0.0.Final</version.arquillian>
       <version.arquillian.container.weld>1.0.0.CR3</version.arquillian.container.weld>
-      <version.astyanax>1.0.6</version.astyanax>
+      <version.astyanax>1.56.21</version.astyanax>
       <version.avro>1.3.3</version.avro>
       <version.bdbje>5.0.34</version.bdbje>
       <version.c3p0>0.9.1.2</version.c3p0>
-      <version.cassandra>1.0.2</version.cassandra>
+      <version.cassandra>1.2.0</version.cassandra>
       <version.cassandra.pool>1.0.0.CR1</version.cassandra.pool>
       <version.cdi>1.0-SP4</version.cdi>
+      <version.concurrentlinkedhashmap-lru>1.3</version.concurrentlinkedhashmap-lru>
       <version.com.intellij.forms_rt>6.0.5</version.com.intellij.forms_rt>
       <version.commons.compress>1.4</version.commons.compress>
       <version.commons.dbcp>1.4</version.commons.dbcp>
@@ -307,6 +308,11 @@
             <groupId>com.h2database</groupId>
             <artifactId>h2</artifactId>
             <version>${version.h2.driver}</version>
+         </dependency>
+         <dependency>
+         <groupId>com.googlecode.concurrentlinkedhashmap</groupId>
+            <artifactId>concurrentlinkedhashmap-lru</artifactId>
+            <version>${version.concurrentlinkedhashmap-lru}</version>
          </dependency>
          <dependency>
             <groupId>com.intellij</groupId>
