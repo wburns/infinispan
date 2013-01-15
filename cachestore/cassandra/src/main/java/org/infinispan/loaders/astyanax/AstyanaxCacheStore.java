@@ -550,35 +550,17 @@ public class AstyanaxCacheStore extends AbstractCacheStore {
 	                  .withColumnSlice(ENTRY_COLUMN_NAME);
 	         // Get the keys in SLICE_SIZE blocks
 	         Rows<PrefixAndKey, String> rows;
-	         // TODO the last key is a bit hacky, if we could fix the astyanax pagination to work with people deleting contents behind it we can change this to what it should be
-	         PrefixAndKey lastKey = null;
 	         while (!(rows = query.execute().getResult()).isEmpty()) {
 	            MutationBatch mb = _keyspace.prepareMutationBatch()
 	                  .setConsistencyLevel(writeConsistencyLevel);
-	            if (lastKey != null) {
-	            	mb.withRow(_entryColumnFamily, lastKey).delete();
-	            }
 	            // We can't delete the last row as we need it to query the next
-	            Iterator<Row<PrefixAndKey, String>> iter = rows.iterator();
-	            while (iter.hasNext()) {
-	            	Row<PrefixAndKey, String> row = iter.next();
-	            	if (iter.hasNext()) {
-		            	// If we have row columns then it is not tombstoned, so delete it
-		                if (!row.getColumns().isEmpty()) {
-		                   mb.withRow(_entryColumnFamily, row.getKey()).delete();
-		            	}
-	            	}
-	            	else {
-	            		lastKey = row.getKey();
-	            	}
-	            }
+               for (Row<PrefixAndKey, String> row : rows) {
+                  // If we have row columns then it is not tombstoned, so delete it
+                  if (!row.getColumns().isEmpty()) {
+                     mb.withRow(_entryColumnFamily, row.getKey()).delete();
+                  }
+               }
 	            mb.execute();
-	         }
-	         if (lastKey != null) {
-	            MutationBatch mb = _keyspace.prepareMutationBatch()
-	                     .setConsistencyLevel(writeConsistencyLevel);
-				mb.withRow(_entryColumnFamily, lastKey).delete();
-				mb.execute();
 	         }
     	  }
     	  else {
