@@ -10,7 +10,7 @@ import org.infinispan.container.InternalEntryFactory;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.container.entries.InternalCacheValue;
-import org.infinispan.container.entries.MVCCEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.context.InvocationContextContainer;
@@ -113,10 +113,10 @@ public class ClusteredGetCommand extends BaseRpcCommand implements FlagAffectedC
          return null;
       }
       //this might happen if the value was fetched from a cache loader
-      if (cacheEntry instanceof MVCCEntry) {
+      if (cacheEntry instanceof ContextEntry) {
          if (trace) log.trace("Handling an internal cache entry...");
-         MVCCEntry mvccEntry = (MVCCEntry) cacheEntry;
-         return entryFactory.createValue(mvccEntry);
+         ContextEntry contextEntry = (ContextEntry) cacheEntry;
+         return entryFactory.createValue(contextEntry);
       } else {
          InternalCacheEntry internalCacheEntry = (InternalCacheEntry) cacheEntry;
          return internalCacheEntry.toInternalCacheValue();

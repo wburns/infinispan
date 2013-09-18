@@ -4,6 +4,7 @@ import org.infinispan.commands.VisitableCommand;
 import org.infinispan.commands.Visitor;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 
@@ -54,10 +55,10 @@ public class KeySetCommand extends AbstractLocalCommand implements VisitableComm
 
    private static class FilteredKeySet extends AbstractSet<Object> {
       final Set<Object> keySet;
-      final Map<Object, CacheEntry> lookedUpEntries;
+      final Map<Object, ContextEntry> lookedUpEntries;
       final DataContainer container;
 
-      FilteredKeySet(Set<Object> keySet, Map<Object, CacheEntry> lookedUpEntries, DataContainer container) {
+      FilteredKeySet(Set<Object> keySet, Map<Object, ContextEntry> lookedUpEntries, DataContainer container) {
          this.keySet = keySet;
          this.lookedUpEntries = lookedUpEntries;
          this.container = container;
@@ -131,7 +132,7 @@ public class KeySetCommand extends AbstractLocalCommand implements VisitableComm
 
       private class Itr implements Iterator<Object> {
 
-         private final Iterator<CacheEntry> it1 = lookedUpEntries.values().iterator();
+         private final Iterator<ContextEntry> it1 = lookedUpEntries.values().iterator();
          private final Iterator<Object> it2 = keySet.iterator();
          private boolean atIt1 = true;
          private Object next;

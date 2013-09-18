@@ -1,7 +1,7 @@
 package org.infinispan.transaction.xa;
 
 import org.infinispan.commands.write.WriteCommand;
-import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.container.versioning.EntryVersion;
 import org.infinispan.container.versioning.EntryVersionsMap;
 
@@ -42,13 +42,13 @@ public interface CacheTransaction {
     */
    boolean hasModification(Class<?> modificationClass);
 
-   CacheEntry lookupEntry(Object key);
+   ContextEntry lookupEntry(Object key);
 
-   Map<Object, CacheEntry> getLookedUpEntries();
+   Map<Object, ContextEntry> getLookedUpEntries();
 
-   void putLookedUpEntry(Object key, CacheEntry e);
+   void putLookedUpEntry(Object key, ContextEntry e);
 
-   void putLookedUpEntries(Map<Object, CacheEntry> entries);
+   void putLookedUpEntries(Map<Object, ContextEntry> entries);
 
    void removeLookedUpEntry(Object key);
 

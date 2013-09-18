@@ -4,7 +4,7 @@ import org.infinispan.commands.AbstractFlagAffectedCommand;
 import org.infinispan.commands.Visitor;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.container.entries.CacheEntry;
-import org.infinispan.container.entries.MVCCEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.lifecycle.ComponentStatus;
@@ -41,8 +41,8 @@ public class ClearCommand extends AbstractFlagAffectedCommand implements WriteCo
    @Override
    public Object perform(InvocationContext ctx) throws Throwable {
       for (CacheEntry e : ctx.getLookedUpEntries().values()) {
-         if (e instanceof MVCCEntry) {
-            MVCCEntry me = (MVCCEntry) e;
+         if (e instanceof ContextEntry) {
+            ContextEntry me = (ContextEntry) e;
             Object k = me.getKey(), v = me.getValue();
             notifier.notifyCacheEntryRemoved(k, v, v, true, ctx, this);
             me.setRemoved(true);

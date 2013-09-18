@@ -1,7 +1,7 @@
 package org.infinispan.context.impl;
 
 import org.infinispan.container.entries.CacheEntry;
-import org.infinispan.container.entries.InternalCacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.remoting.transport.Address;
 
@@ -123,8 +123,8 @@ public abstract class AbstractInvocationContext implements InvocationContext {
    }
 
    @Override
-   public boolean replaceValue(Object key, InternalCacheEntry cacheEntry) {
-      CacheEntry ce = lookupEntry(key);
+   public boolean replaceValue(Object key, CacheEntry cacheEntry) {
+      ContextEntry ce = lookupEntry(key);
       if (ce == null || ce.isNull() || ce.getValue() == null) {
          if (ce != null) {
             ce.setValue(cacheEntry.getValue());
@@ -139,11 +139,11 @@ public abstract class AbstractInvocationContext implements InvocationContext {
 
    @Override
    public boolean isEntryRemovedInContext(Object key) {
-      CacheEntry ce = lookupEntry(key);
+      ContextEntry ce = lookupEntry(key);
       return ce != null && ce.isRemoved() && ce.isChanged();
    }
 
-   protected void onEntryValueReplaced(Object key, InternalCacheEntry cacheEntry) {
+   protected void onEntryValueReplaced(Object key, CacheEntry cacheEntry) {
       //no-op. used in tx mode with write skew check.
    }
 }

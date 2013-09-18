@@ -2,7 +2,7 @@ package org.infinispan.context;
 
 import org.infinispan.commons.equivalence.Equivalence;
 import org.infinispan.commons.util.InfinispanCollections;
-import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.context.impl.AbstractInvocationContext;
 
 import java.util.Collections;
@@ -24,7 +24,7 @@ public class SingleKeyNonTxInvocationContext extends AbstractInvocationContext {
     */
    private boolean isLocked;
 
-   private CacheEntry cacheEntry;
+   private ContextEntry cacheEntry;
 
    private final Equivalence keyEquivalence;
 
@@ -74,7 +74,7 @@ public class SingleKeyNonTxInvocationContext extends AbstractInvocationContext {
 
    @Override
    @SuppressWarnings("unchecked")
-   public CacheEntry lookupEntry(Object key) {
+   public ContextEntry lookupEntry(Object key) {
       if (key != null && this.key !=null && keyEquivalence.equals(key, this.key))
          return cacheEntry;
 
@@ -82,20 +82,20 @@ public class SingleKeyNonTxInvocationContext extends AbstractInvocationContext {
    }
 
    @Override
-   public Map<Object, CacheEntry> getLookedUpEntries() {
-      return key == null ? InfinispanCollections.<Object, CacheEntry>emptyMap() : Collections.singletonMap(key, cacheEntry);
+   public Map<Object, ContextEntry> getLookedUpEntries() {
+      return key == null ? InfinispanCollections.<Object, ContextEntry>emptyMap() : Collections.singletonMap(key, cacheEntry);
    }
 
    @Override
-   public void putLookedUpEntry(Object key, CacheEntry e) {
+   public void putLookedUpEntry(Object key, ContextEntry e) {
       this.key = key;
       this.cacheEntry = e;
    }
 
    @Override
-   public void putLookedUpEntries(Map<Object, CacheEntry> lookedUpEntries) {
+   public void putLookedUpEntries(Map<Object, ContextEntry> lookedUpEntries) {
       if (lookedUpEntries.size() > 1) throw illegalStateException();
-      Map.Entry<Object, CacheEntry> e = lookedUpEntries.entrySet().iterator().next();
+      Map.Entry<Object, ContextEntry> e = lookedUpEntries.entrySet().iterator().next();
       this.key = e.getKey();
       this.cacheEntry = e.getValue();
    }
@@ -115,7 +115,7 @@ public class SingleKeyNonTxInvocationContext extends AbstractInvocationContext {
       return key;
    }
 
-   public CacheEntry getCacheEntry() {
+   public ContextEntry getContextEntry() {
       return cacheEntry;
    }
 }

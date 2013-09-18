@@ -8,6 +8,7 @@ import org.infinispan.commons.equivalence.Equivalence;
 import org.infinispan.commons.util.CollectionFactory;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.transaction.xa.GlobalTransaction;
@@ -89,8 +90,8 @@ public abstract class LocalTransaction extends AbstractCacheTransaction {
    }
 
    @Override
-   public Map<Object, CacheEntry> getLookedUpEntries() {
-      return lookedUpEntries == null ? InfinispanCollections.<Object, CacheEntry>emptyMap() : lookedUpEntries;
+   public Map<Object, ContextEntry> getLookedUpEntries() {
+      return lookedUpEntries == null ? InfinispanCollections.<Object, ContextEntry>emptyMap() : lookedUpEntries;
    }
 
    public boolean isImplicitTransaction() {
@@ -98,23 +99,23 @@ public abstract class LocalTransaction extends AbstractCacheTransaction {
    }
 
    @Override
-   public void putLookedUpEntry(Object key, CacheEntry e) {
+   public void putLookedUpEntry(Object key, ContextEntry e) {
       if (isMarkedForRollback()) {
          throw new CacheException("This transaction is marked for rollback and cannot acquire locks!");
       }
       if (lookedUpEntries == null)
-         lookedUpEntries = CollectionFactory.makeMap(4, keyEquivalence, AnyEquivalence.<CacheEntry>getInstance());
+         lookedUpEntries = CollectionFactory.makeMap(4, keyEquivalence, AnyEquivalence.<ContextEntry>getInstance());
 
       lookedUpEntries.put(key, e);
    }
 
    @Override
-   public void putLookedUpEntries(Map<Object, CacheEntry> entries) {
+   public void putLookedUpEntries(Map<Object, ContextEntry> entries) {
       if (isMarkedForRollback()) {
          throw new CacheException("This transaction is marked for rollback and cannot acquire locks!");
       }
       if (lookedUpEntries == null) {
-         lookedUpEntries = CollectionFactory.makeMap(entries, keyEquivalence, AnyEquivalence.<CacheEntry>getInstance());
+         lookedUpEntries = CollectionFactory.makeMap(entries, keyEquivalence, AnyEquivalence.<ContextEntry>getInstance());
       } else {
          lookedUpEntries.putAll(entries);
       }

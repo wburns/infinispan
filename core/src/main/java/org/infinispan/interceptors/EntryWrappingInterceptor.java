@@ -20,6 +20,7 @@ import org.infinispan.commands.write.WriteCommand;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.EntryFactory;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
@@ -263,13 +264,13 @@ public class EntryWrappingInterceptor extends CommandInterceptor {
       if (ctx instanceof SingleKeyNonTxInvocationContext) {
          SingleKeyNonTxInvocationContext singleKeyCtx = (SingleKeyNonTxInvocationContext) ctx;
          commitEntryIfNeeded(ctx, command, singleKeyCtx.getKey(),
-               singleKeyCtx.getCacheEntry(), isPutForStateTransfer, metadata);
+               singleKeyCtx.getContextEntry(), isPutForStateTransfer, metadata);
       } else {
-         Set<Map.Entry<Object, CacheEntry>> entries = ctx.getLookedUpEntries().entrySet();
-         Iterator<Map.Entry<Object, CacheEntry>> it = entries.iterator();
+         Set<Map.Entry<Object, ContextEntry>> entries = ctx.getLookedUpEntries().entrySet();
+         Iterator<Map.Entry<Object, ContextEntry>> it = entries.iterator();
          final Log log = getLog();
          while (it.hasNext()) {
-            Map.Entry<Object, CacheEntry> e = it.next();
+            Map.Entry<Object, ContextEntry> e = it.next();
             CacheEntry entry = e.getValue();
             if (!commitEntryIfNeeded(ctx, command, e.getKey(), entry, isPutForStateTransfer, metadata)) {
                if (trace) {

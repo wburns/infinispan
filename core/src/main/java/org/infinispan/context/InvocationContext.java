@@ -2,7 +2,7 @@ package org.infinispan.context;
 
 import java.util.Set;
 
-import org.infinispan.container.entries.InternalCacheEntry;
+import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.remoting.transport.Address;
 
 /**
@@ -100,7 +100,7 @@ public interface InvocationContext extends EntryLookup, Cloneable {
     *
     * @return true if the context already contained a wrapped entry for which this value was changed, false otherwise.
     */
-   boolean replaceValue(Object key, InternalCacheEntry cacheEntry);
+   boolean replaceValue(Object key, CacheEntry cacheEntry);
 
    boolean isEntryRemovedInContext(Object key);
 }

@@ -173,7 +173,7 @@ public class NonTxDistributionInterceptor extends BaseDistributionInterceptor {
             if (isWrite)
                entryFactory.wrapEntryForPut(ctx, key, ice, false, command, true);
             else
-               ctx.putLookedUpEntry(key, ice);
+               entryFactory.wrapPreviouslyReadEntry(ctx, ice);
          }
          return ice;
       }

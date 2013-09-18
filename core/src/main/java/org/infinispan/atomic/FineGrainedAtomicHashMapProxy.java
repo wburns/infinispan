@@ -16,7 +16,7 @@ import java.util.Set;
 /**
  * A layer of indirection around an {@link FineGrainedAtomicMap} to provide consistency and isolation for concurrent readers
  * while writes may also be going on.  The techniques used in this implementation are very similar to the lock-free
- * reader MVCC model used in the {@link org.infinispan.container.entries.MVCCEntry} implementations for the core data
+ * reader MVCC model used in the {@link org.infinispan.container.entries.ContextEntry} implementations for the core data
  * container, which closely follow software transactional memory approaches to dealing with concurrency.
  * <br /><br />
  * Typically proxies are only created by the {@link AtomicMapLookup} helper, and would not be created by end-user code

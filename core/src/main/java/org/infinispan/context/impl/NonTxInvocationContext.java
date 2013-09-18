@@ -5,6 +5,7 @@ import org.infinispan.commons.equivalence.Equivalence;
 import org.infinispan.commons.util.CollectionFactory;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 
 import java.util.Map;
 import java.util.Set;
@@ -19,25 +20,25 @@ public class NonTxInvocationContext extends AbstractInvocationContext {
 
    private static final int INITIAL_CAPACITY = 4;
 
-   protected final Map<Object, CacheEntry> lookedUpEntries;
+   protected final Map<Object, ContextEntry> lookedUpEntries;
 
    protected Set<Object> lockedKeys;
 
    private final Equivalence<Object> keyEq;
 
    public NonTxInvocationContext(int numEntries, boolean local, Equivalence<Object> keyEq) {
-      lookedUpEntries = CollectionFactory.makeMap(numEntries, keyEq, AnyEquivalence.<CacheEntry>getInstance());
+      lookedUpEntries = CollectionFactory.makeMap(numEntries, keyEq, AnyEquivalence.<ContextEntry>getInstance());
       setOriginLocal(local);
       this.keyEq = keyEq;
    }
 
    public NonTxInvocationContext(Equivalence<Object> keyEq) {
-      lookedUpEntries = CollectionFactory.makeMap(INITIAL_CAPACITY, keyEq, AnyEquivalence.<CacheEntry>getInstance());
+      lookedUpEntries = CollectionFactory.makeMap(INITIAL_CAPACITY, keyEq, AnyEquivalence.<ContextEntry>getInstance());
       this.keyEq = keyEq;
    }
 
    @Override
-   public CacheEntry lookupEntry(Object k) {
+   public ContextEntry lookupEntry(Object k) {
       return lookedUpEntries.get(k);
    }
 
@@ -47,12 +48,12 @@ public class NonTxInvocationContext extends AbstractInvocationContext {
    }
 
    @Override
-   public void putLookedUpEntry(Object key, CacheEntry e) {
+   public void putLookedUpEntry(Object key, ContextEntry e) {
       lookedUpEntries.put(key, e);
    }
 
    @Override
-   public void putLookedUpEntries(Map<Object, CacheEntry> newLookedUpEntries) {
+   public void putLookedUpEntries(Map<Object, ContextEntry> newLookedUpEntries) {
       lookedUpEntries.putAll(newLookedUpEntries);
    }
 
@@ -63,8 +64,8 @@ public class NonTxInvocationContext extends AbstractInvocationContext {
 
    @Override
    @SuppressWarnings("unchecked")
-   public Map<Object, CacheEntry> getLookedUpEntries() {
-      return (Map<Object, CacheEntry>)
+   public Map<Object, ContextEntry> getLookedUpEntries() {
+      return (Map<Object, ContextEntry>)
             (lookedUpEntries == null ?
                    InfinispanCollections.emptyMap() : lookedUpEntries);
    }

@@ -5,7 +5,7 @@ import org.infinispan.commons.equivalence.AnyEquivalence;
 import org.infinispan.commons.equivalence.Equivalence;
 import org.infinispan.commons.util.CollectionFactory;
 import org.infinispan.commons.util.InfinispanCollections;
-import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.transaction.xa.GlobalTransaction;
 import org.infinispan.transaction.xa.InvalidTransactionException;
 import org.infinispan.util.logging.Log;
@@ -43,17 +43,17 @@ public class RemoteTransaction extends AbstractCacheTransaction implements Clone
             ? InfinispanCollections.<WriteCommand>emptyList()
             : Arrays.asList(modifications);
       lookedUpEntries = CollectionFactory.makeMap(
-            this.modifications.size(), keyEquivalence, AnyEquivalence.<CacheEntry>getInstance());
+            this.modifications.size(), keyEquivalence, AnyEquivalence.<ContextEntry>getInstance());
    }
 
    public RemoteTransaction(GlobalTransaction tx, int topologyId, Equivalence<Object> keyEquivalence) {
       super(tx, topologyId, keyEquivalence);
       this.modifications = new LinkedList<WriteCommand>();
-      lookedUpEntries = CollectionFactory.makeMap(2, keyEquivalence, AnyEquivalence.<CacheEntry>getInstance());
+      lookedUpEntries = CollectionFactory.makeMap(2, keyEquivalence, AnyEquivalence.<ContextEntry>getInstance());
    }
 
    @Override
-   public void putLookedUpEntry(Object key, CacheEntry e) {
+   public void putLookedUpEntry(Object key, ContextEntry e) {
       checkIfRolledBack();
       if (log.isTraceEnabled()) {
          log.tracef("Adding key %s to tx %s", key, getGlobalTransaction());
@@ -62,7 +62,7 @@ public class RemoteTransaction extends AbstractCacheTransaction implements Clone
    }
 
    @Override
-   public void putLookedUpEntries(Map<Object, CacheEntry> entries) {
+   public void putLookedUpEntries(Map<Object, ContextEntry> entries) {
       checkIfRolledBack();
       if (log.isTraceEnabled()) {
          log.tracef("Adding keys %s to tx %s", entries.keySet(), getGlobalTransaction());
@@ -89,7 +89,7 @@ public class RemoteTransaction extends AbstractCacheTransaction implements Clone
          RemoteTransaction dolly = (RemoteTransaction) super.clone();
          dolly.modifications = new ArrayList<WriteCommand>(modifications);
          dolly.lookedUpEntries = CollectionFactory.makeMap(
-               lookedUpEntries, keyEquivalence, AnyEquivalence.<CacheEntry>getInstance());
+               lookedUpEntries, keyEquivalence, AnyEquivalence.<ContextEntry>getInstance());
          return dolly;
       } catch (CloneNotSupportedException e) {
          throw new IllegalStateException("Impossible!!");

@@ -1,11 +1,11 @@
 package org.infinispan.commands.write;
 
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.atomic.Delta;
 import org.infinispan.atomic.DeltaAware;
 import org.infinispan.commands.MetadataAwareCommand;
 import org.infinispan.commands.Visitor;
-import org.infinispan.container.entries.MVCCEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
@@ -71,7 +71,7 @@ public class PutKeyValueCommand extends AbstractDataWriteCommand implements Meta
          successful = false;
          return null;
       }
-      MVCCEntry e = (MVCCEntry) ctx.lookupEntry(key);
+      ContextEntry e = (ContextEntry) ctx.lookupEntry(key);
       if (e == null && hasFlag(Flag.PUT_FOR_EXTERNAL_READ)) {
          successful = false;
          return null;
@@ -189,7 +189,7 @@ public class PutKeyValueCommand extends AbstractDataWriteCommand implements Meta
       this.ignorePreviousValue = ignorePreviousValue;
    }
 
-   private Object performPut(MVCCEntry e, InvocationContext ctx) {
+   private Object performPut(ContextEntry e, InvocationContext ctx) {
       Object entryValue = e.getValue();
       Object o;
       notifier.notifyCacheEntryModified(

@@ -13,6 +13,7 @@ import java.util.LinkedList;
 import java.util.List;
 
 import static org.infinispan.container.entries.DeltaAwareCacheEntry.Flags.*;
+import static org.infinispan.container.entries.ReadCommittedEntry.Flags.COPIED;
 
 /**
  * A wrapper around a cached entry that encapsulates DeltaAware and Delta semantics when writes are
@@ -21,7 +22,7 @@ import static org.infinispan.container.entries.DeltaAwareCacheEntry.Flags.*;
  * @author Manik Surtani (<a href="mailto:manik@jboss.org">manik@jboss.org</a>)
  * @since 5.1
  */
-public class DeltaAwareCacheEntry implements CacheEntry, StateChangingEntry {
+public class DeltaAwareCacheEntry implements ContextEntry, StateChangingEntry {
    private static final Log log = LogFactory.getLog(DeltaAwareCacheEntry.class);
    private static final boolean trace = log.isTraceEnabled();
 
@@ -192,6 +193,11 @@ public class DeltaAwareCacheEntry implements CacheEntry, StateChangingEntry {
    @Override
    public final boolean isChanged() {
       return isFlagSet(CHANGED);
+   }
+
+   @Override
+   public void copyForUpdate(DataContainer container) {
+
    }
 
    @Override

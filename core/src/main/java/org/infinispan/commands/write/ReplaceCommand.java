@@ -4,7 +4,7 @@ import org.infinispan.commands.MetadataAwareCommand;
 import org.infinispan.commands.Visitor;
 import org.infinispan.commons.equivalence.Equivalence;
 import org.infinispan.configuration.cache.Configuration;
-import org.infinispan.container.entries.MVCCEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.metadata.Metadata;
@@ -64,7 +64,7 @@ public class ReplaceCommand extends AbstractDataWriteCommand implements Metadata
          successful = false;
          return null;
       }
-      MVCCEntry e = (MVCCEntry) ctx.lookupEntry(key);
+      ContextEntry e = (ContextEntry) ctx.lookupEntry(key);
       if (e != null) {
          if (local) {
             //ISPN-514

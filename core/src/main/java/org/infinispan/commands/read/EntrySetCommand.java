@@ -5,6 +5,7 @@ import org.infinispan.commands.Visitor;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.InternalEntryFactory;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
@@ -67,11 +68,11 @@ public class EntrySetCommand extends AbstractLocalCommand implements VisitableCo
 
    private static class FilteredEntrySet extends AbstractSet<InternalCacheEntry> {
       final Set<InternalCacheEntry> entrySet;
-      final Map<Object, CacheEntry> lookedUpEntries;
+      final Map<Object, ContextEntry> lookedUpEntries;
       final TimeService timeService;
       final InternalEntryFactory entryFactory;
 
-      FilteredEntrySet(Set<InternalCacheEntry> entrySet, Map<Object, CacheEntry> lookedUpEntries,
+      FilteredEntrySet(Set<InternalCacheEntry> entrySet, Map<Object, ContextEntry> lookedUpEntries,
             TimeService timeService, InternalEntryFactory entryFactory) {
          this.entrySet = entrySet;
          this.lookedUpEntries = lookedUpEntries;
@@ -159,7 +160,7 @@ public class EntrySetCommand extends AbstractLocalCommand implements VisitableCo
 
       private class Itr implements Iterator<InternalCacheEntry> {
 
-         private final Iterator<CacheEntry> it1 = lookedUpEntries.values().iterator();
+         private final Iterator<ContextEntry> it1 = lookedUpEntries.values().iterator();
          private final Iterator<InternalCacheEntry> it2 = entrySet.iterator();
          private boolean atIt1 = true;
          private InternalCacheEntry next;

@@ -4,7 +4,7 @@ import org.infinispan.metadata.Metadata;
 import org.infinispan.commands.AbstractFlagAffectedCommand;
 import org.infinispan.commands.MetadataAwareCommand;
 import org.infinispan.commands.Visitor;
-import org.infinispan.container.entries.MVCCEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.lifecycle.ComponentStatus;
@@ -46,15 +46,15 @@ public class PutMapCommand extends AbstractFlagAffectedCommand implements WriteC
       return visitor.visitPutMapCommand(ctx, this);
    }
 
-   private MVCCEntry lookupMvccEntry(InvocationContext ctx, Object key) {
-      return (MVCCEntry) ctx.lookupEntry(key);
+   private ContextEntry lookupMvccEntry(InvocationContext ctx, Object key) {
+      return (ContextEntry) ctx.lookupEntry(key);
    }
 
    @Override
    public Object perform(InvocationContext ctx) throws Throwable {
       for (Entry<Object, Object> e : map.entrySet()) {
          Object key = e.getKey();
-         MVCCEntry me = lookupMvccEntry(ctx, key);
+         ContextEntry me = lookupMvccEntry(ctx, key);
          if (me != null) {
             Object value = me.getValue();
             notifier.notifyCacheEntryModified(

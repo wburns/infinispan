@@ -4,6 +4,7 @@ import org.infinispan.commands.VisitableCommand;
 import org.infinispan.commands.Visitor;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
@@ -58,10 +59,10 @@ public class ValuesCommand extends AbstractLocalCommand implements VisitableComm
    private static class FilteredValues extends AbstractCollection<Object> {
       final Collection<Object> values;
       final Set<InternalCacheEntry> entrySet;
-      final Map<Object, CacheEntry> lookedUpEntries;
+      final Map<Object, ContextEntry> lookedUpEntries;
       final TimeService timeService;
 
-      FilteredValues(DataContainer container, Map<Object, CacheEntry> lookedUpEntries, TimeService timeService) {
+      FilteredValues(DataContainer container, Map<Object, ContextEntry> lookedUpEntries, TimeService timeService) {
          values = container.values();
          entrySet = container.entrySet();
          this.lookedUpEntries = lookedUpEntries;
@@ -140,7 +141,7 @@ public class ValuesCommand extends AbstractLocalCommand implements VisitableComm
 
       private class Itr implements Iterator<Object> {
 
-         private final Iterator<CacheEntry> it1 = lookedUpEntries.values().iterator();
+         private final Iterator<ContextEntry> it1 = lookedUpEntries.values().iterator();
          private final Iterator<InternalCacheEntry> it2 = entrySet.iterator();
          private boolean atIt1 = true;
          private Object next;

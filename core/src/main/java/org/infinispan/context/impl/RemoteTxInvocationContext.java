@@ -1,7 +1,7 @@
 package org.infinispan.context.impl;
 
 import org.infinispan.commands.write.WriteCommand;
-import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.transaction.AbstractCacheTransaction;
 import org.infinispan.transaction.RemoteTransaction;
 import org.infinispan.transaction.xa.GlobalTransaction;
@@ -63,17 +63,17 @@ public class RemoteTxInvocationContext extends AbstractTxInvocationContext {
    }
 
    @Override
-   public CacheEntry lookupEntry(Object key) {
+   public ContextEntry lookupEntry(Object key) {
       return remoteTransaction.lookupEntry(key);
    }
 
    @Override
-   public Map<Object, CacheEntry> getLookedUpEntries() {
+   public Map<Object, ContextEntry> getLookedUpEntries() {
       return remoteTransaction.getLookedUpEntries();
    }
 
    @Override
-   public void putLookedUpEntry(Object key, CacheEntry e) {
+   public void putLookedUpEntry(Object key, ContextEntry e) {
       remoteTransaction.putLookedUpEntry(key, e);
    }
 
@@ -88,7 +88,7 @@ public class RemoteTxInvocationContext extends AbstractTxInvocationContext {
    }
 
    @Override
-   public void putLookedUpEntries(Map<Object, CacheEntry> lookedUpEntries) {
+   public void putLookedUpEntries(Map<Object, ContextEntry> lookedUpEntries) {
       remoteTransaction.putLookedUpEntries(lookedUpEntries);
    }
 

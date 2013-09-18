@@ -2,7 +2,7 @@ package org.infinispan.commands.write;
 
 import org.infinispan.commands.Visitor;
 import org.infinispan.container.entries.CacheEntry;
-import org.infinispan.container.entries.MVCCEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.lifecycle.ComponentStatus;
@@ -76,7 +76,7 @@ public class RemoveCommand extends AbstractDataWriteCommand {
          }
       }
 
-      if (!(e instanceof MVCCEntry)) ctx.putLookedUpEntry(key, null);
+      if (!(e instanceof ContextEntry)) ctx.putLookedUpEntry(key, null);
 
       if (!ignorePreviousValue && value != null && e.getValue() != null && !e.getValue().equals(value)) {
          successful = false;

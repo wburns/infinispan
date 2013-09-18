@@ -273,7 +273,7 @@ public class CacheLoaderInterceptor extends JmxStatsCommandInterceptor {
          InternalCacheEntry ice = iceFactory.create(loaded.getKey(), loaded.getValue(), metadata);
          CacheEntry wrappedEntry;
          if (cmd instanceof ApplyDeltaCommand) {
-            ctx.putLookedUpEntry(key, ice);
+            entryFactory.wrapPreviouslyReadEntry(ctx, ice);
             wrappedEntry = entryFactory.wrapEntryForDelta(ctx, key, ((ApplyDeltaCommand) cmd).getDelta());
          } else {
             wrappedEntry = entryFactory.wrapEntryForPut(ctx, key, ice, false, cmd, false);
@@ -293,7 +293,7 @@ public class CacheLoaderInterceptor extends JmxStatsCommandInterceptor {
     * listeners</li> </ol>
     */
    private void recordLoadedEntry(InvocationContext ctx, Object key,
-         CacheEntry entry, InternalCacheEntry loadedEntry, FlagAffectedCommand cmd) throws Exception {
+         CacheEntry entry, CacheEntry loadedEntry, FlagAffectedCommand cmd) throws Exception {
       boolean entryExists = loadedEntry != null;
       if (log.isTraceEnabled()) {
          log.trace("Entry exists in loader? " + entryExists);

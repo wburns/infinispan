@@ -6,6 +6,7 @@ import org.infinispan.commons.equivalence.Equivalence;
 import org.infinispan.commons.util.CollectionFactory;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.transaction.AbstractCacheTransaction;
 import org.infinispan.transaction.LocalTransaction;
@@ -28,12 +29,12 @@ import java.util.Set;
  */
 public class LocalTxInvocationContext extends AbstractTxInvocationContext {
 
-   public final Map<Object, CacheEntry> emptyEntryMap;
+   public final Map<Object, ContextEntry> emptyEntryMap;
 
    private LocalTransaction localTransaction;
 
    public LocalTxInvocationContext(Equivalence<Object> keyEq) {
-      emptyEntryMap = CollectionFactory.makeMap(0, keyEq, AnyEquivalence.<CacheEntry>getInstance());
+      emptyEntryMap = CollectionFactory.makeMap(0, keyEq, AnyEquivalence.<ContextEntry>getInstance());
    }
 
    @Override
@@ -75,22 +76,22 @@ public class LocalTxInvocationContext extends AbstractTxInvocationContext {
    }
 
    @Override
-   public CacheEntry lookupEntry(Object key) {
+   public ContextEntry lookupEntry(Object key) {
       return localTransaction != null ? localTransaction.lookupEntry(key) : null;
    }
 
    @Override
-   public Map<Object, CacheEntry> getLookedUpEntries() {
+   public Map<Object, ContextEntry> getLookedUpEntries() {
       return localTransaction != null ? localTransaction.getLookedUpEntries() : emptyEntryMap;
    }
 
    @Override
-   public void putLookedUpEntry(Object key, CacheEntry e) {
+   public void putLookedUpEntry(Object key, ContextEntry e) {
       localTransaction.putLookedUpEntry(key, e);
    }
 
    @Override
-   public void putLookedUpEntries(Map<Object, CacheEntry> lookedUpEntries) {
+   public void putLookedUpEntries(Map<Object, ContextEntry> lookedUpEntries) {
       localTransaction.putLookedUpEntries(lookedUpEntries);
    }
 

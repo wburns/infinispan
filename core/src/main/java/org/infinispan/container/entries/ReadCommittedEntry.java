@@ -17,7 +17,7 @@ import static org.infinispan.container.entries.ReadCommittedEntry.Flags.*;
  * @author Manik Surtani (<a href="mailto:manik@jboss.org">manik@jboss.org</a>)
  * @since 4.0
  */
-public class ReadCommittedEntry implements MVCCEntry {
+public class ReadCommittedEntry implements ContextEntry {
    private static final Log log = LogFactory.getLog(ReadCommittedEntry.class);
    private static final boolean trace = log.isTraceEnabled();
 

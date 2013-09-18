@@ -1,5 +1,6 @@
 package org.infinispan.container;
 
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.container.versioning.VersionGenerator;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.context.impl.TxInvocationContext;
@@ -8,7 +9,6 @@ import org.infinispan.metadata.EmbeddedMetadata;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.container.entries.ClusteredRepeatableReadEntry;
-import org.infinispan.container.entries.MVCCEntry;
 import org.infinispan.factories.annotations.Start;
 import org.infinispan.metadata.Metadatas;
 
@@ -34,7 +34,7 @@ public class IncrementalVersionableEntryFactoryImpl extends EntryFactoryImpl {
    }
 
    @Override
-   protected MVCCEntry createWrappedEntry(Object key, CacheEntry cacheEntry, InvocationContext context,
+   protected ContextEntry createWrappedEntry(Object key, CacheEntry cacheEntry, InvocationContext context,
                                           Metadata providedMetadata, boolean isForInsert, boolean forRemoval, boolean skipRead) {
       Metadata metadata;
       Object value;
@@ -64,4 +64,8 @@ public class IncrementalVersionableEntryFactoryImpl extends EntryFactoryImpl {
       return new ClusteredRepeatableReadEntry(key, value, metadata);
    }
 
+   @Override
+   public ContextEntry wrapPreviouslyReadEntry(InvocationContext ctx, CacheEntry entry) throws InterruptedException {
+      return null;  // TODO: Customise this generated block
+   }
 }

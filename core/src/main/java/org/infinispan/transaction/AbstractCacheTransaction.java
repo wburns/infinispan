@@ -14,6 +14,7 @@ import org.infinispan.commons.equivalence.Equivalence;
 import org.infinispan.commons.util.CollectionFactory;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.container.versioning.EntryVersion;
 import org.infinispan.container.versioning.EntryVersionsMap;
 import org.infinispan.container.versioning.IncrementableEntryVersion;
@@ -44,7 +45,7 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
    protected volatile boolean hasLocalOnlyModifications;
    protected volatile List<WriteCommand> modifications;
 
-   protected Map<Object, CacheEntry> lookedUpEntries;
+   protected Map<Object, ContextEntry> lookedUpEntries;
 
    /** Holds all the locked keys that were acquired by the transaction allover the cluster. */
    protected Set<Object> affectedKeys = null;
@@ -146,12 +147,12 @@ public abstract class AbstractCacheTransaction implements CacheTransaction {
    }
 
    @Override
-   public Map<Object, CacheEntry> getLookedUpEntries() {
+   public Map<Object, ContextEntry> getLookedUpEntries() {
       return lookedUpEntries;
    }
 
    @Override
-   public CacheEntry lookupEntry(Object key) {
+   public ContextEntry lookupEntry(Object key) {
       if (lookedUpEntries == null) return null;
       return lookedUpEntries.get(key);
    }

@@ -1,7 +1,6 @@
 package org.infinispan.interceptors.distribution;
 
 import org.infinispan.atomic.DeltaCompositeKey;
-import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.commands.FlagAffectedCommand;
 import org.infinispan.commands.control.LockControlCommand;
 import org.infinispan.commands.read.GetKeyValueCommand;
@@ -15,6 +14,7 @@ import org.infinispan.commands.write.RemoveCommand;
 import org.infinispan.commands.write.ReplaceCommand;
 import org.infinispan.commands.write.WriteCommand;
 import org.infinispan.commons.util.InfinispanCollections;
+import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
@@ -279,7 +279,7 @@ public class TxDistributionInterceptor extends BaseDistributionInterceptor {
             if (isWrite)
                lockAndWrap(ctx, key, ice, command);
             else
-               ctx.putLookedUpEntry(key, ice);
+               entryFactory.wrapPreviouslyReadEntry(ctx, ice);
          }
          return isGetCacheEntry ? ice : ice.getValue();
       }
@@ -338,7 +338,7 @@ public class TxDistributionInterceptor extends BaseDistributionInterceptor {
                if (isWrite)
                   lockAndWrap(ctx, key, ice, command);
                else {
-                  ctx.putLookedUpEntry(key, ice);
+                  entryFactory.wrapPreviouslyReadEntry(ctx, ice);
                   if (ctx.isInTxScope()) {
                      ((TxInvocationContext) ctx).getCacheTransaction().replaceVersionRead(key, ice.getMetadata().version());
                   }

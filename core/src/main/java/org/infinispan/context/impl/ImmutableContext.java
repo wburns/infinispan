@@ -3,7 +3,7 @@ package org.infinispan.context.impl;
 import org.infinispan.commons.CacheException;
 import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.container.entries.CacheEntry;
-import org.infinispan.container.entries.InternalCacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.remoting.transport.Address;
 
@@ -25,22 +25,22 @@ public final class ImmutableContext implements InvocationContext {
    }
 
    @Override
-   public CacheEntry lookupEntry(Object key) {
+   public ContextEntry lookupEntry(Object key) {
       throw newUnsupportedMethod();
    }
 
    @Override
-   public Map<Object, CacheEntry> getLookedUpEntries() {
+   public Map<Object, ContextEntry> getLookedUpEntries() {
       return InfinispanCollections.emptyMap();
    }
 
    @Override
-   public void putLookedUpEntry(Object key, CacheEntry e) {
+   public void putLookedUpEntry(Object key, ContextEntry e) {
       throw newUnsupportedMethod();
    }
 
    @Override
-   public void putLookedUpEntries(Map<Object, CacheEntry> lookedUpEntries) {
+   public void putLookedUpEntries(Map<Object, ContextEntry> lookedUpEntries) {
       throw newUnsupportedMethod();
    }
 
@@ -126,7 +126,7 @@ public final class ImmutableContext implements InvocationContext {
    }
 
    @Override
-   public boolean replaceValue(Object key, InternalCacheEntry cacheEntry) {
+   public boolean replaceValue(Object key, CacheEntry cacheEntry) {
       throw newUnsupportedMethod();
    }
 

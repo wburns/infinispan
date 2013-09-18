@@ -3,6 +3,7 @@ package org.infinispan.util.concurrent.locks;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.ContextEntry;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.jmx.annotations.DataType;
@@ -57,9 +58,9 @@ public class LockManagerImpl implements LockManager {
       if (log.isDebugEnabled()) {
          log.debugf("Failed to acquire lock %s, owner is %s", toStr(key), getOwner(key));
          Object owner = ctx.getLockOwner();
-         Set<Map.Entry<Object, CacheEntry>> entries = ctx.getLookedUpEntries().entrySet();
+         Set<Map.Entry<Object, ContextEntry>> entries = ctx.getLookedUpEntries().entrySet();
          List<Object> lockedKeys = new ArrayList<Object>(entries.size());
-         for (Map.Entry<Object, CacheEntry> e : entries) {
+         for (Map.Entry<Object, ContextEntry> e : entries) {
             Object lockedKey = e.getKey();
             if (ownsLock(lockedKey, owner)) {
                lockedKeys.add(lockedKey);
