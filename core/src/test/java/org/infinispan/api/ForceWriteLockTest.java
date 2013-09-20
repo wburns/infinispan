@@ -2,7 +2,7 @@ package org.infinispan.api;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.container.entries.CacheEntry;
-import org.infinispan.container.entries.ReadCommittedEntry;
+import org.infinispan.container.entries.RepeatableReadEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.manager.EmbeddedCacheManager;
@@ -38,7 +38,7 @@ public class ForceWriteLockTest extends SingleCacheManagerTest {
 
       InvocationContext ic = advancedCache.getInvocationContextContainer().getInvocationContext(true);
       CacheEntry cacheEntry = ic.getLookedUpEntries().get("k");
-      assert (cacheEntry instanceof ReadCommittedEntry && cacheEntry.isChanged());
+      assert (cacheEntry instanceof RepeatableReadEntry && cacheEntry.isChanged());
 
       assertLocked(advancedCache,"k");
       tm.commit();

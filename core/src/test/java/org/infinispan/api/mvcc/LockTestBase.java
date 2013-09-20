@@ -28,7 +28,6 @@ import java.util.Collections;
 @Test(groups = "functional")
 public abstract class LockTestBase extends AbstractInfinispanTest {
    private Log log = LogFactory.getLog(LockTestBase.class);
-   protected boolean repeatableRead = true;
    protected boolean lockParentForChildInsertRemove = false;
    private CacheContainer cm;
 
@@ -49,7 +48,7 @@ public abstract class LockTestBase extends AbstractInfinispanTest {
 
       defaultCfg
          .locking()
-            .isolationLevel(repeatableRead ? IsolationLevel.REPEATABLE_READ : IsolationLevel.READ_COMMITTED)
+            .isolationLevel(IsolationLevel.REPEATABLE_READ)
             .lockAcquisitionTimeout(200)
             .transaction()
                .transactionManagerLookup(new DummyTransactionManagerLookup());
@@ -230,10 +229,7 @@ public abstract class LockTestBase extends AbstractInfinispanTest {
       assertNoLocks();
 
       tm.resume(read);
-      if (repeatableRead)
-         assert null == cache.get("k2") : "Should have repeatable read";
-      else
-         assert "v2".equals(cache.get("k2")) : "Read committed should see committed changes";
+      assert null == cache.get("k2") : "Should have repeatable read";
       tm.commit();
       assertNoLocks();
    }
@@ -261,10 +257,7 @@ public abstract class LockTestBase extends AbstractInfinispanTest {
       assertNoLocks();
 
       tm.resume(read);
-      if (repeatableRead)
-         assert "v".equals(cache.get("k")) : "Should have repeatable read";
-      else
-         assert "v2".equals(cache.get("k")) : "Read committed should see committed changes";
+      assert "v".equals(cache.get("k")) : "Should have repeatable read";
       tm.commit();
       assertNoLocks();
    }
@@ -291,11 +284,7 @@ public abstract class LockTestBase extends AbstractInfinispanTest {
       assertNoLocks();
 
       tm.resume(read);
-      if (repeatableRead) {
-         assert null == cache.get("k") : "Should have repeatable read";
-      } else {
-         assert "v".equals(cache.get("k")) : "Read committed should see committed changes";
-      }
+      assert null == cache.get("k") : "Should have repeatable read";
       tm.commit();
       assertNoLocks();
    }

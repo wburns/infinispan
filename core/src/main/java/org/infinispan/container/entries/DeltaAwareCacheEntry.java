@@ -13,7 +13,7 @@ import java.util.LinkedList;
 import java.util.List;
 
 import static org.infinispan.container.entries.DeltaAwareCacheEntry.Flags.*;
-import static org.infinispan.container.entries.ReadCommittedEntry.Flags.COPIED;
+import static org.infinispan.container.entries.RepeatableReadEntry.Flags.COPIED;
 
 /**
  * A wrapper around a cached entry that encapsulates DeltaAware and Delta semantics when writes are

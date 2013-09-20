@@ -10,10 +10,6 @@ import javax.transaction.TransactionManager;
 
 @Test(groups = "functional", testName = "api.mvcc.repeatable_read.RepeatableReadLockTest")
 public class RepeatableReadLockTest extends LockTestBase {
-   public RepeatableReadLockTest() {
-      repeatableRead = true;
-   }
-
    public void testRepeatableReadWithRemove() throws Exception {
       LockTestBaseTL tl = threadLocal.get();
       Cache<String, String> cache = tl.cache;

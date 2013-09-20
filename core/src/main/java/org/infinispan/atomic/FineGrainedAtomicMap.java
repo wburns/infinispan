@@ -40,7 +40,7 @@ import org.infinispan.util.concurrent.IsolationLevel;
  * <p><b><u>Referential Integrity</u></b><br />
  * It is important to note that concurrent readers of an AtomicMap will essentially have the same view of the contents
  * of the underlying structure, but since AtomicMaps use internal proxies, readers are isolated from concurrent writes
- * and {@link IsolationLevel#READ_COMMITTED} and {@link IsolationLevel#REPEATABLE_READ} semantics are guaranteed.
+ * and @link IsolationLevel#REPEATABLE_READ} semantics are guaranteed.
  * However, this guarantee is only present if the values stored in an AtomicMap are <i>immutable</i> (e.g., Strings,
  * primitives, and other immutable types).</p>
  *

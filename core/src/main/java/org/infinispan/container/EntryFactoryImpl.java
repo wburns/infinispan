@@ -11,7 +11,6 @@ import org.infinispan.commands.write.ReplaceCommand;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.container.entries.DeltaAwareCacheEntry;
-import org.infinispan.container.entries.ReadCommittedEntry;
 import org.infinispan.container.entries.RepeatableReadEntry;
 import org.infinispan.container.entries.StateChangingEntry;
 import org.infinispan.context.Flag;
@@ -35,7 +34,6 @@ public class EntryFactoryImpl implements EntryFactory {
    private static final Log log = LogFactory.getLog(EntryFactoryImpl.class);
    private final boolean trace = log.isTraceEnabled();
    
-   protected boolean useRepeatableRead;
    private DataContainer container;
    protected boolean clusterModeWriteSkewCheck;
    private Configuration configuration;
@@ -50,8 +48,7 @@ public class EntryFactoryImpl implements EntryFactory {
 
    @Start (priority = 8)
    public void init() {
-      useRepeatableRead = configuration.locking().isolationLevel() == IsolationLevel.REPEATABLE_READ;
-      clusterModeWriteSkewCheck = useRepeatableRead && configuration.locking().writeSkewCheck() &&
+      clusterModeWriteSkewCheck = configuration.locking().writeSkewCheck() &&
             configuration.clustering().cacheMode().isClustered() && configuration.versioning().scheme() == VersioningScheme.SIMPLE &&
             configuration.versioning().enabled();
    }
@@ -63,24 +60,16 @@ public class EntryFactoryImpl implements EntryFactory {
          CacheEntry cacheEntry = getFromContainer(key);
 
          // do not bother wrapping though if this is not in a tx.  repeatable read etc are all meaningless unless there is a tx.
-         if (useRepeatableRead) {
-            if (cacheEntry == null) {
-               contextEntry = createWrappedEntry(key, null, ctx, null, false, false, false);
-            } else {
-               contextEntry = createWrappedEntry(key, cacheEntry, ctx, null, false, false, false);
-               // If the original entry has changeable state, copy state flags to the new MVCC entry.
-               if (cacheEntry instanceof StateChangingEntry && contextEntry != null)
-                  contextEntry.copyStateFlagsFrom((StateChangingEntry) cacheEntry);
-            }
-
-            if (contextEntry != null) ctx.putLookedUpEntry(key, contextEntry);
-            if (trace) {
-               log.tracef("Wrap %s for read. Entry=%s", key, contextEntry);
-            }
-            return contextEntry;
-         } else if (cacheEntry != null) { // if not in transaction and repeatable read, or simply read committed (regardless of whether in TX or not), do not wrap
-            wrapPreviouslyReadEntry(ctx, cacheEntry);
+         if (cacheEntry == null) {
+            contextEntry = createWrappedEntry(key, null, ctx, null, false, false, false);
+         } else {
+            contextEntry = createWrappedEntry(key, cacheEntry, ctx, null, false, false, false);
+            // If the original entry has changeable state, copy state flags to the new MVCC entry.
+            if (cacheEntry instanceof StateChangingEntry && contextEntry != null)
+               contextEntry.copyStateFlagsFrom((StateChangingEntry) cacheEntry);
          }
+
+         if (contextEntry != null) ctx.putLookedUpEntry(key, contextEntry);
          if (trace) {
             log.tracef("Wrap %s for read. Entry=%s", key, contextEntry);
          }
@@ -155,33 +144,26 @@ public class EntryFactoryImpl implements EntryFactory {
          boolean undeleteIfNeeded, FlagAffectedCommand cmd, boolean skipRead) throws InterruptedException {
       CacheEntry cacheEntry = getFromContext(ctx, key);
       ContextEntry contextEntry;
-      if (cacheEntry != null && cacheEntry.isNull() && !useRepeatableRead) cacheEntry = null;
       Metadata providedMetadata = cmd.getMetadata();
       if (cacheEntry != null) {
-         if (useRepeatableRead) {
-            //sanity check. In repeatable read, we only deal with RepeatableReadEntry and ClusteredRepeatableReadEntry
-            if (cacheEntry instanceof RepeatableReadEntry) {
-               contextEntry = (ContextEntry) cacheEntry;
-            } else {
-               throw new IllegalStateException("Cache entry stored in context should be a RepeatableReadEntry instance " +
-                                                     "but it is " + cacheEntry.getClass().getCanonicalName());
-            }
-            //if the icEntry is not null, then this is a remote get. We need to update the value and the metadata.
-            if (!contextEntry.isRemoved() && !contextEntry.skipRemoteGet() && icEntry != null) {
-               contextEntry.setValue(icEntry.getValue());
-               updateVersion(contextEntry, icEntry.getMetadata());
-            }
-            if (!contextEntry.isRemoved() && contextEntry.isNull()) {
-               //new entry
-               contextEntry.setCreated(true);
-            }
-            //always update the metadata if needed.
-            updateMetadata(contextEntry, providedMetadata);
-
+         //sanity check. In repeatable read, we only deal with RepeatableReadEntry and ClusteredRepeatableReadEntry
+         if (cacheEntry instanceof RepeatableReadEntry) {
+            contextEntry = (ContextEntry) cacheEntry;
          } else {
-            //skipRead == true because the key already exists in the context that means the key was previous accessed.
-            contextEntry = wrapMvccEntryForPut(ctx, key, cacheEntry, providedMetadata, true);
+            throw new IllegalStateException("Cache entry stored in context should be a RepeatableReadEntry instance " +
+                                                  "but it is " + cacheEntry.getClass().getCanonicalName());
          }
+         //if the icEntry is not null, then this is a remote get. We need to update the value and the metadata.
+         if (!contextEntry.isRemoved() && !contextEntry.skipRemoteGet() && icEntry != null) {
+            contextEntry.setValue(icEntry.getValue());
+            updateVersion(contextEntry, icEntry.getMetadata());
+         }
+         if (!contextEntry.isRemoved() && contextEntry.isNull()) {
+            //new entry
+            contextEntry.setCreated(true);
+         }
+         //always update the metadata if needed.
+         updateMetadata(contextEntry, providedMetadata);
          contextEntry.undelete(undeleteIfNeeded);
       } else {
          CacheEntry ice = (icEntry == null ? getFromContainer(key) : icEntry);
@@ -320,12 +302,7 @@ public class EntryFactoryImpl implements EntryFactory {
             ? providedMetadata
             : cacheEntry != null ? cacheEntry.getMetadata() : null;
 
-      if (value == null && !isForInsert && !useRepeatableRead)
-         return null;
-
-      return useRepeatableRead
-            ? new RepeatableReadEntry(key, value, metadata)
-            : new ReadCommittedEntry(key, value, metadata);
+      return new RepeatableReadEntry(key, value, metadata);
    }
    
    private DeltaAwareCacheEntry newDeltaAwareCacheEntry(InvocationContext ctx, Object key, DeltaAware deltaAware){

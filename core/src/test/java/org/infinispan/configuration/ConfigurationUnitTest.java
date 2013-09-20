@@ -240,7 +240,7 @@ public class ConfigurationUnitTest {
          @Override
          public void call() {
             Configuration cfg = cm.getCache().getCacheConfiguration();
-            assertEquals(IsolationLevel.READ_COMMITTED,
+            assertEquals(IsolationLevel.REPEATABLE_READ,
                   cfg.locking().isolationLevel());
          }
       });

@@ -20,7 +20,7 @@ public class LockingConfigurationBuilder extends AbstractConfigurationChildBuild
    private static final Log log = LogFactory.getLog(LockingConfigurationBuilder.class);
 
    private int concurrencyLevel = 32;
-   private IsolationLevel isolationLevel = IsolationLevel.READ_COMMITTED;
+   private IsolationLevel isolationLevel = IsolationLevel.REPEATABLE_READ;
    private long lockAcquisitionTimeout = TimeUnit.SECONDS.toMillis(10);
    private boolean useLockStriping = false;
    private boolean writeSkewCheck = false;
@@ -99,6 +99,11 @@ public class LockingConfigurationBuilder extends AbstractConfigurationChildBuild
 
    @Override
    public void validate() {
+      if (getBuilder().clustering().cacheMode().isClustered() && isolationLevel != IsolationLevel.REPEATABLE_READ) {
+         log.debug("Only REPEATABLE_READ isolation level is supported - setting isolation level to REPEATABLE_READ");
+         isolationLevel = IsolationLevel.REPEATABLE_READ;
+      }
+
       if (writeSkewCheck) {
          if (isolationLevel != IsolationLevel.REPEATABLE_READ)
             throw new CacheConfigurationException("Write-skew checking only allowed with REPEATABLE_READ isolation level for cache");
@@ -112,15 +117,6 @@ public class LockingConfigurationBuilder extends AbstractConfigurationChildBuild
             throw new CacheConfigurationException("Write-skew checking is only supported in REPL_SYNC, DIST_SYNC and LOCAL modes.  "
                   + clustering().cacheMode() + " cannot be used with write-skew checking");
       }
-
-      if (getBuilder().clustering().cacheMode().isClustered() && isolationLevel == IsolationLevel.NONE)
-         isolationLevel = IsolationLevel.READ_COMMITTED;
-
-      if (isolationLevel == IsolationLevel.READ_UNCOMMITTED)
-         isolationLevel = IsolationLevel.READ_COMMITTED;
-
-      if (isolationLevel == IsolationLevel.SERIALIZABLE)
-         isolationLevel = IsolationLevel.REPEATABLE_READ;
    }
 
    @Override

@@ -23,11 +23,6 @@ public class IncrementalVersionableEntryFactoryImpl extends EntryFactoryImpl {
 
    private VersionGenerator versionGenerator;
 
-   @Start (priority = 9)
-   public void setWriteSkewCheckFlag() {
-      useRepeatableRead = true;
-   }
-
    @Inject
    public void injectVersionGenerator(VersionGenerator versionGenerator) {
       this.versionGenerator = versionGenerator;

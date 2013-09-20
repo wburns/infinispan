@@ -56,7 +56,7 @@ public class ParserOverrideTest {
             Assert.assertEquals(c.clustering().cacheMode(), CacheMode.REPL_SYNC);
             Assert.assertEquals(c.clustering().stateTransfer().fetchInMemoryState(), true);
             Assert.assertEquals(c.clustering().sync().replTimeout(), 30000);
-            Assert.assertEquals(c.locking().isolationLevel(), IsolationLevel.READ_COMMITTED);
+            Assert.assertEquals(c.locking().isolationLevel(), IsolationLevel.REPEATABLE_READ);
             Assert.assertEquals(c.locking().concurrencyLevel(), 30);
             Assert.assertEquals(c.locking().lockAcquisitionTimeout(), 25000);
             Assert.assertEquals(c.storeAsBinary().enabled(), false);
@@ -107,7 +107,7 @@ public class ParserOverrideTest {
             Assert.assertEquals(c.clustering().cacheMode(), CacheMode.REPL_SYNC);
             Assert.assertEquals(c.clustering().stateTransfer().fetchInMemoryState(), true);
             Assert.assertEquals(c.clustering().sync().replTimeout(), 30000);
-            Assert.assertEquals(c.locking().isolationLevel(), IsolationLevel.READ_COMMITTED);
+            Assert.assertEquals(c.locking().isolationLevel(), IsolationLevel.REPEATABLE_READ);
             Assert.assertEquals(c.locking().concurrencyLevel(), 30);
             Assert.assertEquals(c.locking().lockAcquisitionTimeout(), 25000);
             Assert.assertEquals(c.storeAsBinary().enabled(), false);
@@ -186,7 +186,7 @@ public class ParserOverrideTest {
             Assert.assertEquals(c.clustering().async().replQueueInterval(), 105);
             Assert.assertEquals(c.clustering().async().replQueueMaxElements(), 341);
             Assert.assertEquals(c.jmxStatistics().enabled(), true);
-            Assert.assertEquals(c.locking().isolationLevel(), IsolationLevel.READ_COMMITTED);
+            Assert.assertEquals(c.locking().isolationLevel(), IsolationLevel.REPEATABLE_READ);
             Assert.assertEquals(c.locking().concurrencyLevel(), 30);
             Assert.assertEquals(c.locking().lockAcquisitionTimeout(), 25000);
             Assert.assertEquals(c.storeAsBinary().enabled(), false);

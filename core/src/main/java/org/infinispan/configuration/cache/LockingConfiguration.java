@@ -46,7 +46,7 @@ public class LockingConfiguration {
    }
 
    /**
-    * Cache isolation level. Infinispan only supports READ_COMMITTED or REPEATABLE_READ isolation
+    * Cache isolation level. Infinispan only supports REPEATABLE_READ isolation
     * levels. See <a href=
     * 'http://en.wikipedia.org/wiki/Isolation_level'>http://en.wikipedia.org/wiki/Isolation_level</a
     * > for a discussion on isolation levels.

@@ -43,7 +43,7 @@ public class StringPropertyReplacementTest extends SingleCacheManagerTest {
 
    public void testDefaultCache() {
       org.infinispan.configuration.cache.Configuration configuration = cacheManager.getCache().getCacheConfiguration();
-      assert configuration.locking().isolationLevel().equals(IsolationLevel.READ_COMMITTED);
+      assert configuration.locking().isolationLevel().equals(IsolationLevel.REPEATABLE_READ);
       assert !configuration.locking().writeSkewCheck();
       assert configuration.transaction().syncCommitPhase();
    }
