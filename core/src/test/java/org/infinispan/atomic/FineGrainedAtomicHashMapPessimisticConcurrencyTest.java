@@ -1,14 +1,5 @@
 package org.infinispan.atomic;
 
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.concurrent.Callable;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.test.SingleCacheManagerTest;
@@ -21,20 +12,26 @@ import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.testng.annotations.Test;
 
-import static org.testng.Assert.assertEquals;
-import static org.testng.Assert.assertNull;
-import static org.testng.Assert.assertTrue;
-import static org.testng.Assert.fail;
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import static org.testng.Assert.*;
 
 /**
- * Test class for AtomicHashMap.
+ * Test class for FineGrainedAtomicHashMap.
  *
  * @author Mircea.Markus@jboss.com
  * @author Dan Berindei
  */
-@Test(groups = "functional", testName = "atomic.AtomicHashMapPessimisticConcurrencyTest")
-public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerTest {
-   private static final Log log = LogFactory.getLog(AtomicHashMapPessimisticConcurrencyTest.class);
+@Test(groups = "functional", testName = "atomic.FineGrainedAtomicHashMapPessimisticConcurrencyTest")
+public class FineGrainedAtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerTest {
+   private static final Log log = LogFactory.getLog(FineGrainedAtomicHashMapPessimisticConcurrencyTest.class);
 
    public static final String KEY = "key";
    private LockingMode lockingMode = LockingMode.PESSIMISTIC;
@@ -51,7 +48,7 @@ public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerT
 
    public void testConcurrentCreate() throws Exception {
       tm().begin();
-      AtomicMapLookup.getAtomicMap(cache, KEY);
+      AtomicMapLookup.getFineGrainedAtomicMap(cache, KEY);
 
       final AtomicBoolean gotTimeoutException = new AtomicBoolean();
       fork(new Runnable() {
@@ -61,7 +58,7 @@ public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerT
                tm().begin();
 
                try {
-                  AtomicMapLookup.getAtomicMap(cache, KEY);
+                  AtomicMapLookup.getFineGrainedAtomicMap(cache, KEY);
                } catch (TimeoutException e) {
                   // this is the exception we were expecting
                   gotTimeoutException.set(true);
@@ -78,7 +75,7 @@ public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerT
    }
 
    public void testLockTimeout() throws Exception {
-      AtomicMap<Integer, String> atomicMap = AtomicMapLookup.getAtomicMap(cache, KEY);
+      FineGrainedAtomicMap<Integer, String> atomicMap = AtomicMapLookup.getFineGrainedAtomicMap(cache, KEY);
       tm().begin();
       atomicMap.put(1, "");
 
@@ -88,7 +85,7 @@ public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerT
             tm().begin();
 
             try {
-               AtomicMap<Integer, String> otMap = AtomicMapLookup.getAtomicMap(cache, KEY);
+               FineGrainedAtomicMap<Integer, String> otMap = AtomicMapLookup.getFineGrainedAtomicMap(cache, KEY);
                otMap.put(1, "val");
             } finally {
                tm().rollback();
@@ -109,7 +106,7 @@ public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerT
       final CountDownLatch readLatch = new CountDownLatch(1);
       final CountDownLatch commitLatch = new CountDownLatch(1);
 
-      AtomicMap<Integer, String> atomicMap = AtomicMapLookup.getAtomicMap(cache, KEY);
+      FineGrainedAtomicMap<Integer, String> atomicMap = AtomicMapLookup.getFineGrainedAtomicMap(cache, KEY);
       tm().begin();
       atomicMap.put(1, "value1");
 
@@ -118,7 +115,7 @@ public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerT
          public Object call() throws Exception {
             try {
                tm().begin();
-               AtomicMap<Integer, String> otMap = AtomicMapLookup.getAtomicMap(cache, KEY);
+               FineGrainedAtomicMap<Integer, String> otMap = AtomicMapLookup.getFineGrainedAtomicMap(cache, KEY);
 
                assertEquals(otMap.size(), 0);
                readLatch.countDown();
@@ -140,14 +137,14 @@ public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerT
       commitLatch.countDown();
 
       future.get(10, TimeUnit.SECONDS);
-      assertEquals(atomicMap.keySet(), new HashSet<Integer>(Arrays.asList(2)));
+      assertEquals(atomicMap.keySet(), new HashSet<Integer>(Arrays.asList(1, 2)));
    }
 
    public void testConcurrentRemove() throws Exception {
       final CountDownLatch readLatch = new CountDownLatch(1);
       final CountDownLatch commitLatch = new CountDownLatch(1);
 
-      AtomicMap<Integer, String> atomicMap = AtomicMapLookup.getAtomicMap(cache, KEY);
+      FineGrainedAtomicMap<Integer, String> atomicMap = AtomicMapLookup.getFineGrainedAtomicMap(cache, KEY);
       tm().begin();
       atomicMap.put(1, "value1");
       atomicMap.put(2, "value2");
@@ -162,7 +159,7 @@ public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerT
          public Object call() throws Exception {
             try {
                tm().begin();
-               AtomicMap<Integer, String> otMap = AtomicMapLookup.getAtomicMap(cache, KEY);
+               FineGrainedAtomicMap<Integer, String> otMap = AtomicMapLookup.getFineGrainedAtomicMap(cache, KEY);
 
                assertEquals(otMap.size(), 3);
                readLatch.countDown();
@@ -184,11 +181,11 @@ public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerT
       commitLatch.countDown();
 
       future.get(10, TimeUnit.SECONDS);
-      assertEquals(atomicMap.keySet(), new HashSet<Integer>(Arrays.asList(1, 3)));
+      assertEquals(atomicMap.keySet(), new HashSet<Integer>(Arrays.asList(3)));
    }
 
    public void testReadAfterTxStarted() throws Exception {
-      AtomicMap<Integer, String> atomicMap = AtomicMapLookup.getAtomicMap(cache, KEY);
+      FineGrainedAtomicMap<Integer, String> atomicMap = AtomicMapLookup.getFineGrainedAtomicMap(cache, KEY);
       atomicMap.put(1, "existing");
       tm().begin();
       atomicMap.put(1, "newVal");
@@ -203,7 +200,7 @@ public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerT
             tm().begin();
 
             try {
-               AtomicMap<Integer, String> otMap = AtomicMapLookup.getAtomicMap(cache, KEY);
+               FineGrainedAtomicMap<Integer, String> otMap = AtomicMapLookup.getFineGrainedAtomicMap(cache, KEY);
 
                responseBeforeCommit.set(otMap.get(1));
 
@@ -225,6 +222,6 @@ public class AtomicHashMapPessimisticConcurrencyTest extends SingleCacheManagerT
 
       future.get(10, TimeUnit.SECONDS);
       assertEquals(atomicMap.get(1), "newVal");
-      assertEquals(responseAfterCommit.get(), "existing");
+      assertEquals(responseAfterCommit.get(), "newVal");
    }
 }
