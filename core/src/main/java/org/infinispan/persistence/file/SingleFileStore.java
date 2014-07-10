@@ -434,11 +434,11 @@ public class SingleFileStore<K, V> implements AdvancedLoadWriteStore<K, V> {
    }
 
    @Override
-   public MarshalledEntry load(Object key) {
+   public MarshalledEntry<K, V> load(Object key) {
       return _load(key, true, true);
    }
 
-   private MarshalledEntry _load(Object key, boolean loadValue, boolean loadMetadata) {
+   private MarshalledEntry<K, V> _load(Object key, boolean loadValue, boolean loadMetadata) {
       final FileEntry fe;
       final boolean expired;
       resizeLock.readLock().lock();
@@ -500,7 +500,7 @@ public class SingleFileStore<K, V> implements AdvancedLoadWriteStore<K, V> {
    }
 
    @Override
-   public void process(KeyFilter<? super K> filter, final CacheLoaderTask<? super K, ? super V> task, Executor executor, final boolean fetchValue, final boolean fetchMetadata) {
+   public void process(KeyFilter filter, final CacheLoaderTask task, Executor executor, final boolean fetchValue, final boolean fetchMetadata) {
       filter = PersistenceUtil.notNull(filter);
       Set<Object> keysToLoad = new HashSet<Object>(entries.size());
       synchronized (entries) {
@@ -521,7 +521,7 @@ public class SingleFileStore<K, V> implements AdvancedLoadWriteStore<K, V> {
             @Override
             public Void call() throws Exception {
                try {
-                  final MarshalledEntry marshalledEntry = _load(key, fetchValue, fetchMetadata);
+                  final MarshalledEntry<K, V> marshalledEntry = _load(key, fetchValue, fetchMetadata);
                   if (marshalledEntry != null) {
                      task.processEntry(marshalledEntry, taskContext);
                   }
