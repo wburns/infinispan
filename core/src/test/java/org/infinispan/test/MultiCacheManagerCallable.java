@@ -8,7 +8,7 @@ import org.infinispan.manager.EmbeddedCacheManager;
  * @author Galder Zamarreño
  * @since 5.1
  */
-public class MultiCacheManagerCallable {
+public abstract class MultiCacheManagerCallable {
 
    protected final EmbeddedCacheManager[] cms;
 
@@ -16,8 +16,5 @@ public class MultiCacheManagerCallable {
       this.cms = cms;
    }
 
-   public void call() {
-      // No-op
-   }
-
+   public abstract void call();
 }

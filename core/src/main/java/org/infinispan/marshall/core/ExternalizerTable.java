@@ -150,6 +150,7 @@ public class ExternalizerTable implements ObjectTable {
 
    @Start(priority = 7) // Should start before global marshaller
    public void start() {
+      log.tracef("Starting externalizer table %s", this);
       loadInternalMarshallables();
       loadForeignMarshallables(gcr.getGlobalConfiguration());
       started = true;
@@ -164,7 +165,7 @@ public class ExternalizerTable implements ObjectTable {
       writers.clear();
       readers.clear();
       started = false;
-      log.trace("Externalizer reader and writer maps have been cleared and constant object table was stopped");
+      log.tracef("Externalizer %s reader and writer maps have been cleared and constant object table was stopped", this);
    }
 
    @Override

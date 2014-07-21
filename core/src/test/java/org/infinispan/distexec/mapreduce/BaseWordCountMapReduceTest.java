@@ -8,6 +8,7 @@ import org.infinispan.test.MultipleCacheManagersTest;
 import org.testng.annotations.BeforeClass;
 import org.testng.annotations.Test;
 
+import java.io.Serializable;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
@@ -307,11 +308,11 @@ public abstract class BaseWordCountMapReduceTest extends MultipleCacheManagersTe
       });
      Integer totalWords = future.get(); 
      assertTotalWordCount(totalWords);
-  }
+   }
 
-  public void testInvokeMapReduceOnSubsetOfKeysWithCollatorAsync() throws Exception {
-     MapReduceTask<String,String,String,Integer> task = invokeMapReduce(new String[] { "1", "2", "3" });
-     Future<Integer> future = task.executeAsynchronously(new Collator<String, Integer, Integer>() {
+   public void testInvokeMapReduceOnSubsetOfKeysWithCollatorAsync() throws Exception {
+      MapReduceTask<String,String,String,Integer> task = invokeMapReduce(new String[] { "1", "2", "3" });
+      Future<Integer> future = task.executeAsynchronously(new Collator<String, Integer, Integer>() {
         
         @Override
         public Integer collate(Map<String, Integer> reducedResults) {
@@ -320,37 +321,38 @@ public abstract class BaseWordCountMapReduceTest extends MultipleCacheManagersTe
               sum += e.getValue();
            }
            return sum;
-        }
+         }
      });
-     Integer totalWords = future.get();
-     assertPartialWordCount(totalWords); 
+      Integer totalWords = future.get();
+      assertPartialWordCount(totalWords);
    }
 
-   @Test(expectedExceptions = CacheException.class)
    public void testCombinerForDistributedReductionWithException() throws Exception {
       MapReduceTask<String, String, String, Integer> task = invokeMapReduce(null);
-      task.combinedWith(new Reducer<String, Integer>() {
-         @Override
-         public Integer reduce(String reducedKey, Iterator<Integer> iter) {
-            //simulating exception
-            int a = 4 / 0;
-
-            return null;
-         }
-      });
+      task.combinedWith(new DivideByZeroReducer());
 
       task.execute();
-  }
+   }
+
+   private static class DivideByZeroReducer implements Reducer<String, Integer>, Serializable {
+      @Override
+      public Integer reduce(String reducedKey, Iterator<Integer> iter) {
+         //simulating exception
+         int a = 4 / 0;
+
+         return null;
+      }
+   }
   
-  protected void assertPartialWordCount(int actualWordCount){
-     int expectedWordCount= 13;
-     assertTrue(" word count of " + actualWordCount + " incorrect , expected " + expectedWordCount, actualWordCount == expectedWordCount);
-  }
+   protected void assertPartialWordCount(int actualWordCount){
+      int expectedWordCount= 13;
+      assertTrue(" word count of " + actualWordCount + " incorrect , expected " + expectedWordCount, actualWordCount == expectedWordCount);
+   }
   
-  protected void assertTotalWordCount(int actualWordCount){
-     int expectedWordCount= 56;
-     assertTrue(" word count of " + actualWordCount + " incorrect , expected " + expectedWordCount, actualWordCount == expectedWordCount);
-  }
+   protected void assertTotalWordCount(int actualWordCount){
+      int expectedWordCount= 56;
+      assertTrue(" word count of " + actualWordCount + " incorrect , expected " + expectedWordCount, actualWordCount == expectedWordCount);
+   }
   
    protected int countWords(Map<String, Integer> result) {
       int sum = 0;

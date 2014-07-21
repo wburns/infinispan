@@ -10,11 +10,7 @@ import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.marshall.core.ExternalizerTable;
 import org.infinispan.remoting.InboundInvocationHandler;
 import org.infinispan.remoting.InboundInvocationHandlerImpl;
-import org.infinispan.topology.ClusterTopologyManager;
-import org.infinispan.topology.ClusterTopologyManagerImpl;
 import org.infinispan.topology.DefaultRebalancePolicy;
-import org.infinispan.topology.LocalTopologyManager;
-import org.infinispan.topology.LocalTopologyManagerImpl;
 import org.infinispan.topology.RebalancePolicy;
 import org.infinispan.util.DefaultTimeService;
 import org.infinispan.util.TimeService;
@@ -44,10 +40,6 @@ public class EmptyConstructorFactory extends AbstractComponentFactory implements
          return (T) new RemoteCommandsFactory();
       else if (componentType.equals(ExternalizerTable.class))
          return (T) new ExternalizerTable();
-      else if (componentType.equals(LocalTopologyManager.class))
-         return (T) new LocalTopologyManagerImpl();
-      else if (componentType.equals(ClusterTopologyManager.class))
-         return (T) new ClusterTopologyManagerImpl();
       else if (componentType.equals(RebalancePolicy.class))
          return (T) new DefaultRebalancePolicy();
       else if (componentType.equals(BackupReceiverRepository.class))
