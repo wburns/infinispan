@@ -23,8 +23,24 @@ public class NonReentrantWriterPreferredReadWriteLock implements ReadWriteLock {
    // and await the phase to complete
    // Note no one should reference this phaser variable other that writers, readers should
    // only retrieve from the AtomicReference
-   private final Phaser internalPhaser = new Phaser(0);
+   private final Phaser internalPhaser;
    private final AtomicReference<Phaser> phaserRef = new AtomicReference<>();
+
+   public NonReentrantWriterPreferredReadWriteLock() {
+      this(new Phaser(1));
+   }
+
+   /**
+    * This method can be used to listen in on phase changes as write locks are released.  This is designed
+    * for ensuring proper behavior and should not be used in production code.
+    * @param phaser The phaser to use
+    */
+   NonReentrantWriterPreferredReadWriteLock(Phaser phaser) {
+      if (phaser.getRegisteredParties() != 1) {
+         throw new IllegalArgumentException("Only a phaser with at least 1 registered parties is allowed!");
+      }
+      internalPhaser = phaser;
+   }
 
    @Override
    public ReadLock readLock() {
@@ -40,12 +56,16 @@ public class NonReentrantWriterPreferredReadWriteLock implements ReadWriteLock {
       return semaphore.availablePermits();
    }
 
+   Phaser getInternalPhaser() {
+      return internalPhaser;
+   }
+
    class WriteLock implements Lock {
 
       private void releaseWriteLock(Phaser phaser, int permitCount) {
          semaphore.release(permitCount);
          // This will allow readers and writers that are waiting to wake up
-         phaser.arriveAndDeregister();
+         phaser.arrive();
          phaserRef.set(null);
       }
 
@@ -58,8 +78,6 @@ public class NonReentrantWriterPreferredReadWriteLock implements ReadWriteLock {
                // This means another write has the lock!  So we have to wait for them to release it
                currentPhaser.awaitAdvance(currentPhaser.arriveAndDeregister());
             } else {
-               // We have to do this before doing CAS
-               internalPhaser.register();
                // If we were able to set the value it means we can retrieve the lock, otherwise another
                // write lock has been acquired before us so we have to try again and wait on them if
                // possible before trying to acquire again
@@ -73,9 +91,6 @@ public class NonReentrantWriterPreferredReadWriteLock implements ReadWriteLock {
                      totalPermits += semaphore.drainPermits();
                   }
                   acquired = true;
-               } else {
-                  // Remove ourself if we didn't win the CAS so the other can unblock properly
-                  internalPhaser.arriveAndDeregister();
                }
             }
          }
@@ -87,11 +102,10 @@ public class NonReentrantWriterPreferredReadWriteLock implements ReadWriteLock {
          while (!acquired) {
             Phaser currentPhaser = phaserRef.get();
             if (currentPhaser != null) {
+               currentPhaser.register();
                // This means another write has the lock!  So we have to wait for them to release it
                currentPhaser.awaitAdvance(currentPhaser.arriveAndDeregister());
             } else {
-               // We have to do this before doing CAS
-               internalPhaser.register();
                // If we were able to set the value it means we can retrieve the lock, otherwise another
                // write lock has been acquired before us so we have to try again and wait on them if
                // possible before trying to acquire again
@@ -114,9 +128,6 @@ public class NonReentrantWriterPreferredReadWriteLock implements ReadWriteLock {
                         releaseWriteLock(internalPhaser, totalPermits);
                      }
                   }
-               } else {
-                  // Remove ourself if we didn't win the CAS so the other can unblock properly
-                  internalPhaser.arriveAndDeregister();
                }
             }
          }
@@ -145,6 +156,7 @@ public class NonReentrantWriterPreferredReadWriteLock implements ReadWriteLock {
             while (!acquired) {
                Phaser currentPhaser = phaserRef.get();
                if (currentPhaser != null) {
+                  currentPhaser.register();
                   // This means another write has the lock!  So we have to wait for them to release it
                   currentPhaser.awaitAdvanceInterruptibly(currentPhaser.arriveAndDeregister(),
                                                           targetTime - System.nanoTime(), TimeUnit.NANOSECONDS);
