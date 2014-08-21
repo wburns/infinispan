@@ -13,7 +13,7 @@ import java.util.concurrent.locks.ReadWriteLock;
  * // TODO: Document this
  *
  * @author wburns
- * @since 4.0
+ * @since 7.0
  */
 public class NonReentrantWriterPreferredReadWriteLock implements ReadWriteLock {
    private final Semaphore semaphore = new Semaphore(Integer.MAX_VALUE);
@@ -27,19 +27,7 @@ public class NonReentrantWriterPreferredReadWriteLock implements ReadWriteLock {
    private final AtomicReference<Phaser> phaserRef = new AtomicReference<>();
 
    public NonReentrantWriterPreferredReadWriteLock() {
-      this(new Phaser(1));
-   }
-
-   /**
-    * This method can be used to listen in on phase changes as write locks are released.  This is designed
-    * for ensuring proper behavior and should not be used in production code.
-    * @param phaser The phaser to use
-    */
-   NonReentrantWriterPreferredReadWriteLock(Phaser phaser) {
-      if (phaser.getRegisteredParties() != 1) {
-         throw new IllegalArgumentException("Only a phaser with at least 1 registered parties is allowed!");
-      }
-      internalPhaser = phaser;
+      internalPhaser = new Phaser(1);
    }
 
    @Override
@@ -54,10 +42,6 @@ public class NonReentrantWriterPreferredReadWriteLock implements ReadWriteLock {
 
    int getAvailablePermits() {
       return semaphore.availablePermits();
-   }
-
-   Phaser getInternalPhaser() {
-      return internalPhaser;
    }
 
    class WriteLock implements Lock {
