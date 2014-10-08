@@ -60,11 +60,11 @@ public class ClusterListenerReplicateCallable<K, V> implements DistributedCallab
    @Override
    public void setEnvironment(Cache<K, V> cache, Set<K> inputKeys) {
       cacheManager = cache.getCacheManager();
-      cacheNotifier = cache.getAdvancedCache().getComponentRegistry().getComponent(CacheNotifier.class);
+      cacheNotifier = SecurityActions.getCacheComponentRegistry(cache.getAdvancedCache()).getComponent(CacheNotifier.class);
       cacheManagerNotifier = cache.getCacheManager().getGlobalComponentRegistry().getComponent(
             CacheManagerNotifier.class);
-      distExecutor = new DefaultExecutorService(cache, new WithinThreadExecutor());
-      ourAddress = cache.getCacheManager().getAddress();
+      distExecutor = SecurityActions.getDefaultExecutorService(cache);
+      ourAddress = SecurityActions.getCacheManagerLocalAddress(cache.getCacheManager());
    }
 
    @Override
@@ -72,7 +72,7 @@ public class ClusterListenerReplicateCallable<K, V> implements DistributedCallab
       // Only register listeners if we aren't the ones that registered the cluster listener
       if (!ourAddress.equals(origin)) {
          // Make sure the origin is around otherwise don't register the listener - some way with identifier (CHM maybe?)
-         if (cacheManager.getMembers().contains(origin)) {
+         if (SecurityActions.getCacheManagerMembers(cacheManager).contains(origin)) {
             // Prevent multiple invocations to get in here at once, which should prevent concurrent registration of
             // the same id.  Note we can't use a static CHM due to running more than 1 node in same JVM
             synchronized (cacheNotifier) {
@@ -91,7 +91,7 @@ public class ClusterListenerReplicateCallable<K, V> implements DistributedCallab
                   cacheNotifier.addListener(listener, filter != null ? new CompositeCacheEventFilter(new PostCacheEventFilter(), filter) : null, converter);
                   cacheManagerNotifier.addListener(listener);
                   // It is possible the member is now gone after registered, if so we have to remove just to be sure
-                  if (!cacheManager.getMembers().contains(origin)) {
+                  if (!SecurityActions.getCacheManagerMembers(cacheManager).contains(origin)) {
                      cacheNotifier.removeListener(listener);
                      cacheManagerNotifier.removeListener(listener);
                      if (log.isTraceEnabled()) {
