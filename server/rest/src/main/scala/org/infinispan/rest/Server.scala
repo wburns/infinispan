@@ -76,7 +76,7 @@ class Server(@Context request: Request, @Context servletContext: ServletContext,
    def getKeys(@PathParam("cacheName") cacheName: String, @QueryParam("global") globalKeySet: String): Response = {
       protectCacheNotFound(request, useAsync) { (request, useAsync) => {
          val cache = manager.getCache(cacheName)
-         val keys = (if (globalKeySet !=null) GlobalKeySetTask.getGlobalKeySet(cache) else cache.keySet()).asScala
+         val keys = (if (globalKeySet !=null) GlobalKeySetTask.getGlobalKeySet(cache) else cache.withFlags(Flag.CACHE_MODE_LOCAL).keySet()).asScala
          val variant = request.selectVariant(collectionVariantList)
          val selectedMediaType = if (variant != null) variant.getMediaType.toString else null
          selectedMediaType match {
