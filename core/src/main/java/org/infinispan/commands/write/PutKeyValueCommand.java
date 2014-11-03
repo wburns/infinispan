@@ -12,6 +12,7 @@ import org.infinispan.container.entries.MVCCEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
+import org.infinispan.remoting.transport.Address;
 
 import java.util.Set;
 
@@ -32,6 +33,7 @@ public class PutKeyValueCommand extends AbstractDataWriteCommand implements Meta
    CacheNotifier notifier;
    boolean successful = true;
    Metadata metadata;
+   private Address originator;
    private ValueMatcher valueMatcher;
    private Equivalence valueEquivalence;
 
@@ -39,7 +41,7 @@ public class PutKeyValueCommand extends AbstractDataWriteCommand implements Meta
    }
 
    public PutKeyValueCommand(Object key, Object value, boolean putIfAbsent,
-                             CacheNotifier notifier, Metadata metadata, Set<Flag> flags,
+                             CacheNotifier notifier, Metadata metadata, Set<Flag> flags, Address originator,
                              Equivalence valueEquivalence) {
       super(key, flags);
       setValue(value);
@@ -47,6 +49,7 @@ public class PutKeyValueCommand extends AbstractDataWriteCommand implements Meta
       this.valueMatcher = putIfAbsent ? ValueMatcher.MATCH_EXPECTED : ValueMatcher.MATCH_ALWAYS;
       this.notifier = notifier;
       this.metadata = metadata;
+      this.originator = originator;
       this.valueEquivalence = valueEquivalence;
    }
 
