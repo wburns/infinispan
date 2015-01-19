@@ -1,5 +1,7 @@
 package org.infinispan.commons.util.concurrent.jdk8backported;
 
+import java.util.Iterator;
+import java.util.NoSuchElementException;
 
 /*
  * Written by Doug Lea and Martin Buchholz with assistance from members of
@@ -47,6 +49,8 @@ class StrippedConcurrentLinkedDeque<E> {
    
    static final DequeNode<Object> PREV_TERMINATOR, NEXT_TERMINATOR;
 
+   final DequeNode<E> DEFAULT;
+
    @SuppressWarnings("unchecked")
    DequeNode<E> prevTerminator() {
        return (DequeNode<E>) PREV_TERMINATOR;
@@ -57,11 +61,16 @@ class StrippedConcurrentLinkedDeque<E> {
        return (DequeNode<E>) NEXT_TERMINATOR;
    }
 
-   public StrippedConcurrentLinkedDeque() {
-      head = tail = new DequeNode<E>(null);
+   DequeNode<E> defaultNode() {
+       return (DequeNode<E>) DEFAULT;
    }
 
-   static final class DequeNode<E> implements BoundedEquivalentConcurrentHashMapV8.EvictionEntry {
+   public StrippedConcurrentLinkedDeque() {
+      DEFAULT = new DequeNode<>();
+      head = tail = defaultNode();
+   }
+
+   static class DequeNode<E> {
        volatile DequeNode<E> prev;
        volatile E item;
        volatile DequeNode<E> next;
@@ -80,6 +89,12 @@ class StrippedConcurrentLinkedDeque<E> {
         */
        DequeNode(E item) {
            UNSAFE.putObject(this, itemOffset, item);
+       }
+
+       void resetLazily(E item) {
+          UNSAFE.putObject(this, itemOffset, item);
+          lazySetNext(null);
+          lazySetPrev(null);
        }
 
        boolean casItem(E cmp, E val) {
@@ -111,7 +126,7 @@ class StrippedConcurrentLinkedDeque<E> {
 
        static {
            try {
-               UNSAFE = BoundedEquivalentConcurrentHashMapV8.getUnsafe();
+               UNSAFE = getUnsafe();
                Class<?> k = DequeNode.class;
                prevOffset = UNSAFE.objectFieldOffset
                    (k.getDeclaredField("prev"));
@@ -125,12 +140,102 @@ class StrippedConcurrentLinkedDeque<E> {
        }
    }
 
+   abstract class AbstractItr implements Iterator<DequeNode<E>> {
+      /**
+       * Next node to return item for.
+       */
+      private DequeNode<E> nextNode;
+
+      /**
+       * Node returned by most recent call to next. Needed by remove.
+       * Reset to null if this element is deleted by a call to remove.
+       */
+      private DequeNode<E> lastRet;
+
+      abstract DequeNode<E> startNode();
+      abstract DequeNode<E> nextNode(DequeNode<E> p);
+
+      AbstractItr() {
+          advance();
+      }
+
+      /**
+       * Sets nextNode and nextItem to next valid node, or to null
+       * if no such.
+       */
+      private void advance() {
+          lastRet = nextNode;
+
+          DequeNode<E> p = (nextNode == null) ? startNode() : nextNode(nextNode);
+          for (;; p = nextNode(p)) {
+              if (p == null) {
+                  // p might be active end or TERMINATOR node; both are OK
+                  nextNode = null;
+                  break;
+              }
+              E item = p.item;
+              if (item != null) {
+                  nextNode = p;
+                  break;
+              }
+          }
+      }
+
+      public boolean hasNext() {
+          return nextNode != null;
+      }
+
+      public DequeNode<E> next() {
+          DequeNode<E> node = nextNode;
+          if (node == null) throw new NoSuchElementException();
+          advance();
+          return node;
+      }
+
+      public void remove() {
+         DequeNode<E> l = lastRet;
+          if (l == null) throw new IllegalStateException();
+          l.item = null;
+          unlink(l);
+          lastRet = null;
+      }
+  }
+
+  /** Forward iterator */
+  class Itr extends AbstractItr {
+      DequeNode<E> startNode() { return first(); }
+      DequeNode<E> nextNode(DequeNode<E> p) { return succ(p); }
+  }
+
+  /** Descending iterator */
+  class DescendingItr extends AbstractItr {
+     DequeNode<E> startNode() { return last(); }
+     DequeNode<E> nextNode(DequeNode<E> p) { return pred(p); }
+  }
+
    public E pollFirst() {
       for (DequeNode<E> p = first(); p != null; p = succ(p)) {
           E item = p.item;
           if (item != null && p.casItem(item, null)) {
               unlink(p);
               return item;
+          }
+      }
+      return null;
+   }
+
+   /**
+    * Returns the first node as well as it's value
+    * @return an array of size 2 (1 = DequeNode<E> that was removed (note item will be 
+    *         null, and 2 = value of the node from 1).  Or this will return null if there
+    *         are no nodes in this deque
+    */
+   public Object[] pollFirstNode() {
+      for (DequeNode<E> p = first(); p != null; p = succ(p)) {
+          E item = p.item;
+          if (item != null && p.casItem(item, null)) {
+              unlink(p);
+              return new Object[]{p, item};
           }
       }
       return null;
@@ -205,8 +310,10 @@ class StrippedConcurrentLinkedDeque<E> {
 
    /**
     * Unlinks non-null node x.
+    * @return whether this node can be reused - A node may not be reused if it was a head
+    * or tail because it can still have valid references to it
     */
-   void unlink(DequeNode<E> x) {
+   boolean unlink(DequeNode<E> x) {
        // assert x != null;
        // assert x.item == null;
        // assert x != PREV_TERMINATOR;
@@ -216,8 +323,10 @@ class StrippedConcurrentLinkedDeque<E> {
        final DequeNode<E> next = x.next;
        if (prev == null) {
            unlinkFirst(x, next);
+           return false;
        } else if (next == null) {
            unlinkLast(x, prev);
+           return false;
        } else {
            // Unlink interior node.
            //
@@ -252,13 +361,13 @@ class StrippedConcurrentLinkedDeque<E> {
                DequeNode<E> q = p.prev;
                if (q == null) {
                    if (p.next == p)
-                       return;
+                       return false;
                    activePred = p;
                    isFirst = true;
                    break;
                }
                else if (p == q)
-                   return;
+                  return false;
                else
                    p = q;
            }
@@ -273,13 +382,13 @@ class StrippedConcurrentLinkedDeque<E> {
                DequeNode<E> q = p.next;
                if (q == null) {
                    if (p.prev == p)
-                       return;
+                       return false;
                    activeSucc = p;
                    isLast = true;
                    break;
                }
                else if (p == q)
-                   return;
+                   return false;
                else
                    p = q;
            }
@@ -288,7 +397,7 @@ class StrippedConcurrentLinkedDeque<E> {
            if (hops < HOPS
                // always squeeze out interior deleted nodes
                && (isFirst | isLast))
-               return;
+               return false;
 
            // Squeeze out deleted nodes between activePred and
            // activeSucc, including x.
@@ -310,7 +419,10 @@ class StrippedConcurrentLinkedDeque<E> {
                // Finally, actually gc-unlink
                x.lazySetPrev(isFirst ? prevTerminator() : x);
                x.lazySetNext(isLast  ? nextTerminator() : x);
+               return false;
            }
+           return false;
+//           return x.prev != null && x.prev.next != x && x.next != null && x.next.prev != x;
        }
    }
 
@@ -442,7 +554,7 @@ class StrippedConcurrentLinkedDeque<E> {
        }
    }
 
-   private void skipDeletedPredecessors(DequeNode<E> x) {
+   void skipDeletedPredecessors(DequeNode<E> x) {
        whileActive:
        do {
            DequeNode<E> prev = x.prev;
@@ -473,7 +585,7 @@ class StrippedConcurrentLinkedDeque<E> {
        } while (x.item != null || x.next == null);
    }
 
-   private void skipDeletedSuccessors(DequeNode<E> x) {
+   void skipDeletedSuccessors(DequeNode<E> x) {
        whileActive:
        do {
            DequeNode<E> next = x.next;
@@ -523,7 +635,6 @@ class StrippedConcurrentLinkedDeque<E> {
       return null;
   }
 
-   // We want to just peak at the last node to tell if ours is last or not
    public DequeNode<E> peekLastNode() {
       for (DequeNode<E> p = last(); p != null; p = pred(p)) {
           E item = p.item;
@@ -577,7 +688,7 @@ class StrippedConcurrentLinkedDeque<E> {
       NEXT_TERMINATOR = new DequeNode<Object>();
       NEXT_TERMINATOR.prev = NEXT_TERMINATOR;
       try {
-          UNSAFE = BoundedEquivalentConcurrentHashMapV8.getUnsafe();
+          UNSAFE = getUnsafe();
           Class<?> k = StrippedConcurrentLinkedDeque.class;
           headOffset = UNSAFE.objectFieldOffset
               (k.getDeclaredField("head"));
@@ -586,5 +697,28 @@ class StrippedConcurrentLinkedDeque<E> {
       } catch (Exception e) {
           throw new Error(e);
       }
+  }
+
+  static sun.misc.Unsafe getUnsafe() {
+     try {
+        return sun.misc.Unsafe.getUnsafe();
+     } catch (SecurityException tryReflectionInstead) {}
+     try {
+        return java.security.AccessController.doPrivileged
+              (new java.security.PrivilegedExceptionAction<sun.misc.Unsafe>() {
+                 public sun.misc.Unsafe run() throws Exception {
+                    Class<sun.misc.Unsafe> k = sun.misc.Unsafe.class;
+                    for (java.lang.reflect.Field f : k.getDeclaredFields()) {
+                       f.setAccessible(true);
+                       Object x = f.get(null);
+                       if (k.isInstance(x))
+                          return k.cast(x);
+                    }
+                    throw new NoSuchFieldError("the Unsafe");
+                 }});
+     } catch (java.security.PrivilegedActionException e) {
+        throw new RuntimeException("Could not initialize intrinsics",
+              e.getCause());
+     }
   }
 }
