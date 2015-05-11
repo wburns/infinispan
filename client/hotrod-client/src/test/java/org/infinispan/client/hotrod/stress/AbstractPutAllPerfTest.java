@@ -4,6 +4,7 @@ import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killRemo
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.killServers;
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
@@ -36,7 +37,7 @@ public abstract class AbstractPutAllPerfTest extends MultipleCacheManagersTest {
 
    abstract protected ConfigurationBuilder clusterConfig();
 
-   protected final long millisecondsToRun = TimeUnit.MINUTES.toMillis(1);
+   protected final long millisecondsToRun = TimeUnit.SECONDS.toMillis(15);
 
    @Override
    protected void createCacheManagers() throws Throwable {
@@ -62,35 +63,37 @@ public abstract class AbstractPutAllPerfTest extends MultipleCacheManagersTest {
       killServers(hotrodServers);
    }
 
-   protected void runTest(int size, String name) {
-      long begin = System.currentTimeMillis();
-      int iterations = 0;
-      Map<Integer, Integer> map = new HashMap<Integer, Integer>();
+   protected void runTest(int size, int iterations, String name) {
+      Map<Integer, byte[]> map = new HashMap<Integer, byte[]>();
       Random random = new Random();
-      long currentTime;
-      while (millisecondsToRun + begin > (currentTime = System.currentTimeMillis())) {
+      long totalTime = 0;
+      for (int i = 0; i < iterations; ++i) {
          map.clear();
-         for (int i = 0; i < size; ++i) {
+         remoteCache.clear();
+         for (int j = 0; j < size; ++j) {
             int value = random.nextInt(Integer.MAX_VALUE);
-            map.put(value, value);
+            byte[] valueArray = new byte[1024];
+            random.nextBytes(valueArray);
+            map.put(value, valueArray);
          }
+         long begin = System.nanoTime();
          remoteCache.putAll(map);
-         iterations++;
+         totalTime += System.nanoTime() - begin;
       }
-      long totalTime = currentTime - begin;
-      System.out.println(name + " - Performed " + iterations + " in " + totalTime + " ms generating " +
-            iterations / (totalTime / 1000)  + " ops/sec");
+      long millisecondTotal = TimeUnit.NANOSECONDS.toMillis(totalTime);
+      System.out.println(name + " - Performed " + iterations + " in " + millisecondTotal + " ms generating " +
+              iterations / TimeUnit.MILLISECONDS.toSeconds(millisecondTotal) + " ops/sec");
    }
 
    public void test5Input() {
-      runTest(5, "test5Input");
+      runTest(5, 20000, "test5Input");
    }
 
    public void test500Input() {
-      runTest(500, "test500Input");
+      runTest(500, 200, "test500Input");
    }
 
    public void test50000Input() {
-      runTest(50000, "test50000Input");
+      runTest(50000, 5, "test50000Input");
    }
 }
