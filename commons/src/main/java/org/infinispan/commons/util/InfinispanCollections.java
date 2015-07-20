@@ -271,7 +271,7 @@ public class InfinispanCollections {
     * @see #EMPTY_SET
     */
    @SuppressWarnings("unchecked")
-   public static final <T> Set<T> emptySet() {
+   public static <T> Set<T> emptySet() {
       return EMPTY_SET;
    }
 
@@ -286,7 +286,7 @@ public class InfinispanCollections {
     * @see #EMPTY_MAP
     */
    @SuppressWarnings("unchecked")
-   public static final <K,V> Map<K,V> emptyMap() {
+   public static <K,V> Map<K,V> emptyMap() {
       return EMPTY_MAP;
    }
 
@@ -301,15 +301,28 @@ public class InfinispanCollections {
     * @see #EMPTY_LIST
     */
    @SuppressWarnings("unchecked")
-   public static final <T> List<T> emptyList() {
+   public static <T> List<T> emptyList() {
       return EMPTY_LIST;
    }
 
-   public static final <T> boolean containsAny(Collection<T> haystack, Collection<T> needle) {
+   public static <T> boolean containsAny(Collection<T> haystack, Collection<T> needle) {
       for (T element : needle) {
          if (haystack.contains(element))
             return true;
       }
       return false;
+   }
+
+   public static <T> T findAnyCommon(Collection<T> c1, Collection<T> c2) {
+      if (c1.isEmpty() || c2.isEmpty()) {
+         return null;
+      }
+
+      for (T item : c1) {
+         if (c2.contains(item)) {
+            return item;
+         }
+      }
+      return null;
    }
 }

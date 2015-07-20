@@ -1,7 +1,5 @@
 package org.infinispan.interceptors.locking;
 
-import org.infinispan.atomic.DeltaCompositeKey;
-import org.infinispan.commands.CommandsFactory;
 import org.infinispan.commands.read.GetAllCommand;
 import org.infinispan.commands.tx.CommitCommand;
 import org.infinispan.commands.tx.PrepareCommand;
@@ -15,18 +13,14 @@ import org.infinispan.factories.annotations.Inject;
 import org.infinispan.partitionhandling.impl.PartitionHandlingManager;
 import org.infinispan.remoting.rpc.RpcManager;
 import org.infinispan.statetransfer.OutdatedTopologyException;
-import org.infinispan.transaction.impl.LocalTransaction;
-import org.infinispan.transaction.impl.TransactionTable;
-import org.infinispan.transaction.xa.CacheTransaction;
-import org.infinispan.transaction.xa.GlobalTransaction;
-import org.infinispan.util.TimeService;
-import org.infinispan.util.concurrent.TimeoutException;
+import org.infinispan.util.concurrent.locks.LockUtil;
+import org.infinispan.util.concurrent.locks.PendingLockManager;
 import org.infinispan.util.logging.Log;
 
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.concurrent.TimeUnit;
-
-import static org.infinispan.commons.util.Util.toStr;
 
 /**
  * Base class for transaction based locking interceptors.
@@ -36,20 +30,17 @@ import static org.infinispan.commons.util.Util.toStr;
  */
 public abstract class AbstractTxLockingInterceptor extends AbstractLockingInterceptor {
 
-   protected TransactionTable txTable;
    protected RpcManager rpcManager;
-   private boolean clustered;
-   private TimeService timeService;
    private PartitionHandlingManager partitionHandlingManager;
+   private PendingLockManager pendingLockManager;
 
    @Inject
-   public void setDependencies(TransactionTable txTable, RpcManager rpcManager, TimeService timeService,
-                               PartitionHandlingManager partitionHandlingManager, CommandsFactory commandsFactory) {
-      this.txTable = txTable;
+   public void setDependencies(RpcManager rpcManager,
+                               PartitionHandlingManager partitionHandlingManager,
+                               PendingLockManager pendingLockManager) {
       this.rpcManager = rpcManager;
-      clustered = rpcManager != null;
-      this.timeService = timeService;
       this.partitionHandlingManager = partitionHandlingManager;
+      this.pendingLockManager = pendingLockManager;
    }
 
    @Override
@@ -109,15 +100,55 @@ public abstract class AbstractTxLockingInterceptor extends AbstractLockingInterc
     * locks to be released. The backup lock will be released either by a commit/rollback/unlock command or by
     * the originator leaving the cluster (if recovery is disabled).
     */
-   protected final void lockAndRegisterBackupLock(TxInvocationContext ctx, Object key, long lockTimeout, boolean skipLocking) throws InterruptedException {
-      //with DeltaCompositeKey, the locks should be acquired in the owner of the delta aware key.
-      Object keyToCheck = key instanceof DeltaCompositeKey ?
-            ((DeltaCompositeKey) key).getDeltaAwareValueKey() :
-            key;
-      if (cdl.localNodeIsPrimaryOwner(keyToCheck)) {
-         lockKeyAndCheckOwnership(ctx, key, lockTimeout, skipLocking);
-      } else if (cdl.localNodeIsOwner(keyToCheck)) {
-         ctx.getCacheTransaction().addBackupLockForKey(key);
+   protected final void lockAndRegisterBackupLock(TxInvocationContext<?> ctx, Object key, long lockTimeout, Action action)
+         throws InterruptedException {
+      switch (LockUtil.getLockOwnership(key, cdl)) {
+         case PRIMARY:
+            lockKeyAndCheckPending(ctx, key, lockTimeout);
+            if (action != null) {
+               action.execute(ctx, key);
+            }
+            break;
+         case BACKUP:
+            ctx.getCacheTransaction().addBackupLockForKeys(Collections.singletonList(key));
+            break;
+         default:
+            break; //no-op
+      }
+      ctx.addAllAffectedKeys(Collections.singleton(key));
+   }
+
+   /**
+    * Same as {@link #lockAndRegisterBackupLock(TxInvocationContext, Object, long, Action)}
+    */
+   protected final void lockAllAndRegisterBackupLock(TxInvocationContext<?> ctx, Collection<?> keys, long lockTimeout,
+                                                     Action action) throws InterruptedException {
+      Collection<Object> primary = new ArrayList<>(keys.size());
+      Collection<Object> backup = new ArrayList<>(keys.size());
+
+      LockUtil.filterByLockOwnership(keys, primary, backup, cdl);
+
+      final Log log = getLog();
+      final boolean trace = log.isTraceEnabled();
+
+      if (trace) {
+         log.tracef("Acquiring locks on %s.", primary);
+         log.tracef("Acquiring backup locks on %s.", backup);
+      }
+
+      ctx.addAllAffectedKeys(keys);
+
+      if (!backup.isEmpty()) {
+         ctx.getCacheTransaction().addBackupLockForKeys(backup);
+      }
+
+      if (!primary.isEmpty()) {
+         lockAllAndCheckPending(ctx, primary, lockTimeout);
+         if (action != null) {
+            for (Object key : primary) {
+               action.execute(ctx, key);
+            }
+         }
       }
    }
 
@@ -141,84 +172,25 @@ public abstract class AbstractTxLockingInterceptor extends AbstractLockingInterc
     * Note: The algorithm described below only when nodes leave the cluster, so it doesn't add a performance burden
     * when the cluster is stable.
     */
-   protected final void lockKeyAndCheckOwnership(InvocationContext ctx, Object key, long lockTimeout, boolean skipLocking) throws InterruptedException {
-      TxInvocationContext txContext = (TxInvocationContext) ctx;
-      int transactionTopologyId = -1;
-      boolean checkForPendingLocks = false;
-      if (clustered) {
-         CacheTransaction tx = txContext.getCacheTransaction();
-         boolean isFromStateTransfer = txContext.isOriginLocal() && ((LocalTransaction)tx).isFromStateTransfer();
-         // if the transaction is from state transfer it should not wait for the backup locks of other transactions
-         if (!isFromStateTransfer) {
-            transactionTopologyId = tx.getTopologyId();
-            if (transactionTopologyId != TransactionTable.CACHE_STOPPED_TOPOLOGY_ID) {
-               checkForPendingLocks = txTable.getMinTopologyId() < transactionTopologyId;
-            }
-         }
-      }
-
-      Log log = getLog();
-      boolean trace = log.isTraceEnabled();
-      if (checkForPendingLocks) {
-         if (trace)
-            log.tracef("Checking for pending locks and then locking key %s", toStr(key));
-
-         final long expectedEndTime = timeService.expectedEndTime(cacheConfiguration.locking().lockAcquisitionTimeout(),
-                                                                  TimeUnit.MILLISECONDS);
-
-         // Check local transactions first
-         waitForTransactionsToComplete(txContext, txTable.getLocalTransactions(), key, transactionTopologyId, expectedEndTime);
-
-         // ... then remote ones
-         waitForTransactionsToComplete(txContext, txTable.getRemoteTransactions(), key, transactionTopologyId, expectedEndTime);
-
-         // Then try to acquire a lock
-         if (trace)
-            log.tracef("Finished waiting for other potential lockers, trying to acquire the lock on %s", toStr(key));
-
-         final long remaining = timeService.remainingTime(expectedEndTime, TimeUnit.MILLISECONDS);
-         lockManager.acquireLock(ctx, key, remaining, skipLocking);
-      } else {
-         if (trace)
-            log.tracef("Locking key %s, no need to check for pending locks.", toStr(key));
-
-         lockManager.acquireLock(ctx, key, lockTimeout, skipLocking);
-      }
+   private void lockKeyAndCheckPending(InvocationContext ctx, Object key, long lockTimeout) throws InterruptedException {
+      final long remaining = pendingLockManager.awaitPendingTransactionsForKey((TxInvocationContext<?>) ctx, key,
+                                                                               lockTimeout, TimeUnit.MILLISECONDS);
+      lockAndRecord(ctx, key, remaining);
    }
 
-   private void waitForTransactionsToComplete(TxInvocationContext txContext, Collection<? extends CacheTransaction> transactions,
-                                              Object key, int transactionTopologyId, long expectedEndTime) throws InterruptedException {
-      GlobalTransaction thisTransaction = txContext.getGlobalTransaction();
-      for (CacheTransaction tx : transactions) {
-         if (tx.getTopologyId() < transactionTopologyId) {
-            // don't wait for the current transaction
-            if (tx.getGlobalTransaction().equals(thisTransaction))
-               continue;
-
-            boolean txCompleted = false;
-
-            long remaining;
-            while ((remaining = timeService.remainingTime(expectedEndTime, TimeUnit.MILLISECONDS)) > 0) {
-               if (tx.waitForLockRelease(key, remaining)) {
-                  txCompleted = true;
-                  break;
-               }
-            }
-
-            if (!txCompleted) {
-               throw newTimeoutException(key, tx, txContext);
-            }
-         }
-      }
-   }
-
-   private TimeoutException newTimeoutException(Object key, CacheTransaction tx, TxInvocationContext txContext) {
-      return new TimeoutException("Could not acquire lock on " + key + " on behalf of transaction " +
-                                       txContext.getGlobalTransaction() + ". Waiting to complete tx: " + tx + ".");
+   private void lockAllAndCheckPending(InvocationContext ctx, Collection<Object> keys, long lockTimeout)
+         throws InterruptedException {
+      final long remaining = pendingLockManager.awaitPendingTransactionsForAllKeys((TxInvocationContext<?>) ctx, keys,
+                                                                                   lockTimeout, TimeUnit.MILLISECONDS);
+      lockAllAndRecord(ctx, keys, remaining);
    }
 
    private boolean releaseLockOnTxCompletion(TxInvocationContext ctx) {
       return (ctx.isOriginLocal() && !partitionHandlingManager.isTransactionPartiallyCommitted(ctx.getGlobalTransaction()) ||
                     (!ctx.isOriginLocal() && Configurations.isSecondPhaseAsync(cacheConfiguration)));
+   }
+
+   protected interface Action {
+      void execute(TxInvocationContext<?> ctx, Object lockedKey);
    }
 }

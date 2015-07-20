@@ -183,15 +183,9 @@ public abstract class AbstractCacheTransaction implements CacheTransaction, Noti
    }
 
    @Override
-   public boolean waitForLockRelease(Object key, long lockAcquisitionTimeout) throws InterruptedException {
-      if (txComplete) return true; //using an unsafe optimisation: if it's true, we for sure have the latest read of the value without needing memory barriers
-      final boolean potentiallyLocked = hasLockOrIsLockBackup(key);
-      if (trace) log.tracef("Transaction gtx=%s potentially locks key %s? %s", tx, key, potentiallyLocked);
-      if (potentiallyLocked) {
-         notifier.await(lockAcquisitionTimeout, TimeUnit.MILLISECONDS);
-         return txComplete;
-      }
-      return true;
+   public final boolean waitForLockRelease(long lockAcquisitionTimeout) throws InterruptedException {
+      notifier.await(lockAcquisitionTimeout, TimeUnit.MILLISECONDS);
+      return txComplete;
    }
 
    @Override
@@ -200,10 +194,10 @@ public abstract class AbstractCacheTransaction implements CacheTransaction, Noti
    }
 
    @Override
-   public void addBackupLockForKey(Object key) {
+   public void addBackupLockForKeys(Collection<Object> keys) {
       // we need to synchronize this collection to be able to get a valid snapshot from another thread during state transfer
       if (backupKeyLocks == null) backupKeyLocks = Collections.synchronizedSet(new HashSet<>(INITIAL_LOCK_CAPACITY));
-      backupKeyLocks.add(key);
+      backupKeyLocks.addAll(keys);
    }
 
    public void registerLockedKey(Object key) {
@@ -230,11 +224,47 @@ public abstract class AbstractCacheTransaction implements CacheTransaction, Noti
       lockedKeys = null;
    }
 
-   private boolean hasLockOrIsLockBackup(Object key) {
-      //stopgap fix for ISPN-2728. The real fix would be to synchronize this with the intrinsic lock.
+   @Override
+   public boolean containsLockOrBackupLock(Object key) {
       Set<Object> lockedKeysCopy = lockedKeys;
       Set<Object> backupKeyLocksCopy = backupKeyLocks;
       return (lockedKeysCopy != null && lockedKeysCopy.contains(key)) || (backupKeyLocksCopy != null && backupKeyLocksCopy.contains(key));
+   }
+
+   @Override
+   public boolean containsAnyLockOrBackupLock(Collection<Object> keys) {
+      if (keys.isEmpty()) {
+         return false;
+      } else if (keys.size() == 1) {
+         return containsLockOrBackupLock(keys.iterator().next());
+      }
+      Set<Object> lockedKeysCopy = lockedKeys;
+      Set<Object> backupKeyLocksCopy = backupKeyLocks;
+      if (lockedKeysCopy != null && backupKeyLocksCopy != null) {
+         for (Object key : keys) {
+            if (lockedKeysCopy.contains(key) || backupKeyLocksCopy.contains(key)) {
+               return true;
+            }
+         }
+      } else if (lockedKeysCopy != null) {
+         for (Object key : keys) {
+            if (lockedKeysCopy.contains(key)) {
+               return true;
+            }
+         }
+      } else {
+         for (Object key : keys) {
+            if (backupKeyLocksCopy.contains(key)) {
+               return true;
+            }
+         }
+      }
+      return false;
+   }
+
+   @Override
+   public boolean areLocksReleased() {
+      return txComplete;
    }
 
    public Set<Object> getAffectedKeys() {
