@@ -1,5 +1,6 @@
 package org.infinispan.interceptors.locking;
 
+import org.infinispan.atomic.DeltaCompositeKey;
 import org.infinispan.commands.read.GetAllCommand;
 import org.infinispan.commands.tx.CommitCommand;
 import org.infinispan.commands.tx.PrepareCommand;
@@ -21,6 +22,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * Base class for transaction based locking interceptors.
@@ -123,23 +125,29 @@ public abstract class AbstractTxLockingInterceptor extends AbstractLockingInterc
     */
    protected final void lockAllAndRegisterBackupLock(TxInvocationContext<?> ctx, Collection<?> keys, long lockTimeout,
                                                      Action action) throws InterruptedException {
-      Collection<Object> primary = new ArrayList<>(keys.size());
-      Collection<Object> backup = new ArrayList<>(keys.size());
-
-      LockUtil.filterByLockOwnership(keys, primary, backup, cdl);
-
       final Log log = getLog();
       final boolean trace = log.isTraceEnabled();
 
+      Collection<Object> primary = keys.stream().peek(ctx::addAffectedKey).filter(key -> {
+         Object keyToCheck = key instanceof DeltaCompositeKey ?
+                 ((DeltaCompositeKey) key).getDeltaAwareValueKey() :
+                 key;
+         switch (LockUtil.getLockOwnership(keyToCheck, cdl)) {
+            case PRIMARY:
+               return true;
+            case BACKUP:
+               if (trace) {
+                  log.tracef("Acquiring backup locks for %s.", key);
+               }
+               // A bit hacky but allows us to not have to iterate over entries again
+               ctx.getCacheTransaction().addBackupLockForKey(key);
+            default:
+               return false;
+         }
+      }).collect(Collectors.toList());
+
       if (trace) {
          log.tracef("Acquiring locks on %s.", primary);
-         log.tracef("Acquiring backup locks on %s.", backup);
-      }
-
-      ctx.addAllAffectedKeys(keys);
-
-      if (!backup.isEmpty()) {
-         ctx.getCacheTransaction().addBackupLockForKeys(backup);
       }
 
       if (!primary.isEmpty()) {
@@ -174,7 +182,7 @@ public abstract class AbstractTxLockingInterceptor extends AbstractLockingInterc
     */
    private void lockKeyAndCheckPending(InvocationContext ctx, Object key, long lockTimeout) throws InterruptedException {
       final long remaining = pendingLockManager.awaitPendingTransactionsForKey((TxInvocationContext<?>) ctx, key,
-                                                                               lockTimeout, TimeUnit.MILLISECONDS);
+              lockTimeout, TimeUnit.MILLISECONDS);
       lockAndRecord(ctx, key, remaining);
    }
 
