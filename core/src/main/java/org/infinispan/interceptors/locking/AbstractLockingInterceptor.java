@@ -11,6 +11,7 @@ import org.infinispan.commands.write.InvalidateL1Command;
 import org.infinispan.commands.write.PutKeyValueCommand;
 import org.infinispan.commands.write.RemoveCommand;
 import org.infinispan.commands.write.ReplaceCommand;
+import org.infinispan.commons.CacheException;
 import org.infinispan.container.DataContainer;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
@@ -26,6 +27,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Base class for various locking interceptors in this package.
@@ -100,7 +102,8 @@ public abstract class AbstractLockingInterceptor extends CommandInterceptor {
          if (hasSkipLocking(command)) {
             return invokeNextInterceptor(ctx, command);
          }
-         lockAllAndRecord(ctx, Arrays.asList(command.getKeys()), getLockTimeoutMillis(command));
+         long timeout = getLockTimeoutMillis(command);
+         Arrays.stream(command.getKeys()).forEach(k -> lockAndRecord(ctx, k, timeout));
          return invokeNextInterceptor(ctx, command);
       } finally {
          if (!ctx.isInTxScope()) {
@@ -160,22 +163,19 @@ public abstract class AbstractLockingInterceptor extends CommandInterceptor {
       return shouldLock;
    }
 
-   protected final void lockAndRecord(InvocationContext context, Object key, long timeout) throws InterruptedException {
-      lockManager.acquireLock(context, key, timeout, false);
-   }
-
-   protected final void lockAllAndRecord(InvocationContext context, Collection<?> keys, long timeout) throws InterruptedException {
-      for (Object key : keys) {
+   protected final void lockAndRecord(InvocationContext context, Object key, long timeout) {
+      try {
          lockManager.acquireLock(context, key, timeout, false);
+      } catch (InterruptedException e) {
+         // TODO: not sure if this is an issue or not
+         throw new CacheException(e);
       }
    }
 
-   protected final Collection<Object> filterKeysToLock(Collection<Object> keys) {
+   protected final Stream<Object> filterKeysToLock(Collection<Object> keys) {
       if (keys == null || keys.isEmpty()) {
-         return Collections.emptyList();
+         return Stream.empty();
       }
-      Collection<Object> filteredKeys =  keys.stream().filter(this::shouldLockKey)
-            .collect(Collectors.toCollection(LinkedList::new));
-      return filteredKeys.isEmpty() ? Collections.emptyList() : filteredKeys;
+      return keys.stream().filter(this::shouldLockKey);
    }
 }

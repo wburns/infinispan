@@ -182,7 +182,7 @@ public abstract class AbstractTxLockingInterceptor extends AbstractLockingInterc
          throws InterruptedException {
       final long remaining = pendingLockManager.awaitPendingTransactionsForAllKeys((TxInvocationContext<?>) ctx, keys,
                                                                                    lockTimeout, TimeUnit.MILLISECONDS);
-      lockAllAndRecord(ctx, keys, remaining);
+      keys.forEach(k -> lockAndRecord(ctx, k, remaining));
    }
 
    private boolean releaseLockOnTxCompletion(TxInvocationContext ctx) {

@@ -56,8 +56,8 @@ public class NonTransactionalLockingInterceptor extends AbstractLockingIntercept
       assertNonTransactional(ctx);
       try {
          if (!command.isForwarded() && !hasSkipLocking(command)) {
-            Collection<Object> keysToLock = filterKeysToLock(command.getMap().keySet());
-            lockAllAndRecord(ctx, keysToLock, getLockTimeoutMillis(command));
+            long timeout = getLockTimeoutMillis(command);
+            filterKeysToLock(command.getMap().keySet()).forEach(k -> lockAndRecord(ctx, k, timeout));
          }
          return invokeNextInterceptor(ctx, command);
       } finally {
