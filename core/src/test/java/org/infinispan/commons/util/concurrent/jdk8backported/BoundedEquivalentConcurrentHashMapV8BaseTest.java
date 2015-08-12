@@ -30,7 +30,7 @@ public abstract class BoundedEquivalentConcurrentHashMapV8BaseTest extends Equiv
 
    @DataProvider(name = "maxEntriesDataSupplier")
    public static Object[][] maxEntriesDataSupplier() {
-      return new Object[][] {{10, 1}, {100, 10}, {1000, 100}};
+      return new Object[][] {{10, 1}, {100, 10}, {1000, 100}, {1000, 999}, {1000, 1001}};
    }
 
    protected abstract Eviction evictionPolicy();

@@ -911,7 +911,7 @@ public class BoundedEquivalentConcurrentHashMapV8<K,V> extends AbstractMap<K,V>
 
       @Override
       public void onEntryMiss(Node<K, V> e, V value) {
-         boolean pruneLIR = false;
+         long pruneLIR = 0;
          boolean evictHIR = false;
          boolean skipIncrement;
          LIRSNode<K, V> lirsNode = (LIRSNode<K, V>) e.eviction;
@@ -930,11 +930,15 @@ public class BoundedEquivalentConcurrentHashMapV8<K,V> extends AbstractMap<K,V>
                         + "newly created evictio node!");
                }
 
-               // This should be the most common case by far 
+               long hotDifference;
+               // This should be the most common case by far
                // (alreadyCreated is implied to be false)
                // If it was added to LIR due to size don't do anymore
                if (addToLIRIfNotFullHot(lirsNode, true)) {
                   return;
+               } else if ((hotDifference = hotSize.get() - maximumHotSize) > 0) {
+                  // This can only happen if we had a resize where the new size is less than the hot max size
+                  pruneLIR = hotDifference;
                }
 
                // This is the (b) example
@@ -966,7 +970,7 @@ public class BoundedEquivalentConcurrentHashMapV8<K,V> extends AbstractMap<K,V>
 
                      // This is the (a) example
                      promoteHIRToLIR(lirsNode);
-                     pruneLIR = true;
+                     pruneLIR = 1;
                      // Since we are adding back in a value we set it to increment
                      skipIncrement = false;
                      break;
@@ -1004,8 +1008,8 @@ public class BoundedEquivalentConcurrentHashMapV8<K,V> extends AbstractMap<K,V>
             }
          }
 
-         if (pruneLIR) {
-            hotDemotion.incrementAndGet();
+         if (pruneLIR > 0) {
+            hotDemotion.addAndGet(pruneLIR);
          }
 
          // Note only 1 of these can be true
