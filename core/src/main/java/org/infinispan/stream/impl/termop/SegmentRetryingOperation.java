@@ -1,5 +1,6 @@
 package org.infinispan.stream.impl.termop;
 
+import org.infinispan.stream.impl.SegmentRetryingCoordinator;
 import org.infinispan.stream.impl.TerminalOperation;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 import org.infinispan.util.logging.Log;
@@ -23,42 +24,22 @@ import java.util.stream.Stream;
  */
 public class SegmentRetryingOperation<E, T, S extends BaseStream<T, S>> extends BaseTerminalOperation
         implements TerminalOperation<E> {
-   private static final Log log = LogFactory.getLog(SegmentRetryingOperation.class);
-
-   private static final BaseStream<?, ?> EMPTY = Stream.empty();
-
    private final Function<S, ? extends E> function;
-   private transient AtomicReference<BaseStream<?, ?>> streamRef = new AtomicReference<>(EMPTY);
-   private transient AtomicBoolean continueTrying = new AtomicBoolean(true);
+   private final SegmentRetryingCoordinator<E> coordinator;
 
    public SegmentRetryingOperation(Iterable<IntermediateOperation> intermediateOperations,
            Supplier<? extends Stream<?>> supplier, Function<S, ? extends E> function) {
       super(intermediateOperations, supplier);
       this.function = function;
+      this.coordinator = new SegmentRetryingCoordinator<>(this::innerPerformOperation,
+              // Note we can't pass the supplier as is, since when this object is deserialized the supplier is set
+              // later, so we have to reference that instead
+              () -> this.supplier.get());
    }
 
    @Override
    public boolean lostSegment(boolean stopIfLost) {
-      BaseStream<?, ?> oldStream = streamRef.get();
-      continueTrying.set(!stopIfLost);
-      boolean affected;
-      if (oldStream != null) {
-         // If the stream was non null and wasn't empty that means we were processing it at the time of the segment
-         // being lost - so we tell that one to close
-         if (oldStream != EMPTY) {
-            // This can only fail if the operation completes concurrently
-            if ((affected = streamRef.compareAndSet(oldStream, EMPTY))) {
-               // This can short circuit some things like sending a response or waiting for retrieval from a
-               // cache loader
-               oldStream.close();
-            }
-         } else {
-            affected = true;
-         }
-      } else {
-         affected = false;
-      }
-      return affected;
+      return coordinator.lostSegment(stopIfLost);
    }
 
    private E innerPerformOperation(BaseStream<?, ?> stream) {
@@ -70,17 +51,7 @@ public class SegmentRetryingOperation<E, T, S extends BaseStream<T, S>> extends 
 
    @Override
    public E performOperation() {
-      boolean keepTrying = true;
-      BaseStream<?, ?> stream;
-      E value;
-      do {
-         stream = supplier.get();
-         streamRef.set(stream);
-         value = innerPerformOperation(stream);
-         log.trace("Completed an operation, trying to see if we are done.");
-      } while (!streamRef.compareAndSet(stream, null) && (keepTrying = continueTrying.get()));
-      log.tracef("Operation now done, due to try denial: " + !keepTrying);
-      return keepTrying ? value : null;
+      return coordinator.runOperation();
    }
 
    public Function<S, ? extends E> getFunction() {
