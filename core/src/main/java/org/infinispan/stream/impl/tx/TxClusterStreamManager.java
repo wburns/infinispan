@@ -5,6 +5,7 @@ import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.stream.impl.ClusterStreamManager;
 import org.infinispan.stream.impl.KeyTrackingTerminalOperation;
+import org.infinispan.stream.impl.SortedNoMapTerminalOperation;
 import org.infinispan.stream.impl.TerminalOperation;
 import org.infinispan.util.AbstractDelegatingMap;
 
@@ -69,6 +70,15 @@ public class TxClusterStreamManager<K> implements ClusterStreamManager<K> {
       TxExcludedKeys<K> txExcludedKeys = new TxExcludedKeys<>(keysToExclude, ctx, hash);
       return manager.remoteStreamOperationRehashAware(parallelDistribution, parallelStream, ch, segments, keysToInclude,
               txExcludedKeys, includeLoader, operation, callback);
+   }
+
+   @Override
+   public <Sorted> UUID remoteSortedRehashOperation(boolean parallelDistribution, ConsistentHash ch,
+           Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
+           SortedNoMapTerminalOperation<Sorted> operation, ResultsCallback<Iterable<Sorted>> callback) {
+      TxExcludedKeys<K> txExcludedKeys = new TxExcludedKeys<>(keysToExclude, ctx, hash);
+      return manager.remoteSortedRehashOperation(parallelDistribution, ch, segments, keysToInclude, txExcludedKeys,
+              includeLoader, operation, callback);
    }
 
    @Override

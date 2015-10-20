@@ -674,7 +674,7 @@ public class CommandsFactoryImpl implements CommandsFactory {
 
    @Override
    public <K> StreamRequestCommand<K> buildStreamRequestCommand(UUID id, boolean parallelStream,
-           StreamRequestCommand.Type type, Set<Integer> segments, Set<K> keys, Set<K> excludedKeys,
+           StreamRequestCommand.TerminalType type, Set<Integer> segments, Set<K> keys, Set<K> excludedKeys,
            boolean includeLoader, Object terminalOperation) {
       return new StreamRequestCommand<>(cacheName, cache.getCacheManager().getAddress(), id, parallelStream, type,
               segments, keys, excludedKeys, includeLoader, terminalOperation);

@@ -58,7 +58,7 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
            Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
            TerminalOperation<R> operation, ResultsCallback<R> callback, Predicate<? super R> earlyTerminatePredicate) {
       return commonRemoteStreamOperation(parallelDistribution, parallelStream, ch, segments, keysToInclude,
-              keysToExclude, includeLoader, operation, callback, StreamRequestCommand.Type.TERMINAL,
+              keysToExclude, includeLoader, operation, callback, StreamRequestCommand.TerminalType.NORMAL,
               earlyTerminatePredicate);
    }
 
@@ -68,14 +68,14 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
            boolean includeLoader, TerminalOperation<R> operation, ResultsCallback<R> callback,
            Predicate<? super R> earlyTerminatePredicate) {
       return commonRemoteStreamOperation(parallelDistribution, parallelStream, ch, segments, keysToInclude,
-              keysToExclude, includeLoader, operation, callback, StreamRequestCommand.Type.TERMINAL_REHASH,
+              keysToExclude, includeLoader, operation, callback, StreamRequestCommand.TerminalType.REHASH,
               earlyTerminatePredicate);
    }
 
    private <R> UUID commonRemoteStreamOperation(boolean parallelDistribution, boolean parallelStream,
            ConsistentHash ch, Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude,
            boolean includeLoader, SegmentAwareOperation operation, ResultsCallback<R> callback,
-           StreamRequestCommand.Type type, Predicate<? super R> earlyTerminatePredicate) {
+           StreamRequestCommand.TerminalType type, Predicate<? super R> earlyTerminatePredicate) {
       Map<Address, Set<Integer>> targets = determineTargets(ch, segments);
       UUID uuid = UUID.randomUUID();
       if (!targets.isEmpty()) {
@@ -106,7 +106,7 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
            Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
            KeyTrackingTerminalOperation<K, R, ?> operation, ResultsCallback<Collection<R>> callback) {
       return commonRemoteStreamOperation(parallelDistribution, parallelStream, ch, segments, keysToInclude,
-              keysToExclude, includeLoader, operation, callback, StreamRequestCommand.Type.TERMINAL_KEY, null);
+              keysToExclude, includeLoader, operation, callback, StreamRequestCommand.TerminalType.KEY, null);
    }
 
    @Override
@@ -122,7 +122,7 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
          currentlyRunning.put(uuid, tracker);
          if (parallelDistribution) {
             submitAsyncTasks(uuid, targets, keysToExclude, parallelStream, keysToInclude, includeLoader,
-                    StreamRequestCommand.Type.TERMINAL_KEY_REHASH, operation);
+                    StreamRequestCommand.TerminalType.KEY_REHASH, operation);
          } else {
             for (Map.Entry<Address, Set<Integer>> targetInfo : targets.entrySet()) {
                Address dest = targetInfo.getKey();
@@ -132,8 +132,54 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
                   Set<K> keysExcluded = determineExcludedKeys(keysToExclude, targetSegments);
                   log.tracef("Submitting task to %s for %s excluding keys %s", dest, uuid, keysExcluded);
                   Response response = rpc.invokeRemotely(Collections.singleton(dest), factory.buildStreamRequestCommand(
-                          uuid, parallelStream, StreamRequestCommand.Type.TERMINAL_KEY_REHASH, targetSegments,
+                          uuid, parallelStream, StreamRequestCommand.TerminalType.KEY_REHASH, targetSegments,
                           keysToInclude, keysExcluded, includeLoader, operation),
+                          rpc.getDefaultRpcOptions(true)).values().iterator().next();
+                  if (!response.isSuccessful()) {
+                     log.tracef("Unsuccessful response for %s from %s - making segments %s suspect", uuid,
+                             dest, targetSegments);
+                     receiveResponse(uuid, dest, true, targetSegments, null);
+                  }
+               } catch (Exception e) {
+                  boolean wasSuspect = containedSuspectException(e);
+
+                  if (!wasSuspect) {
+                     log.tracef(e, "Encounted exception for %s from %s", uuid, dest);
+                     throw e;
+                  } else {
+                     log.tracef("Exception from %s contained a SuspectException, making all segments %s suspect",
+                             dest, targetSegments);
+                     receiveResponse(uuid, dest, true, targetSegments, null);
+                  }
+               }
+            }
+         }
+      }
+      return uuid;
+   }
+
+   @Override
+   public <Sorted> UUID remoteSortedRehashOperation(boolean parallelDistribution, ConsistentHash ch,
+           Set<Integer> segments, Set<K> keysToInclude, boolean includeLoader,
+           SortedNoMapTerminalOperation<Sorted> operation, ResultsCallback<Iterable<Sorted>> callback) {
+      Map<Address, Set<Integer>> targets = determineTargets(ch, segments);
+      UUID uuid = UUID.randomUUID();
+      if (!targets.isEmpty()) {
+         log.tracef("Performing remote rehash key aware operations %s for id %s", targets, uuid);
+         RequestTracker<Iterable<Sorted>> tracker = new RequestTracker<>(callback, targets, null);
+         currentlyRunning.put(uuid, tracker);
+         if (parallelDistribution) {
+            submitAsyncTasks(uuid, targets, Collections.emptyMap(), false, keysToInclude, includeLoader,
+                    StreamRequestCommand.TerminalType.KEY_REHASH, operation);
+         } else {
+            for (Map.Entry<Address, Set<Integer>> targetInfo : targets.entrySet()) {
+               Address dest = targetInfo.getKey();
+               Set<Integer> targetSegments = targetInfo.getValue();
+               try {
+                  log.tracef("Submitting task to %s for %s", dest, uuid);
+                  Response response = rpc.invokeRemotely(Collections.singleton(dest), factory.buildStreamRequestCommand(
+                                  uuid, false, StreamRequestCommand.TerminalType.KEY_REHASH, targetSegments,
+                                  keysToInclude, Collections.emptySet(), includeLoader, operation),
                           rpc.getDefaultRpcOptions(true)).values().iterator().next();
                   if (!response.isSuccessful()) {
                      log.tracef("Unsuccessful response for %s from %s - making segments %s suspect", uuid,
@@ -160,7 +206,7 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
 
    private void submitAsyncTasks(UUID uuid, Map<Address, Set<Integer>> targets, Map<Integer, Set<K>> keysToExclude,
                                  boolean parallelStream, Set<K> keysToInclude, boolean includeLoader,
-                                 StreamRequestCommand.Type type, Object operation) {
+                                 StreamRequestCommand.TerminalType type, Object operation) {
       for (Map.Entry<Address, Set<Integer>> targetInfo : targets.entrySet()) {
          Set<Integer> segments = targetInfo.getValue();
          Set<K> keysExcluded = determineExcludedKeys(keysToExclude, segments);

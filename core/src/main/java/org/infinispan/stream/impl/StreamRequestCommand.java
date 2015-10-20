@@ -20,7 +20,7 @@ public class StreamRequestCommand<K> extends BaseRpcCommand implements Cancellab
    private LocalStreamManager lsm;
 
    private UUID id;
-   private Type type;
+   private TerminalType type;
    private boolean parallelStream;
    private Set<Integer> segments;
    private Set<K> keys;
@@ -44,11 +44,13 @@ public class StreamRequestCommand<K> extends BaseRpcCommand implements Cancellab
       return id;
    }
 
-   public enum Type {
-      TERMINAL,
-      TERMINAL_REHASH,
-      TERMINAL_KEY,
-      TERMINAL_KEY_REHASH
+   public enum TerminalType {
+      NORMAL,
+      REHASH,
+      KEY,
+      KEY_REHASH,
+      SORTED,
+      SORTED_REHASH
    }
 
    // Only here for CommandIdUniquenessTest
@@ -58,7 +60,7 @@ public class StreamRequestCommand<K> extends BaseRpcCommand implements Cancellab
       super(cacheName);
    }
 
-   public StreamRequestCommand(String cacheName, Address origin, UUID id, boolean parallelStream, Type type,
+   public StreamRequestCommand(String cacheName, Address origin, UUID id, boolean parallelStream, TerminalType type,
                                Set<Integer> segments, Set<K> keys, Set<K> excludedKeys, boolean includeLoader,
                                Object terminalOperation) {
       super(cacheName);
@@ -81,22 +83,26 @@ public class StreamRequestCommand<K> extends BaseRpcCommand implements Cancellab
    @Override
    public Object perform(InvocationContext ctx) throws Throwable {
       switch (type) {
-         case TERMINAL:
+         case NORMAL:
             lsm.streamOperation(id, getOrigin(), parallelStream, segments, keys, excludedKeys, includeLoader,
                     (TerminalOperation) terminalOperation);
             break;
-         case TERMINAL_REHASH:
+         case REHASH:
             lsm.streamOperationRehashAware(id, getOrigin(), parallelStream, segments, keys, excludedKeys, includeLoader,
                     (TerminalOperation) terminalOperation);
             break;
-         case TERMINAL_KEY:
+         case KEY:
             lsm.streamOperation(id, getOrigin(), parallelStream, segments, keys, excludedKeys, includeLoader,
                     (KeyTrackingTerminalOperation) terminalOperation);
             break;
-         case TERMINAL_KEY_REHASH:
+         case KEY_REHASH:
             lsm.streamOperationRehashAware(id, getOrigin(), parallelStream, segments, keys, excludedKeys, includeLoader,
                     (KeyTrackingTerminalOperation) terminalOperation);
             break;
+         case SORTED:
+         case SORTED_REHASH:
+         default:
+            throw new IllegalArgumentException("Unsupported terminal type: " + type);
       }
       return null;
    }
@@ -118,7 +124,7 @@ public class StreamRequestCommand<K> extends BaseRpcCommand implements Cancellab
       setOrigin((Address) parameters[i++]);
       id = (UUID) parameters[i++];
       parallelStream = (Boolean) parameters[i++];
-      type = (Type) parameters[i++];
+      type = (TerminalType) parameters[i++];
       segments = (Set<Integer>) parameters[i++];
       keys = (Set<K>) parameters[i++];
       excludedKeys = (Set<K>) parameters[i++];
