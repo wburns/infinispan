@@ -305,7 +305,6 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
                  keysToInclude, keysToExclude));
          results = operation.performOperationRehashAware(new NonRehashIntermediateCollector<>(origin, requestId,
                  parallelStream));
-         // TODO: need to remove the full trace later
          if (trace) log.tracef("Request %s completed segments %s with %s suspected segments", requestId, segments,
                  listener.segmentsLost);
       } finally {
@@ -322,6 +321,13 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
 
       rpc.invokeRemotely(Collections.singleton(origin), factory.buildStreamResponseCommand(requestId, true,
               listener.segmentsLost, results), rpc.getDefaultRpcOptions(true));
+   }
+
+   @Override
+   public <Sorted, R> void sortedRehashOperation(UUID requestId, Address origin, Set<Integer> segments,
+           Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader,
+           SortedMapTerminalOperation<Sorted, R> operation) {
+
    }
 
    class NonRehashIntermediateCollector<R> implements KeyTrackingTerminalOperation.IntermediateCollector<R> {

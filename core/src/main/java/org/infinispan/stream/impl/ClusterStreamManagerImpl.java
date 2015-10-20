@@ -160,7 +160,7 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
 
    @Override
    public <Sorted> UUID remoteSortedRehashOperation(boolean parallelDistribution, ConsistentHash ch,
-           Set<Integer> segments, Set<K> keysToInclude, boolean includeLoader,
+           Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
            SortedNoMapTerminalOperation<Sorted> operation, ResultsCallback<Iterable<Sorted>> callback) {
       Map<Address, Set<Integer>> targets = determineTargets(ch, segments);
       UUID uuid = UUID.randomUUID();
@@ -169,17 +169,19 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
          RequestTracker<Iterable<Sorted>> tracker = new RequestTracker<>(callback, targets, null);
          currentlyRunning.put(uuid, tracker);
          if (parallelDistribution) {
-            submitAsyncTasks(uuid, targets, Collections.emptyMap(), false, keysToInclude, includeLoader,
-                    StreamRequestCommand.TerminalType.KEY_REHASH, operation);
+            submitAsyncTasks(uuid, targets, keysToExclude, false, keysToInclude, includeLoader,
+                    StreamRequestCommand.TerminalType.SORTED_REHASH, operation);
          } else {
             for (Map.Entry<Address, Set<Integer>> targetInfo : targets.entrySet()) {
                Address dest = targetInfo.getKey();
                Set<Integer> targetSegments = targetInfo.getValue();
                try {
+                  // Keys to exclude is never empty since it utilizes a custom map solution
+                  Set<K> keysExcluded = determineExcludedKeys(keysToExclude, targetSegments);
                   log.tracef("Submitting task to %s for %s", dest, uuid);
                   Response response = rpc.invokeRemotely(Collections.singleton(dest), factory.buildStreamRequestCommand(
-                                  uuid, false, StreamRequestCommand.TerminalType.KEY_REHASH, targetSegments,
-                                  keysToInclude, Collections.emptySet(), includeLoader, operation),
+                                  uuid, false, StreamRequestCommand.TerminalType.SORTED_REHASH, targetSegments,
+                                  keysToInclude, keysExcluded, includeLoader, operation),
                           rpc.getDefaultRpcOptions(true)).values().iterator().next();
                   if (!response.isSuccessful()) {
                      log.tracef("Unsuccessful response for %s from %s - making segments %s suspect", uuid,

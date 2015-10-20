@@ -72,4 +72,7 @@ public interface LocalStreamManager<K> {
    <R2> void streamOperationRehashAware(UUID requestId, Address origin, boolean parallelStream, Set<Integer> segments,
            Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader,
            KeyTrackingTerminalOperation<K, ?, R2> operation);
+
+   <Sorted, R> void sortedRehashOperation(UUID requestId, Address origin, Set<Integer> segments, Set<K> keysToInclude,
+           Set<K> keysToExclude, boolean includeLoader, SortedMapTerminalOperation<Sorted, R> operation);
 }
