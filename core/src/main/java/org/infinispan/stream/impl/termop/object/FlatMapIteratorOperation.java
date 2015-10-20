@@ -43,7 +43,7 @@ public class FlatMapIteratorOperation<K, V> extends BaseTerminalOperation implem
    }
 
    @Override
-   public List<V> performOperation(IntermediateCollector<Collection<V>> response) {
+   public List<V> performOperation(IntermediateCollector<Iterable<V>> response) {
       /**
        * This is for rehash only! {@link NoMapIteratorOperation} should always be used for non rehash
        */
@@ -52,7 +52,7 @@ public class FlatMapIteratorOperation<K, V> extends BaseTerminalOperation implem
 
    @Override
    public Collection<CacheEntry<K, Collection<V>>> performOperationRehashAware(
-           IntermediateCollector<Collection<CacheEntry<K, Collection<V>>>> response) {
+           IntermediateCollector<Iterable<CacheEntry<K, Collection<V>>>> response) {
       // We only support sequential streams for iterator rehash aware
       BaseStream<?, ?> stream = supplier.get().sequential();
 

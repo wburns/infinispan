@@ -41,7 +41,7 @@ public class MapIteratorOperation<K, V, V2> extends BaseTerminalOperation implem
    }
 
    @Override
-   public List<V> performOperation(IntermediateCollector<Collection<V>> response) {
+   public List<V> performOperation(IntermediateCollector<Iterable<V>> response) {
       /**
        * This is for rehash only! {@link NoMapIteratorOperation} should always be used for non rehash
        */
@@ -50,7 +50,7 @@ public class MapIteratorOperation<K, V, V2> extends BaseTerminalOperation implem
 
    @Override
    public Collection<CacheEntry<K, V2>> performOperationRehashAware(
-           IntermediateCollector<Collection<CacheEntry<K, V2>>> response) {
+           IntermediateCollector<Iterable<CacheEntry<K, V2>>> response) {
       // We only support sequential streams for iterator rehash aware
       BaseStream<?, ?> stream = supplier.get().sequential();
 

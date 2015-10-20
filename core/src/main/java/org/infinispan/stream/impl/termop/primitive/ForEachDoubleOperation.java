@@ -43,7 +43,7 @@ public class ForEachDoubleOperation<K> extends BaseTerminalOperation implements 
    }
 
    @Override
-   public List<Double> performOperation(IntermediateCollector<Collection<Double>> response) {
+   public List<Double> performOperation(IntermediateCollector<Iterable<Double>> response) {
       /**
        * This is for rehash only! {@link org.infinispan.stream.impl.termop.SingleRunOperation} should always be used for
        * non rehash
@@ -53,7 +53,7 @@ public class ForEachDoubleOperation<K> extends BaseTerminalOperation implements 
 
    @Override
    public Collection<CacheEntry<K, K>> performOperationRehashAware(
-           IntermediateCollector<Collection<CacheEntry<K, K>>> response) {
+           IntermediateCollector<Iterable<CacheEntry<K, K>>> response) {
       // We only support sequential streams for iterator rehash aware
       BaseStream<?, ?> stream = supplier.get().sequential();
 

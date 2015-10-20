@@ -442,7 +442,7 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
    }
 
    private void ignoreRehashIteration(Consumer<R> consumer, IteratorSupplier<R> supplier, boolean iteratorParallelDistribute) {
-      CollectionConsumer<R> remoteResults = new CollectionConsumer<>(consumer);
+      IterableConsumer<R> remoteResults = new IterableConsumer<>(consumer);
       ConsistentHash ch = dm.getConsistentHash();
 
       boolean stayLocal = ch.getMembers().contains(localAddress) && segmentsToFilter != null
@@ -455,7 +455,7 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
       executor.execute(() -> {
          try {
             log.tracef("Thread %s submitted iterator request for stream", thread);
-            Collection<R> localValue = op.performOperation(remoteResults);
+            Iterable<R> localValue = op.performOperation(remoteResults);
             remoteResults.onCompletion(null, Collections.emptySet(), localValue);
             if (!stayLocal) {
                UUID id = csm.remoteStreamOperation(iteratorParallelDistribute, parallel, ch, segmentsToFilter,
@@ -583,10 +583,11 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
                                                  KeyTrackingTerminalOperation<Object, R, Object> op,
                                                  Supplier<Set<Integer>> ownedSegmentsSupplier,
                                                  UUID id) {
-      Collection<CacheEntry<Object, Object>> localValue = op.performOperationRehashAware(results);
+      Iterable<CacheEntry<Object, Object>> localValue = op.performOperationRehashAware(results);
       // TODO: we can do this more efficiently - this hampers performance during rehash
       if (dm.getReadConsistentHash().equals(ch)) {
-         log.tracef("Found local values %s for id %s", localValue.size(), id);
+         // TODO: add this back in somehow
+//         log.tracef("Found local values %s for id %s", localValue.size(), id);
          results.onCompletion(null, segments, localValue);
       } else {
          Set<Integer> ourSegments = ownedSegmentsSupplier.get();

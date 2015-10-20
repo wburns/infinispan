@@ -32,15 +32,15 @@ public interface KeyTrackingTerminalOperation<K, R, R2> extends SegmentAwareOper
     * @param response the collector that will be called back for any intermediate results
     * @return the final response from the remote node
     */
-   Collection<R> performOperation(IntermediateCollector<Collection<R>> response);
+   Iterable<R> performOperation(IntermediateCollector<Iterable<R>> response);
 
    /**
     * Invoked when a key and rehash aware operation is desired.
     * @param response the collector that will be called back for any intermediate results
     * @return the final response from the remote node
     */
-   Collection<CacheEntry<K, R2>> performOperationRehashAware(
-           IntermediateCollector<Collection<CacheEntry<K, R2>>> response);
+   Iterable<CacheEntry<K, R2>> performOperationRehashAware(
+           IntermediateCollector<Iterable<CacheEntry<K, R2>>> response);
 
    /**
     * This method is to be invoked only locally after a key tracking operation has been serialized to a new node

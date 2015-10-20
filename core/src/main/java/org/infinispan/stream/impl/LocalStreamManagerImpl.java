@@ -281,7 +281,7 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
       CacheSet<CacheEntry<K, V>> cacheEntrySet = getCacheRespectingLoader(includeLoader).cacheEntrySet();
       operation.setSupplier(() -> getStream(cacheEntrySet, parallelStream, segments, keysToInclude, keysToExclude));
       operation.handleInjection(registry);
-      Collection<R> value = operation.performOperation(new NonRehashIntermediateCollector<>(origin, requestId,
+      Iterable<R> value = operation.performOperation(new NonRehashIntermediateCollector<>(origin, requestId,
               parallelStream));
       rpc.invokeRemotely(Collections.singleton(origin), factory.buildStreamResponseCommand(requestId, true,
               Collections.emptySet(), value), rpc.getDefaultRpcOptions(true));
@@ -294,7 +294,7 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
       log.tracef("Received key rehash aware operation request for id %s from %s for segments %s", requestId, origin, segments);
       CacheSet<CacheEntry<K, V>> cacheEntrySet = getCacheRespectingLoader(includeLoader).cacheEntrySet();
       SegmentListener listener = new SegmentListener(segments, operation);
-      Collection<CacheEntry<K, R2>> results;
+      Iterable<CacheEntry<K, R2>> results;
 
       operation.handleInjection(registry);
       // We currently only allow 1 request per id (we may change this later)

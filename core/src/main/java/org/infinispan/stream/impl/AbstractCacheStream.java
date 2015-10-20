@@ -384,10 +384,11 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
                  results);
          try {
             if (localRun) {
-               Collection<CacheEntry<Object, Object>> localValue = op.performOperationRehashAware(results);
+               Iterable<CacheEntry<Object, Object>> localValue = op.performOperationRehashAware(results);
                // TODO: we can do this more efficiently - this hampers performance during rehash
                if (dm.getReadConsistentHash().equals(ch)) {
-                  log.tracef("Found local values %s for id %s", localValue.size(), id);
+                  // TODO: add this back in somehow
+//                  log.tracef("Found local values %s for id %s", localValue.size(), id);
                   results.onCompletion(null, segments, localValue);
                } else {
                   Set<Integer> ourSegments = ch.getPrimarySegmentsForOwner(localAddress);
@@ -467,8 +468,8 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       }
    }
 
-   class KeyTrackingConsumer<K, V> implements ClusterStreamManager.ResultsCallback<Collection<CacheEntry<K, Object>>>,
-           KeyTrackingTerminalOperation.IntermediateCollector<Collection<CacheEntry<K, Object>>> {
+   class KeyTrackingConsumer<K, V> implements ClusterStreamManager.ResultsCallback<Iterable<CacheEntry<K, Object>>>,
+           KeyTrackingTerminalOperation.IntermediateCollector<Iterable<CacheEntry<K, Object>>> {
       final ConsistentHash ch;
       final Consumer<V> consumer;
       final Set<Integer> lostSegments = new ConcurrentHashSet<>();
@@ -494,9 +495,10 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       }
 
       @Override
-      public Set<Integer> onIntermediateResult(Address address, Collection<CacheEntry<K, Object>> results) {
+      public Set<Integer> onIntermediateResult(Address address, Iterable<CacheEntry<K, Object>> results) {
          if (results != null) {
-            log.tracef("Response from %s with results %s", address, results.size());
+            // TODO: add this back in
+//            log.tracef("Response from %s with results %s", address, results.size());
             Set<Integer> segmentsCompleted;
             CacheEntry<K, Object>[] lastCompleted = new CacheEntry[1];
             if (listenerNotifier != null) {
@@ -526,7 +528,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       }
 
       @Override
-      public void onCompletion(Address address, Set<Integer> completedSegments, Collection<CacheEntry<K, Object>> results) {
+      public void onCompletion(Address address, Set<Integer> completedSegments, Iterable<CacheEntry<K, Object>> results) {
          if (!completedSegments.isEmpty()) {
             log.tracef("Completing segments %s", completedSegments);
             // We null this out first so intermediate results don't add for no reason
@@ -550,7 +552,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       }
 
       @Override
-      public void sendDataResonse(Collection<CacheEntry<K, Object>> response) {
+      public void sendDataResonse(Iterable<CacheEntry<K, Object>> response) {
          onIntermediateResult(null, response);
       }
    }
@@ -592,17 +594,17 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       }
    }
 
-   static class CollectionConsumer<R> implements ClusterStreamManager.ResultsCallback<Collection<R>>,
-           KeyTrackingTerminalOperation.IntermediateCollector<Collection<R>> {
+   static class IterableConsumer<R> implements ClusterStreamManager.ResultsCallback<Iterable<R>>,
+           KeyTrackingTerminalOperation.IntermediateCollector<Iterable<R>> {
       private final Consumer<R> consumer;
       private final Set<Integer> lostSegments = new ConcurrentHashSet<>();
 
-      CollectionConsumer(Consumer<R> consumer) {
+      IterableConsumer(Consumer<R> consumer) {
          this.consumer = consumer;
       }
 
       @Override
-      public Set<Integer> onIntermediateResult(Address address, Collection<R> results) {
+      public Set<Integer> onIntermediateResult(Address address, Iterable<R> results) {
          if (results != null) {
             results.forEach(consumer);
          }
@@ -610,7 +612,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       }
 
       @Override
-      public void onCompletion(Address address, Set<Integer> completedSegments, Collection<R> results) {
+      public void onCompletion(Address address, Set<Integer> completedSegments, Iterable<R> results) {
          onIntermediateResult(address, results);
       }
 
@@ -623,7 +625,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       }
 
       @Override
-      public void sendDataResonse(Collection<R> response) {
+      public void sendDataResonse(Iterable<R> response) {
          onIntermediateResult(null, response);
       }
    }

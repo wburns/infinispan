@@ -41,7 +41,7 @@ public abstract class AbstractForEachOperation<K, V, S extends BaseStream<V, S>>
    }
 
    @Override
-   public List<V> performOperation(IntermediateCollector<Collection<V>> response) {
+   public List<V> performOperation(IntermediateCollector<Iterable<V>> response) {
       /**
        * This is for rehash only! {@link SingleRunOperation} should always be used for non rehash for each
        */
@@ -54,7 +54,7 @@ public abstract class AbstractForEachOperation<K, V, S extends BaseStream<V, S>>
 
    @Override
    public Collection<CacheEntry<K, K>> performOperationRehashAware(
-           IntermediateCollector<Collection<CacheEntry<K, K>>> response) {
+           IntermediateCollector<Iterable<CacheEntry<K, K>>> response) {
       // We only support sequential streams for iterator rehash aware
       BaseStream<?, ?> stream = supplier.get().sequential();
 

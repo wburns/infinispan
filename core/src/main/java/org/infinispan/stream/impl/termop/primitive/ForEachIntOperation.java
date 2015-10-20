@@ -44,7 +44,7 @@ public class ForEachIntOperation<K> extends BaseTerminalOperation implements Key
    }
 
    @Override
-   public List<Integer> performOperation(IntermediateCollector<Collection<Integer>> response) {
+   public List<Integer> performOperation(IntermediateCollector<Iterable<Integer>> response) {
       /**
        * This is for rehash only! {@link NoMapIteratorOperation} should always be used for non rehash
        */
@@ -53,7 +53,7 @@ public class ForEachIntOperation<K> extends BaseTerminalOperation implements Key
 
    @Override
    public Collection<CacheEntry<K, K>> performOperationRehashAware(
-           IntermediateCollector<Collection<CacheEntry<K, K>>> response) {
+           IntermediateCollector<Iterable<CacheEntry<K, K>>> response) {
       // We only support sequential streams for iterator rehash aware
       BaseStream<?, ?> stream = supplier.get().sequential();
 
