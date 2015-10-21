@@ -8,6 +8,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.BaseStream;
 import java.util.stream.Stream;
@@ -32,7 +33,7 @@ public class NoMapIteratorOperation<K, V> extends MapIteratorOperation<K, V, V> 
    }
 
    @Override
-   public List<V> performOperation(IntermediateCollector<Iterable<V>> response) {
+   public List<V> performOperation(Consumer<Iterable<V>> response) {
       BaseStream<?, ?> stream = supplier.get();
       for (IntermediateOperation intOp : intermediateOperations) {
          stream = intOp.perform(stream);
@@ -42,11 +43,11 @@ public class NoMapIteratorOperation<K, V> extends MapIteratorOperation<K, V, V> 
       return actualPerformOperation(response, convertedStream);
    }
 
-   private <R> List<R> actualPerformOperation(IntermediateCollector<Iterable<R>> response, Stream<R> stream) {
+   private <R> List<R> actualPerformOperation(Consumer<Iterable<R>> response, Stream<R> stream) {
       BiConsumer<List<R>, R> accumulator = (l, e) -> {
          l.add(e);
          if (l.size() >= batchSize) {
-            response.sendDataResonse(l);
+            response.accept(l);
             l.clear();
          }
       };
@@ -60,8 +61,7 @@ public class NoMapIteratorOperation<K, V> extends MapIteratorOperation<K, V, V> 
    }
 
    @Override
-   public Collection<CacheEntry<K, V>> performOperationRehashAware(
-           IntermediateCollector<Iterable<CacheEntry<K, V>>> response) {
+   public Collection<CacheEntry<K, V>> performOperationRehashAware(Consumer<Iterable<CacheEntry<K, V>>> response) {
       // We only support sequential streams for iterator rehash aware
       BaseStream<?, ?> stream = supplier.get().sequential();
 

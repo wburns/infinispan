@@ -14,6 +14,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.DoubleConsumer;
 import java.util.function.Supplier;
 import java.util.stream.BaseStream;
@@ -43,7 +44,7 @@ public class ForEachDoubleOperation<K> extends BaseTerminalOperation implements 
    }
 
    @Override
-   public List<Double> performOperation(IntermediateCollector<Iterable<Double>> response) {
+   public List<Double> performOperation(Consumer<Iterable<Double>> response) {
       /**
        * This is for rehash only! {@link org.infinispan.stream.impl.termop.SingleRunOperation} should always be used for
        * non rehash
@@ -52,8 +53,7 @@ public class ForEachDoubleOperation<K> extends BaseTerminalOperation implements 
    }
 
    @Override
-   public Collection<CacheEntry<K, K>> performOperationRehashAware(
-           IntermediateCollector<Iterable<CacheEntry<K, K>>> response) {
+   public Collection<CacheEntry<K, K>> performOperationRehashAware(Consumer<Iterable<CacheEntry<K, K>>> response) {
       // We only support sequential streams for iterator rehash aware
       BaseStream<?, ?> stream = supplier.get().sequential();
 
@@ -69,7 +69,7 @@ public class ForEachDoubleOperation<K> extends BaseTerminalOperation implements 
                for (int i = 0; i < offset.get(); ++i) {
                   consumer.accept(list[i]);
                }
-               response.sendDataResonse(collectedValues);
+               response.accept(collectedValues);
                collectedValues.clear();
                offset.set(0);
             }

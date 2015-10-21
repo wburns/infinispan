@@ -21,7 +21,6 @@ import org.infinispan.lifecycle.ComponentStatus;
 import org.infinispan.notifications.Listener;
 import org.infinispan.notifications.cachelistener.annotation.DataRehashed;
 import org.infinispan.notifications.cachelistener.event.DataRehashedEvent;
-import org.infinispan.persistence.manager.PersistenceManager;
 import org.infinispan.remoting.rpc.RpcManager;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.statetransfer.StateTransferManager;
@@ -29,7 +28,6 @@ import org.infinispan.topology.CacheTopology;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 
-import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -38,6 +36,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ForkJoinPool;
+import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 /**
@@ -71,7 +70,7 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
       SegmentListener(Set<Integer> segments, SegmentAwareOperation op) {
          this.segments = new HashSet<>(segments);
          this.op = op;
-         this.segmentsLost = new HashSet<>();
+         this.segmentsLost = Collections.synchronizedSet(new HashSet<>());
       }
 
       public void localSegments(Set<Integer> localSegments) {
@@ -281,7 +280,7 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
       CacheSet<CacheEntry<K, V>> cacheEntrySet = getCacheRespectingLoader(includeLoader).cacheEntrySet();
       operation.setSupplier(() -> getStream(cacheEntrySet, parallelStream, segments, keysToInclude, keysToExclude));
       operation.handleInjection(registry);
-      Iterable<R> value = operation.performOperation(new NonRehashIntermediateCollector<>(origin, requestId,
+      Iterable<R> value = operation.performOperation(new IntermediateCollector<>(origin, requestId,
               parallelStream));
       rpc.invokeRemotely(Collections.singleton(origin), factory.buildStreamResponseCommand(requestId, true,
               Collections.emptySet(), value), rpc.getDefaultRpcOptions(true));
@@ -303,7 +302,7 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
       try {
          operation.setSupplier(() -> getRehashStream(cacheEntrySet, requestId, listener, parallelStream, segments,
                  keysToInclude, keysToExclude));
-         results = operation.performOperationRehashAware(new NonRehashIntermediateCollector<>(origin, requestId,
+         results = operation.performOperationRehashAware(new IntermediateCollector<>(origin, requestId,
                  parallelStream));
          if (trace) log.tracef("Request %s completed segments %s with %s suspected segments", requestId, segments,
                  listener.segmentsLost);
@@ -327,22 +326,60 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
    public <Sorted, R> void sortedRehashOperation(UUID requestId, Address origin, Set<Integer> segments,
            Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader,
            SortedMapTerminalOperation<Sorted, R> operation) {
+      log.tracef("Received sorted rehash aware operation request for id %s from %s for segments %s", requestId, origin,
+              segments);
+      CacheSet<CacheEntry<K, V>> cacheEntrySet = getCacheRespectingLoader(includeLoader).cacheEntrySet();
+      SegmentListener listener = new SegmentListener(segments, operation);
+      Iterable<R> results;
 
+      operation.handleInjection(registry);
+      // We currently only allow 1 request per id (we may change this later)
+      changeListener.put(requestId, listener);
+      log.tracef("Registered change listener for %s", requestId);
+      try {
+         operation.setSupplier(() -> getRehashStream(cacheEntrySet, requestId, listener, false, segments,
+                 keysToInclude, keysToExclude));
+         results = operation.performOperationRehashAware(new SegmentAwareIntermediateCollector<>(origin, requestId,
+                 false, listener));
+         log.tracef("Request %s completed segments %s with %s suspected segments", requestId, segments,
+                 listener.segmentsLost);
+      } finally {
+         changeListener.remove(requestId);
+         log.tracef("UnRegistered change listener for %s", requestId);
+      }
+      if (cache.getStatus() != ComponentStatus.RUNNING) {
+         if (log.isTraceEnabled()) {
+            log.tracef("Cache status is no longer running, all segments are now suspect for %s", requestId);
+         }
+         listener.segmentsLost.addAll(segments);
+         results = null;
+      }
+
+      rpc.invokeRemotely(Collections.singleton(origin), factory.buildStreamResponseCommand(requestId, true,
+              listener.segmentsLost, results), rpc.getDefaultRpcOptions(true));
    }
 
-   class NonRehashIntermediateCollector<R> implements KeyTrackingTerminalOperation.IntermediateCollector<R> {
-      private final Address origin;
-      private final UUID requestId;
-      private final boolean useManagedBlocker;
+   class SortedRehashIntermediateCollector<R> implements Consumer<R> {
 
-      NonRehashIntermediateCollector(Address origin, UUID requestId, boolean useManagedBlocker) {
+      @Override
+      public void accept(R r) {
+
+      }
+   }
+
+   class IntermediateCollector<R> implements Consumer<R> {
+      protected final Address origin;
+      protected final UUID requestId;
+      protected final boolean useManagedBlocker;
+
+      IntermediateCollector(Address origin, UUID requestId, boolean useManagedBlocker) {
          this.origin = origin;
          this.requestId = requestId;
          this.useManagedBlocker = useManagedBlocker;
       }
 
       @Override
-      public void sendDataResonse(R response) {
+      public void accept(R response) {
          // If we know we were in a parallel stream we should use a managed blocker to not consume core fork join
          // threads if applicable.
          if (useManagedBlocker) {
@@ -353,9 +390,12 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
                throw new CacheException(e);
             }
          } else {
-            rpc.invokeRemotely(Collections.singleton(origin), new StreamResponseCommand<>(cache.getName(), localAddress,
-                    requestId, false, response), rpc.getDefaultRpcOptions(true));
+            rpc.invokeRemotely(Collections.singleton(origin), createCommand(response), rpc.getDefaultRpcOptions(true));
          }
+      }
+
+      public StreamResponseCommand<R> createCommand(R response) {
+         return new StreamResponseCommand<>(cache.getName(), localAddress, requestId, false, response);
       }
 
       class ResponseBlocker implements ForkJoinPool.ManagedBlocker {
@@ -371,7 +411,7 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
             if (!completed) {
                // This way we don't send more than 1 response to the originating node but still inside managed blocker
                // so we don't consume a thread
-               synchronized (NonRehashIntermediateCollector.this) {
+               synchronized (IntermediateCollector.this) {
                   rpc.invokeRemotely(Collections.singleton(origin), new StreamResponseCommand<>(cache.getName(), localAddress,
                           requestId, false, response), rpc.getDefaultRpcOptions(true));
                }
@@ -383,6 +423,31 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
          @Override
          public boolean isReleasable() {
             return completed;
+         }
+      }
+   }
+
+   class SegmentAwareIntermediateCollector<R> extends IntermediateCollector<R> {
+      private final SegmentListener listener;
+
+      SegmentAwareIntermediateCollector(Address origin, UUID requestId, boolean useManagedBlocker,
+              SegmentListener listener) {
+         super(origin, requestId, useManagedBlocker);
+         this.listener = listener;
+      }
+
+      @Override
+      public StreamResponseCommand<R> createCommand(R response) {
+         if (listener.segmentsLost.isEmpty()) {
+            return super.createCommand(response);
+         } else {
+            // We have to copy the set in case of concurrent write
+            Set<Integer> setToUse;
+            synchronized (listener.segmentsLost) {
+               setToUse = new HashSet<>(listener.segmentsLost);
+            }
+            return new StreamSegmentResponseCommand<>(cache.getName(), localAddress,
+                    requestId, false, response, setToUse);
          }
       }
    }

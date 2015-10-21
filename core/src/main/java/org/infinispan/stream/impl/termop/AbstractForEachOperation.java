@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.BaseStream;
 import java.util.stream.Stream;
@@ -41,7 +42,7 @@ public abstract class AbstractForEachOperation<K, V, S extends BaseStream<V, S>>
    }
 
    @Override
-   public List<V> performOperation(IntermediateCollector<Iterable<V>> response) {
+   public List<V> performOperation(Consumer<Iterable<V>> response) {
       /**
        * This is for rehash only! {@link SingleRunOperation} should always be used for non rehash for each
        */
@@ -53,8 +54,7 @@ public abstract class AbstractForEachOperation<K, V, S extends BaseStream<V, S>>
    protected abstract void handleStreamForEach(S stream, List<V> list);
 
    @Override
-   public Collection<CacheEntry<K, K>> performOperationRehashAware(
-           IntermediateCollector<Iterable<CacheEntry<K, K>>> response) {
+   public Collection<CacheEntry<K, K>> performOperationRehashAware(Consumer<Iterable<CacheEntry<K, K>>> response) {
       // We only support sequential streams for iterator rehash aware
       BaseStream<?, ?> stream = supplier.get().sequential();
 
@@ -67,7 +67,7 @@ public abstract class AbstractForEachOperation<K, V, S extends BaseStream<V, S>>
             collectedValues.add(new ImmortalCacheEntry(currentKey.get(), null));
             if (collectedValues.size() >= batchSize) {
                handleList(currentList);
-               response.sendDataResonse(collectedValues);
+               response.accept(collectedValues);
                collectedValues.clear();
                currentList.clear();
             }

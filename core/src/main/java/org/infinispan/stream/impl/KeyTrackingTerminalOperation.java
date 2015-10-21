@@ -3,8 +3,7 @@ package org.infinispan.stream.impl;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.factories.ComponentRegistry;
 
-import java.util.Collection;
-import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.Stream;
 
@@ -16,31 +15,18 @@ import java.util.stream.Stream;
  */
 public interface KeyTrackingTerminalOperation<K, R, R2> extends SegmentAwareOperation {
    /**
-    * Collector used to collect items from intermediate responses of operations
-    * @param <C> type of collected item
-    */
-   interface IntermediateCollector<C> {
-      /**
-       * Called back when a response is sent back to the invoker
-       * @param response the returned data
-       */
-      void sendDataResonse(C response);
-   }
-
-   /**
     * Invoked when a key aware operation is desired without rehash being enabled.
     * @param response the collector that will be called back for any intermediate results
     * @return the final response from the remote node
     */
-   Iterable<R> performOperation(IntermediateCollector<Iterable<R>> response);
+   Iterable<R> performOperation(Consumer<Iterable<R>> response);
 
    /**
     * Invoked when a key and rehash aware operation is desired.
     * @param response the collector that will be called back for any intermediate results
     * @return the final response from the remote node
     */
-   Iterable<CacheEntry<K, R2>> performOperationRehashAware(
-           IntermediateCollector<Iterable<CacheEntry<K, R2>>> response);
+   Iterable<CacheEntry<K, R2>> performOperationRehashAware(Consumer<Iterable<CacheEntry<K, R2>>> response);
 
    /**
     * This method is to be invoked only locally after a key tracking operation has been serialized to a new node

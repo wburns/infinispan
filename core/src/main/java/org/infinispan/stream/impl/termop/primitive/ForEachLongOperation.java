@@ -15,6 +15,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.LongConsumer;
 import java.util.function.Supplier;
 import java.util.stream.BaseStream;
@@ -44,7 +45,7 @@ public class ForEachLongOperation<K> extends BaseTerminalOperation implements Ke
    }
 
    @Override
-   public List<Long> performOperation(IntermediateCollector<Iterable<Long>> response) {
+   public List<Long> performOperation(Consumer<Iterable<Long>> response) {
       /**
        * This is for rehash only! {@link NoMapIteratorOperation} should always be used for non rehash
        */
@@ -52,8 +53,7 @@ public class ForEachLongOperation<K> extends BaseTerminalOperation implements Ke
    }
 
    @Override
-   public Collection<CacheEntry<K, K>> performOperationRehashAware(
-           IntermediateCollector<Iterable<CacheEntry<K, K>>> response) {
+   public Collection<CacheEntry<K, K>> performOperationRehashAware(Consumer<Iterable<CacheEntry<K, K>>> response) {
       // We only support sequential streams for iterator rehash aware
       BaseStream<?, ?> stream = supplier.get().sequential();
 
@@ -69,7 +69,7 @@ public class ForEachLongOperation<K> extends BaseTerminalOperation implements Ke
                for (int i = 0; i < offset.get(); ++i) {
                   consumer.accept(list[i]);
                }
-               response.sendDataResonse(collectedValues);
+               response.accept(collectedValues);
                collectedValues.clear();
                offset.set(0);
             }

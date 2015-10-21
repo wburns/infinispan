@@ -469,7 +469,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
    }
 
    class KeyTrackingConsumer<K, V> implements ClusterStreamManager.ResultsCallback<Iterable<CacheEntry<K, Object>>>,
-           KeyTrackingTerminalOperation.IntermediateCollector<Iterable<CacheEntry<K, Object>>> {
+           Consumer<Iterable<CacheEntry<K, Object>>> {
       final ConsistentHash ch;
       final Consumer<V> consumer;
       final Set<Integer> lostSegments = new ConcurrentHashSet<>();
@@ -552,7 +552,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       }
 
       @Override
-      public void sendDataResonse(Iterable<CacheEntry<K, Object>> response) {
+      public void accept(Iterable<CacheEntry<K, Object>> response) {
          onIntermediateResult(null, response);
       }
    }
@@ -594,8 +594,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       }
    }
 
-   static class IterableConsumer<R> implements ClusterStreamManager.ResultsCallback<Iterable<R>>,
-           KeyTrackingTerminalOperation.IntermediateCollector<Iterable<R>> {
+   static class IterableConsumer<R> implements ClusterStreamManager.ResultsCallback<Iterable<R>>, Consumer<Iterable<R>> {
       private final Consumer<R> consumer;
       private final Set<Integer> lostSegments = new ConcurrentHashSet<>();
 
@@ -625,7 +624,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       }
 
       @Override
-      public void sendDataResonse(Iterable<R> response) {
+      public void accept(Iterable<R> response) {
          onIntermediateResult(null, response);
       }
    }

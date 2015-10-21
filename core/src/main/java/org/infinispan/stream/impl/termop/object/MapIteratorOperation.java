@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.BaseStream;
 import java.util.stream.Stream;
@@ -41,7 +42,7 @@ public class MapIteratorOperation<K, V, V2> extends BaseTerminalOperation implem
    }
 
    @Override
-   public List<V> performOperation(IntermediateCollector<Iterable<V>> response) {
+   public List<V> performOperation(Consumer<Iterable<V>> response) {
       /**
        * This is for rehash only! {@link NoMapIteratorOperation} should always be used for non rehash
        */
@@ -49,8 +50,7 @@ public class MapIteratorOperation<K, V, V2> extends BaseTerminalOperation implem
    }
 
    @Override
-   public Collection<CacheEntry<K, V2>> performOperationRehashAware(
-           IntermediateCollector<Iterable<CacheEntry<K, V2>>> response) {
+   public Collection<CacheEntry<K, V2>> performOperationRehashAware(Consumer<Iterable<CacheEntry<K, V2>>> response) {
       // We only support sequential streams for iterator rehash aware
       BaseStream<?, ?> stream = supplier.get().sequential();
 
@@ -69,7 +69,7 @@ public class MapIteratorOperation<K, V, V2> extends BaseTerminalOperation implem
          // TODO: do we care about metadata in this case?
          collectedValues.add(new ImmortalCacheEntry(ref.get(), v));
          if (collectedValues.size() >= batchSize) {
-            response.sendDataResonse(collectedValues);
+            response.accept(collectedValues);
             collectedValues.clear();
          }
       });

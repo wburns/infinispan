@@ -6,6 +6,7 @@ import org.infinispan.stream.impl.intops.IntermediateOperation;
 import org.infinispan.stream.impl.termop.BaseTerminalOperation;
 
 import java.util.Collection;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.BaseStream;
 
@@ -20,12 +21,12 @@ public class SortedMapIteratorOperation<K, E> extends BaseTerminalOperation impl
    }
 
    @Override
-   public Collection<E> performOperation(IntermediateCollector<Iterable<E>> response) {
+   public Collection<E> performOperation(Consumer<Iterable<E>> response) {
       return null;
    }
 
    @Override
-   public Collection<CacheEntry<K, E>> performOperationRehashAware(IntermediateCollector<Iterable<CacheEntry<K, E>>> response) {
+   public Collection<CacheEntry<K, E>> performOperationRehashAware(Consumer<Iterable<CacheEntry<K, E>>> response) {
       return null;
    }
 

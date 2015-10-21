@@ -22,7 +22,7 @@ import java.util.stream.Stream;
  */
 public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation implements SortedNoMapTerminalOperation<E> {
    protected final int batchSize;
-   protected final Long limit;
+   protected final long limit;
    protected final Iterable<IntermediateOperation> afterOperations;
    protected final Comparator<? super E> comparator;
    protected final SegmentRetryingCoordinator<Iterable<E>> coordinator;
@@ -33,18 +33,24 @@ public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation imple
            Iterable<IntermediateOperation> afterOperations, Supplier<? extends BaseStream<?, ?>> supplier,
            int batchSize, Comparator<? super E> comparator, Long limit, E lastSeen) {
       super(beforeOperations, supplier);
+      this.limit = limit == null ? -1 : limit;
       this.batchSize = batchSize;
       this.afterOperations = afterOperations;
       this.comparator = comparator == null ? (Comparator<E>) Comparator.naturalOrder() : comparator;
-      this.limit = limit;
       this.coordinator = new SegmentRetryingCoordinator<>(this::innerPerformOperation, () -> supplier.get());
       this.lastSeen = lastSeen;
    }
 
+   private int getLocalBatchSize() {
+      return limit == -1 ? batchSize : batchSize > limit ? (int) limit : batchSize;
+   }
+
    public Iterable<E> innerPerformOperation(BaseStream<?, ?> stream) {
+      int batchSize = getLocalBatchSize();
       for (IntermediateOperation op : intermediateOperations) {
          stream = op.perform(stream);
       }
+
       // now we should have a Stream of E
       Stream<E> sortableStream = (Stream<E>) stream;
       NavigableSet<E> sortedSet = new TreeSet<>(comparator);
@@ -57,6 +63,9 @@ public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation imple
          }
       });
       if (sortedSet.size() > batchSize) {
+         if (batchSize == limit) {
+            completed = true;
+         }
          Iterator<E> descIterator = sortedSet.descendingIterator();
          E top = descIterator.next();
          descIterator.remove();
@@ -89,13 +98,19 @@ public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation imple
 
    @Override
    public Iterable<E> performOperation(Consumer<Iterable<E>> response) {
-      // TODO: need to do looping
-      return innerPerformOperation(supplier.get());
+      Iterable<E> iterable;
+      do {
+         iterable = innerPerformOperation(supplier.get());
+      } while (!completed);
+      return iterable;
    }
 
    @Override
    public Iterable<E> performOperationRehashAware(Consumer<Iterable<E>> response) {
-      // TODO: need to do looping
-      return coordinator.runOperation();
+      Iterable<E> iterable;
+      do {
+         iterable = coordinator.runOperation();
+      } while (!completed);
+      return iterable;
    }
 }

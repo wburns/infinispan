@@ -12,6 +12,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.BaseStream;
 import java.util.stream.Stream;
@@ -43,7 +44,7 @@ public class FlatMapIteratorOperation<K, V> extends BaseTerminalOperation implem
    }
 
    @Override
-   public List<V> performOperation(IntermediateCollector<Iterable<V>> response) {
+   public List<V> performOperation(Consumer<Iterable<V>> response) {
       /**
        * This is for rehash only! {@link NoMapIteratorOperation} should always be used for non rehash
        */
@@ -52,7 +53,7 @@ public class FlatMapIteratorOperation<K, V> extends BaseTerminalOperation implem
 
    @Override
    public Collection<CacheEntry<K, Collection<V>>> performOperationRehashAware(
-           IntermediateCollector<Iterable<CacheEntry<K, Collection<V>>>> response) {
+           Consumer<Iterable<CacheEntry<K, Collection<V>>>> response) {
       // We only support sequential streams for iterator rehash aware
       BaseStream<?, ?> stream = supplier.get().sequential();
 
@@ -65,7 +66,7 @@ public class FlatMapIteratorOperation<K, V> extends BaseTerminalOperation implem
          if (!list.isEmpty()) {
             collectedValues.add(new ImmortalCacheEntry(currentKey.get(), list));
             if (collectedValues.size() >= batchSize) {
-               response.sendDataResonse(collectedValues);
+               response.accept(collectedValues);
                collectedValues.clear();
                list.clear();
             } else {
