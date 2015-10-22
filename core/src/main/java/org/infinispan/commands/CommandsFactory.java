@@ -48,6 +48,7 @@ import org.infinispan.statetransfer.StateChunk;
 import org.infinispan.statetransfer.StateRequestCommand;
 import org.infinispan.statetransfer.StateResponseCommand;
 import org.infinispan.remoting.transport.Address;
+import org.infinispan.stream.impl.SortedStreamResponseCommand;
 import org.infinispan.stream.impl.StreamRequestCommand;
 import org.infinispan.stream.impl.StreamResponseCommand;
 import org.infinispan.transaction.xa.GlobalTransaction;
@@ -511,6 +512,22 @@ public interface CommandsFactory {
     */
    <R> StreamResponseCommand<R> buildStreamResponseCommand(UUID identifier, boolean complete, Set<Integer> lostSegments,
            R response);
+
+   /**
+    * TODO:
+    * <p>
+    * Lost segments are synchronized and then copied into another collection to avoid concurrent modifications
+    * @param identifier
+    * @param complete
+    * @param lostSegments
+    * @param response
+    * @param lastSeen
+    * @param <R>
+    * @param <E>
+    * @return
+    */
+   <R, E> SortedStreamResponseCommand<R, E> buildSortedStreamResponseCommand(UUID identifier, boolean complete,
+           Set<Integer> lostSegments, Iterable<R> response, E lastSeen);
 
    <K, V, R> ReadOnlyKeyCommand<K, V, R> buildReadOnlyKeyCommand(K key, Function<ReadEntryView<K, V>, R> f);
 

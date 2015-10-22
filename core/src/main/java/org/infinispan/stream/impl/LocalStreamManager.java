@@ -73,6 +73,33 @@ public interface LocalStreamManager<K> {
            Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader,
            KeyTrackingTerminalOperation<K, ?, R2> operation);
 
-   <Sorted, R> void sortedRehashOperation(UUID requestId, Address origin, Set<Integer> segments, Set<K> keysToInclude,
-           Set<K> keysToExclude, boolean includeLoader, SortedIterableTerminalOperation<Sorted, R> operation);
+   /**
+    *
+    * @param requestId
+    * @param origin
+    * @param segments
+    * @param keysToInclude
+    * @param keysToExclude
+    * @param includeLoader
+    * @param operation
+    * @param <R>
+    */
+   <R> void sortedIterableOperation(UUID requestId, Address origin, Set<Integer> segments, Set<K> keysToInclude,
+           Set<K> keysToExclude, boolean includeLoader, SortedIterableTerminalOperation<?, R> operation);
+
+   /**
+    *
+    * @param requestId
+    * @param origin
+    * @param segments
+    * @param keysToInclude
+    * @param keysToExclude
+    * @param includeLoader
+    * @param operation
+    * @param <Sorted>
+    * @param <R>
+    */
+   <Sorted, R> void sortedIterableRehashOperation(UUID requestId, Address origin, Set<Integer> segments,
+           Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader,
+           SortedIterableTerminalOperation<Sorted, R> operation);
 }

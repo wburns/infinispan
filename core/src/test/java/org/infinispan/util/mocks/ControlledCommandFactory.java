@@ -51,6 +51,7 @@ import org.infinispan.remoting.transport.Address;
 import org.infinispan.statetransfer.StateChunk;
 import org.infinispan.statetransfer.StateRequestCommand;
 import org.infinispan.statetransfer.StateResponseCommand;
+import org.infinispan.stream.impl.SortedStreamResponseCommand;
 import org.infinispan.stream.impl.StreamRequestCommand;
 import org.infinispan.stream.impl.StreamResponseCommand;
 import org.infinispan.test.TestingUtil;
@@ -404,6 +405,12 @@ public class ControlledCommandFactory implements CommandsFactory {
    public <R> StreamResponseCommand<R> buildStreamResponseCommand(UUID identifier, boolean complete,
                                                                   Set<Integer> lostSegments, R response) {
       return actual.buildStreamResponseCommand(identifier, complete, lostSegments, response);
+   }
+
+   @Override
+   public <R, E> SortedStreamResponseCommand<R, E> buildSortedStreamResponseCommand(UUID identifier, boolean complete,
+           Set<Integer> lostSegments, Iterable<R> response, E lastSeen) {
+      return actual.buildSortedStreamResponseCommand(identifier, complete, lostSegments, response, lastSeen);
    }
 
    @Override

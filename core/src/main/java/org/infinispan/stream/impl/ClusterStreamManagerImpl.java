@@ -159,7 +159,7 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
    }
 
    @Override
-   public <Sorted, R> UUID remoteSortedRehashOperation(boolean parallelDistribution, ConsistentHash ch,
+   public <Sorted, R> UUID remoteSortedIterableRehashOperation(boolean parallelDistribution, ConsistentHash ch,
            Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
            SortedIterableTerminalOperation<Sorted, R> operation, ResultsCallback<Map.Entry<Iterable<R>, Sorted>> callback) {
       Map<Address, Set<Integer>> targets = determineTargets(ch, segments);
@@ -204,6 +204,11 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
          }
       }
       return uuid;
+   }
+
+   @Override
+   public <R> UUID remoteSortedIterableOperation(boolean parallelDistribution, ConsistentHash ch, Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader, SortedIterableTerminalOperation<?, R> operation, ResultsCallback<Iterable<R>> callback) {
+      return null;
    }
 
    private void submitAsyncTasks(UUID uuid, Map<Address, Set<Integer>> targets, Map<Integer, Set<K>> keysToExclude,

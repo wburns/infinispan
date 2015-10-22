@@ -13,30 +13,11 @@ import java.util.stream.Stream;
  * @param <R> return type when not utilizing rehash aware
  * @param <R2> value type for the entry returned
  */
-public interface KeyTrackingTerminalOperation<K, R, R2> extends SegmentAwareOperation {
-   /**
-    * Invoked when a key aware operation is desired without rehash being enabled.
-    * @param response the collector that will be called back for any intermediate results
-    * @return the final response from the remote node
-    */
-   Iterable<R> performOperation(Consumer<Iterable<R>> response);
-
+public interface KeyTrackingTerminalOperation<K, R, R2> extends SegmentAwareOperation, IterableTerminalOperation<R> {
    /**
     * Invoked when a key and rehash aware operation is desired.
     * @param response the collector that will be called back for any intermediate results
     * @return the final response from the remote node
     */
    Iterable<CacheEntry<K, R2>> performOperationRehashAware(Consumer<Iterable<CacheEntry<K, R2>>> response);
-
-   /**
-    * This method is to be invoked only locally after a key tracking operation has been serialized to a new node
-    * @param supplier the supplier to use
-    */
-   void setSupplier(Supplier<? extends Stream<?>> supplier);
-
-   /**
-    * Handles injection of components for various intermediate and this operation.
-    * @param registry component registry to use
-    */
-   void handleInjection(ComponentRegistry registry);
 }

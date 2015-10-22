@@ -73,11 +73,18 @@ public class TxClusterStreamManager<K> implements ClusterStreamManager<K> {
    }
 
    @Override
-   public <Sorted, R> UUID remoteSortedRehashOperation(boolean parallelDistribution, ConsistentHash ch,
+   public <Sorted, R> UUID remoteSortedIterableRehashOperation(boolean parallelDistribution, ConsistentHash ch,
            Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
            SortedIterableTerminalOperation<Sorted, R> operation, ResultsCallback<Map.Entry<Iterable<R>, Sorted>> callback) {
       TxExcludedKeys<K> txExcludedKeys = new TxExcludedKeys<>(keysToExclude, ctx, hash);
-      return manager.remoteSortedRehashOperation(parallelDistribution, ch, segments, keysToInclude, txExcludedKeys,
+      return manager.remoteSortedIterableRehashOperation(parallelDistribution, ch, segments, keysToInclude, txExcludedKeys,
+              includeLoader, operation, callback);
+   }
+
+   @Override
+   public <R> UUID remoteSortedIterableOperation(boolean parallelDistribution, ConsistentHash ch, Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader, SortedIterableTerminalOperation<?, R> operation, ResultsCallback<Iterable<R>> callback) {
+      TxExcludedKeys<K> txExcludedKeys = new TxExcludedKeys<>(keysToExclude, ctx, hash);
+      return manager.remoteSortedIterableOperation(parallelDistribution, ch, segments, keysToInclude, txExcludedKeys,
               includeLoader, operation, callback);
    }
 

@@ -129,6 +129,8 @@ public interface ClusterStreamManager<K> {
 
    /**
     * TODO:
+    * @param <Sorted>
+    * @param <R>
     * @param parallelDistribution
     * @param ch
     * @param segments
@@ -137,13 +139,28 @@ public interface ClusterStreamManager<K> {
     * @param includeLoader
     * @param operation
     * @param callback
-    * @param <Sorted>
-    * @param <R>
     * @return
     */
-   <Sorted, R> UUID remoteSortedRehashOperation(boolean parallelDistribution, ConsistentHash ch,
+   <Sorted, R> UUID remoteSortedIterableRehashOperation(boolean parallelDistribution, ConsistentHash ch,
            Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
            SortedIterableTerminalOperation<Sorted, R> operation, ResultsCallback<Map.Entry<Iterable<R>, Sorted>> callback);
+
+   /**
+    * TODO:
+    * @param <R>
+    * @param parallelDistribution
+    * @param ch
+    * @param segments
+    * @param keysToInclude
+    * @param keysToExclude
+    * @param includeLoader
+    * @param operation
+    * @param callback
+    * @return
+    */
+   <R> UUID remoteSortedIterableOperation(boolean parallelDistribution, ConsistentHash ch,
+           Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
+           SortedIterableTerminalOperation<?, R> operation, ResultsCallback<Iterable<R>> callback);
 
    /**
     * Tests whether this operation is still pending or not.

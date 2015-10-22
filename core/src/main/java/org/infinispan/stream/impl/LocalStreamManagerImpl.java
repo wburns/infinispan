@@ -272,11 +272,9 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
       log.tracef("Sent response for %s", requestId);
    }
 
-   @Override
-   public <R> void streamOperation(UUID requestId, Address origin, boolean parallelStream, Set<Integer> segments,
+   private <R> void iterableTerminalOperation(UUID requestId, Address origin, boolean parallelStream, Set<Integer> segments,
            Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader,
-           KeyTrackingTerminalOperation<K, R, ?> operation) {
-      log.tracef("Received key aware operation request for id %s from %s for segments %s", requestId, origin, segments);
+           IterableTerminalOperation<R> operation) {
       CacheSet<CacheEntry<K, V>> cacheEntrySet = getCacheRespectingLoader(includeLoader).cacheEntrySet();
       operation.setSupplier(() -> getStream(cacheEntrySet, parallelStream, segments, keysToInclude, keysToExclude));
       operation.handleInjection(registry);
@@ -284,6 +282,15 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
               parallelStream));
       rpc.invokeRemotely(Collections.singleton(origin), factory.buildStreamResponseCommand(requestId, true,
               Collections.emptySet(), value), rpc.getDefaultRpcOptions(true));
+   }
+
+   @Override
+   public <R> void streamOperation(UUID requestId, Address origin, boolean parallelStream, Set<Integer> segments,
+           Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader,
+           KeyTrackingTerminalOperation<K, R, ?> operation) {
+      log.tracef("Received key aware operation request for id %s from %s for segments %s", requestId, origin, segments);
+      iterableTerminalOperation(requestId, origin, parallelStream, segments, keysToInclude, keysToExclude,
+              includeLoader, operation);
    }
 
    @Override
@@ -323,14 +330,22 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
    }
 
    @Override
-   public <Sorted, R> void sortedRehashOperation(UUID requestId, Address origin, Set<Integer> segments,
+   public <R> void sortedIterableOperation(UUID requestId, Address origin, Set<Integer> segments, Set<K> keysToInclude,
+           Set<K> keysToExclude, boolean includeLoader, SortedIterableTerminalOperation<?, R> operation) {
+      log.tracef("Received sorted iterable operation request for id %s from %s for segments %s", requestId, origin,
+              segments);
+      iterableTerminalOperation(requestId, origin, false, segments, keysToInclude, keysToExclude, includeLoader,
+              operation);
+   }
+
+   @Override
+   public <Sorted, R> void sortedIterableRehashOperation(UUID requestId, Address origin, Set<Integer> segments,
            Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader,
            SortedIterableTerminalOperation<Sorted, R> operation) {
-      log.tracef("Received sorted rehash aware operation request for id %s from %s for segments %s", requestId, origin,
-              segments);
+      log.tracef("Received sorted iterable rehash aware operation request for id %s from %s for segments %s", requestId,
+              origin, segments);
       CacheSet<CacheEntry<K, V>> cacheEntrySet = getCacheRespectingLoader(includeLoader).cacheEntrySet();
       SegmentListener listener = new SegmentListener(segments, operation);
-      Iterable<R> results;
 
       operation.handleInjection(registry);
       // We currently only allow 1 request per id (we may change this later)
@@ -339,8 +354,7 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
       try {
          operation.setSupplier(() -> getRehashStream(cacheEntrySet, requestId, listener, false, segments,
                  keysToInclude, keysToExclude));
-         operation.performOperationRehashAware(new SegmentAwareIntermediateCollector<>(origin, requestId,
-                 false, listener));
+         operation.performOperationRehashAware(new SegmentAwareIntermediateCollector<>(origin, requestId, listener));
          log.tracef("Request %s completed segments %s with %s suspected segments", requestId, segments,
                  listener.segmentsLost);
       } finally {
@@ -415,8 +429,7 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
       protected final UUID requestId;
       protected final SegmentListener listener;
 
-      SegmentAwareIntermediateCollector(Address origin, UUID requestId, boolean useManagedBlocker,
-              SegmentListener listener) {
+      SegmentAwareIntermediateCollector(Address origin, UUID requestId, SegmentListener listener) {
          this.origin = origin;
          this.requestId = requestId;
          this.listener = listener;
@@ -430,19 +443,10 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
             }
             listener.segmentsLost.addAll(listener.segments);
          }
-         // TODO: implement this
-         if (listener.segmentsLost.isEmpty()) {
-            // TODO: need to create response that includes last seen
-//            return super.createCommand(response);
-         } else {
-            // We have to copy the set in case of concurrent write
-            Set<Integer> setToUse;
-            synchronized (listener.segmentsLost) {
-               setToUse = new HashSet<>(listener.segmentsLost);
-            }
-            new StreamSegmentResponseCommand<>(cache.getName(), localAddress,
-                    requestId, false, response, setToUse);
-         }
+         SortedStreamResponseCommand<R, Sorted> command = factory.buildSortedStreamResponseCommand(requestId, completed,
+                 listener.segmentsLost, response, highestSort);
+         // TODO: actually send this
+         rpc.
       }
 
       @Override

@@ -77,6 +77,8 @@ import org.infinispan.statetransfer.StateResponseCommand;
 import org.infinispan.statetransfer.StateTransferManager;
 import org.infinispan.stream.impl.ClusterStreamManager;
 import org.infinispan.stream.impl.LocalStreamManager;
+import org.infinispan.stream.impl.SortedStreamResponseCommand;
+import org.infinispan.stream.impl.SortedStreamSegmentResponseCommand;
 import org.infinispan.stream.impl.StreamRequestCommand;
 import org.infinispan.stream.impl.StreamResponseCommand;
 import org.infinispan.stream.impl.StreamSegmentResponseCommand;
@@ -101,6 +103,7 @@ import org.infinispan.xsite.statetransfer.XSiteStateTransferManager;
 
 import javax.transaction.xa.Xid;
 import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -689,6 +692,23 @@ public class CommandsFactoryImpl implements CommandsFactory {
       } else {
          return new StreamSegmentResponseCommand<>(cacheName, cache.getCacheManager().getAddress(), identifier,
                  complete, response, lostSegments);
+      }
+   }
+
+   @Override
+   public <R, E> SortedStreamResponseCommand<R, E> buildSortedStreamResponseCommand(UUID identifier, boolean complete,
+           Set<Integer> lostSegments, Iterable<R> response, E lastSeen) {
+      if (lostSegments.isEmpty()) {
+         return new SortedStreamResponseCommand<>(cacheName, cache.getCacheManager().getAddress(), identifier, complete,
+                 response, lastSeen);
+      } else {
+         // We have to copy the set in case of concurrent write
+         Set<Integer> setToUse;
+         synchronized (lostSegments) {
+            setToUse = new HashSet<>(lostSegments);
+         }
+         return new SortedStreamSegmentResponseCommand<>(cacheName, cache.getCacheManager().getAddress(), identifier,
+                 complete, response, setToUse, lastSeen);
       }
    }
 
