@@ -13,10 +13,10 @@ import java.util.UUID;
  * @param <R> the response type
  * @param <E> the sorted type
  */
-public class SortedStreamSegmentResponseCommand<R, E> extends SortedStreamResponseCommand<R, E> {
+public class SortedStreamSegmentResponseCommand<R, E> extends StreamSegmentResponseCommand<Iterable<R>> {
    public static final byte COMMAND_ID = 60;
 
-   protected Set<Integer> missedSegments;
+   protected E lastSeen;
 
    // Only here for CommandIdUniquenessTest
    protected SortedStreamSegmentResponseCommand() { }
@@ -27,8 +27,8 @@ public class SortedStreamSegmentResponseCommand<R, E> extends SortedStreamRespon
 
    public SortedStreamSegmentResponseCommand(String cacheName, Address origin, UUID id, boolean complete,
            Iterable<R> response, Set<Integer> missedSegments, E lastSeen) {
-      super(cacheName, origin, id, complete, response, lastSeen);
-      this.missedSegments = missedSegments;
+      super(cacheName, origin, id, complete, response, missedSegments);
+      this.lastSeen = lastSeen;
    }
 
    @Override

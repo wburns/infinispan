@@ -58,6 +58,7 @@ import org.infinispan.iteration.impl.EntryResponseCommand;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.statetransfer.StateRequestCommand;
 import org.infinispan.statetransfer.StateResponseCommand;
+import org.infinispan.stream.impl.SortedStreamSegmentResponseCommand;
 import org.infinispan.stream.impl.StreamRequestCommand;
 import org.infinispan.stream.impl.StreamResponseCommand;
 import org.infinispan.stream.impl.StreamSegmentResponseCommand;
@@ -307,7 +308,10 @@ public class RemoteCommandsFactory {
                command = new StreamSegmentResponseCommand<>(cacheName);
                break;
             case StreamResponseCommand.COMMAND_ID:
-               command = new StreamResponseCommand(cacheName);
+               command = new StreamResponseCommand<>(cacheName);
+               break;
+            case SortedStreamSegmentResponseCommand.COMMAND_ID:
+               command = new SortedStreamSegmentResponseCommand<>(cacheName);
                break;
             default:
                throw new CacheException("Unknown command id " + id + "!");

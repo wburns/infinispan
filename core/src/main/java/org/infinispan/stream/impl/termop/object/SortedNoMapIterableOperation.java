@@ -12,18 +12,19 @@ import java.util.stream.BaseStream;
 import java.util.stream.Stream;
 
 /**
- * This is a sorted operation where no post operation includes a map or flat map
+ * This is a sorted operation where no post operation includes a map or flat map.  There can be a map or flat map
+ * before the sort though and it will operate fine.
  */
-public class SortedIterableOperation<E, R> extends BaseTerminalOperation implements SortedIterableTerminalOperation<E, R> {
+public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation implements SortedIterableTerminalOperation<E, E> {
    protected int batchSize;
    protected long limit;
 
    protected final Iterable<IntermediateOperation> afterOperations;
    protected final Comparator<? super E> comparator;
-   protected final SegmentRetryingCoordinator<Iterable<R>> coordinator;
+   protected final SegmentRetryingCoordinator<Iterable<E>> coordinator;
    protected E lastSeen;
 
-   protected SortedIterableOperation(Iterable<IntermediateOperation> beforeOperations,
+   protected SortedNoMapIterableOperation(Iterable<IntermediateOperation> beforeOperations,
            Iterable<IntermediateOperation> afterOperations, Supplier<? extends BaseStream<?, ?>> supplier,
            int batchSize, Comparator<? super E> comparator, Long limit, E lastSeen) {
       super(beforeOperations, supplier);
@@ -35,7 +36,7 @@ public class SortedIterableOperation<E, R> extends BaseTerminalOperation impleme
       this.lastSeen = lastSeen;
    }
 
-   public Iterable<R> innerPerformOperation(BaseStream<?, ?> stream) {
+   public Iterable<E> innerPerformOperation(BaseStream<?, ?> stream) {
       int batchSize;
       boolean skipOverlap;
       if (limit == -1) {
@@ -93,11 +94,10 @@ public class SortedIterableOperation<E, R> extends BaseTerminalOperation impleme
          }
       }
 
-      Stream<R> finalStream = (Stream<R>) afterStream;
       for (IntermediateOperation op : afterOperations) {
-         finalStream = (Stream<R>) op.perform(finalStream);
+         afterStream = (Stream<E>) op.perform(afterStream);
       }
-      return finalStream::iterator;
+      return afterStream::iterator;
    }
 
    @Override
@@ -106,9 +106,9 @@ public class SortedIterableOperation<E, R> extends BaseTerminalOperation impleme
    }
 
    @Override
-   public Iterable<R> performOperation(Consumer<Iterable<R>> response) {
-      Iterable<R> lastIterable = null;
-      Iterable<R> freshIterable;
+   public Iterable<E> performOperation(Consumer<Iterable<E>> response) {
+      Iterable<E> lastIterable = null;
+      Iterable<E> freshIterable;
       while ((freshIterable = innerPerformOperation(supplier.get())) != null) {
          if (lastIterable != null) {
             response.accept(lastIterable);
@@ -119,9 +119,9 @@ public class SortedIterableOperation<E, R> extends BaseTerminalOperation impleme
    }
 
    @Override
-   public void performOperationRehashAware(SortedConsumer<E, R> response) {
-      Iterable<R> lastIterable = null;
-      Iterable<R> freshIterable;
+   public void performOperationRehashAware(SortedConsumer<E, E> response) {
+      Iterable<E> lastIterable = null;
+      Iterable<E> freshIterable;
       E lastSeen = null;
       while ((freshIterable = coordinator.runOperation()) != null) {
          if (lastIterable != null) {

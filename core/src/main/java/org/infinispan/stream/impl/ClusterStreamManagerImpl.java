@@ -162,53 +162,23 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
    public <Sorted, R> UUID remoteSortedIterableRehashOperation(boolean parallelDistribution, ConsistentHash ch,
            Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
            SortedIterableTerminalOperation<Sorted, R> operation, ResultsCallback<Map.Entry<Iterable<R>, Sorted>> callback) {
-      Map<Address, Set<Integer>> targets = determineTargets(ch, segments);
-      UUID uuid = UUID.randomUUID();
-      if (!targets.isEmpty()) {
-         log.tracef("Performing remote rehash key aware operations %s for id %s", targets, uuid);
-         RequestTracker<Map.Entry<Iterable<R>, Sorted>> tracker = new RequestTracker<>(callback, targets, null);
-         currentlyRunning.put(uuid, tracker);
-         if (parallelDistribution) {
-            submitAsyncTasks(uuid, targets, keysToExclude, false, keysToInclude, includeLoader,
-                    StreamRequestCommand.TerminalType.SORTED_REHASH, operation);
-         } else {
-            for (Map.Entry<Address, Set<Integer>> targetInfo : targets.entrySet()) {
-               Address dest = targetInfo.getKey();
-               Set<Integer> targetSegments = targetInfo.getValue();
-               try {
-                  // Keys to exclude is never empty since it utilizes a custom map solution
-                  Set<K> keysExcluded = determineExcludedKeys(keysToExclude, targetSegments);
-                  log.tracef("Submitting task to %s for %s", dest, uuid);
-                  Response response = rpc.invokeRemotely(Collections.singleton(dest), factory.buildStreamRequestCommand(
-                                  uuid, false, StreamRequestCommand.TerminalType.SORTED_REHASH, targetSegments,
-                                  keysToInclude, keysExcluded, includeLoader, operation),
-                          rpc.getDefaultRpcOptions(true)).values().iterator().next();
-                  if (!response.isSuccessful()) {
-                     log.tracef("Unsuccessful response for %s from %s - making segments %s suspect", uuid,
-                             dest, targetSegments);
-                     receiveResponse(uuid, dest, true, targetSegments, null);
-                  }
-               } catch (Exception e) {
-                  boolean wasSuspect = containedSuspectException(e);
-
-                  if (!wasSuspect) {
-                     log.tracef(e, "Encounted exception for %s from %s", uuid, dest);
-                     throw e;
-                  } else {
-                     log.tracef("Exception from %s contained a SuspectException, making all segments %s suspect",
-                             dest, targetSegments);
-                     receiveResponse(uuid, dest, true, targetSegments, null);
-                  }
-               }
-            }
-         }
-      }
-      return uuid;
+      return null;
    }
 
    @Override
-   public <R> UUID remoteSortedIterableOperation(boolean parallelDistribution, ConsistentHash ch, Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader, SortedIterableTerminalOperation<?, R> operation, ResultsCallback<Iterable<R>> callback) {
-      return null;
+   public <R> UUID remoteSortedIterableOperation(boolean parallelDistribution, ConsistentHash ch, Set<Integer> segments,
+           Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
+           SortedIterableTerminalOperation<?, R> operation, ResultsCallback<Iterable<R>> callback) {
+      Map<Address, Set<Integer>> targets = determineTargets(ch, segments);
+      UUID uuid = UUID.randomUUID();
+      if (!targets.isEmpty()) {
+         log.tracef("Performing remote sorted iterable operations %s for id %s", targets, uuid);
+         RequestTracker<Iterable<R>> tracker = new RequestTracker<>(callback, targets, null);
+         currentlyRunning.put(uuid, tracker);
+         submitAsyncTasks(uuid, targets, keysToExclude, false, keysToInclude, includeLoader,
+                 StreamRequestCommand.TerminalType.SORTED, operation);
+      }
+      return uuid;
    }
 
    private void submitAsyncTasks(UUID uuid, Map<Address, Set<Integer>> targets, Map<Integer, Set<K>> keysToExclude,

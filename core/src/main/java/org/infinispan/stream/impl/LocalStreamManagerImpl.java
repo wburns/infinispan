@@ -162,7 +162,7 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
    private AdvancedCache<K, V> getCacheRespectingLoader(boolean includeLoader) {
       // We only need to "skip" the loader if there is one and we were told to skip it
       if (hasLoader && !includeLoader) {
-         return cache.getAdvancedCache().withFlags(Flag.SKIP_CACHE_LOAD);
+         return cache.withFlags(Flag.SKIP_CACHE_LOAD);
       }
       return cache;
    }
@@ -273,8 +273,7 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
    }
 
    private <R> void iterableTerminalOperation(UUID requestId, Address origin, boolean parallelStream, Set<Integer> segments,
-           Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader,
-           IterableTerminalOperation<R> operation) {
+           Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader, IterableTerminalOperation<R> operation) {
       CacheSet<CacheEntry<K, V>> cacheEntrySet = getCacheRespectingLoader(includeLoader).cacheEntrySet();
       operation.setSupplier(() -> getStream(cacheEntrySet, parallelStream, segments, keysToInclude, keysToExclude));
       operation.handleInjection(registry);
@@ -443,10 +442,9 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
             }
             listener.segmentsLost.addAll(listener.segments);
          }
-         SortedStreamResponseCommand<R, Sorted> command = factory.buildSortedStreamResponseCommand(requestId, completed,
+         StreamResponseCommand<Iterable<R>> command = factory.buildSortedStreamResponseCommand(requestId, completed,
                  listener.segmentsLost, response, highestSort);
-         // TODO: actually send this
-         rpc.
+         rpc.invokeRemotely(Collections.singleton(origin), command, rpc.getDefaultRpcOptions(true));
       }
 
       @Override

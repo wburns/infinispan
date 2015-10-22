@@ -102,6 +102,15 @@ public class PartitionAwareClusterStreamManager<K> extends ClusterStreamManagerI
               keysToExclude, includeLoader, operation, callback);
    }
 
+   @Override
+   public <Sorted, R> UUID remoteSortedIterableRehashOperation(boolean parallelDistribution, ConsistentHash ch,
+           Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
+           SortedIterableTerminalOperation<Sorted, R> operation, ResultsCallback<Map.Entry<Iterable<R>, Sorted>> callback) {
+      checkPartitionStatus();
+      return super.remoteSortedIterableRehashOperation(parallelDistribution, ch, segments, keysToInclude, keysToExclude,
+              includeLoader, operation, callback);
+   }
+
    private void checkPartitionStatus() {
       if (listener.currentMode != AvailabilityMode.AVAILABLE) {
          throw log.partitionDegraded();

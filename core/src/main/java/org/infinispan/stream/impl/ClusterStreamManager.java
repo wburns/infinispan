@@ -38,6 +38,7 @@ public interface ClusterStreamManager<K> {
        * Essentially the same as {@link ClusterStreamManager.ResultsCallback#onIntermediateResult(Address address, Object)}
        * except that this is the last time this callback will be invoked and it tells which segments were completed
        * @param address Which node this data came from
+       * @param completedSegments The segments that were completed from the response
        * @param results The last batch of results for this operator
        */
       void onCompletion(Address address, Set<Integer> completedSegments, R results);
@@ -129,6 +130,23 @@ public interface ClusterStreamManager<K> {
 
    /**
     * TODO:
+    * @param <R>
+    * @param parallelDistribution
+    * @param ch
+    * @param segments
+    * @param keysToInclude
+    * @param keysToExclude
+    * @param includeLoader
+    * @param operation
+    * @param callback
+    * @return
+    */
+   <R> UUID remoteSortedIterableOperation(boolean parallelDistribution, ConsistentHash ch,
+           Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
+           SortedIterableTerminalOperation<?, R> operation, ResultsCallback<Iterable<R>> callback);
+
+   /**
+    * TODO:
     * @param <Sorted>
     * @param <R>
     * @param parallelDistribution
@@ -144,23 +162,6 @@ public interface ClusterStreamManager<K> {
    <Sorted, R> UUID remoteSortedIterableRehashOperation(boolean parallelDistribution, ConsistentHash ch,
            Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
            SortedIterableTerminalOperation<Sorted, R> operation, ResultsCallback<Map.Entry<Iterable<R>, Sorted>> callback);
-
-   /**
-    * TODO:
-    * @param <R>
-    * @param parallelDistribution
-    * @param ch
-    * @param segments
-    * @param keysToInclude
-    * @param keysToExclude
-    * @param includeLoader
-    * @param operation
-    * @param callback
-    * @return
-    */
-   <R> UUID remoteSortedIterableOperation(boolean parallelDistribution, ConsistentHash ch,
-           Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
-           SortedIterableTerminalOperation<?, R> operation, ResultsCallback<Iterable<R>> callback);
 
    /**
     * Tests whether this operation is still pending or not.

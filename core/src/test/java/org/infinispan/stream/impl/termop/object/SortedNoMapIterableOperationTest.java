@@ -17,7 +17,7 @@ import static org.testng.AssertJUnit.assertEquals;
  * Created by wburns on 10/21/15.
  */
 @Test
-public class SortedIterableOperationTest {
+public class SortedNoMapIterableOperationTest {
    public List<Integer> generateInts() {
       List<Integer> ints = new ArrayList<>(10);
       ints.add(12);
@@ -62,7 +62,7 @@ public class SortedIterableOperationTest {
       List<Integer> input = generateInts();
       List<Integer> streamInput = new ArrayList<>(input);
 
-      SortedIterableOperation<Integer, Integer> op = new SortedIterableOperation(Collections.emptyList(),
+      SortedNoMapIterableOperation<Integer, Integer> op = new SortedNoMapIterableOperation(Collections.emptyList(),
               Collections.emptyList(), () -> streamInput.stream(), batchCount, null, null, null);
 
       Consumer<Iterable<Integer>> consumer = Mockito.mock(Consumer.class);
@@ -94,7 +94,7 @@ public class SortedIterableOperationTest {
       List<Integer> input = generateInts();
       List<Integer> streamInput = new ArrayList<>(input);
 
-      SortedIterableOperation<Integer, Integer> op = new SortedIterableOperation(Collections.emptyList(),
+      SortedNoMapIterableOperation<Integer, Integer> op = new SortedNoMapIterableOperation(Collections.emptyList(),
               Collections.emptyList(), () -> streamInput.stream(), batchSize, null, (long) limit, null);
 
       Consumer<Iterable<Integer>> consumer = Mockito.mock(Consumer.class);

@@ -77,7 +77,6 @@ import org.infinispan.statetransfer.StateResponseCommand;
 import org.infinispan.statetransfer.StateTransferManager;
 import org.infinispan.stream.impl.ClusterStreamManager;
 import org.infinispan.stream.impl.LocalStreamManager;
-import org.infinispan.stream.impl.SortedStreamResponseCommand;
 import org.infinispan.stream.impl.SortedStreamSegmentResponseCommand;
 import org.infinispan.stream.impl.StreamRequestCommand;
 import org.infinispan.stream.impl.StreamResponseCommand;
@@ -527,6 +526,11 @@ public class CommandsFactoryImpl implements CommandsFactory {
             RemoveExpiredCommand removeExpiredCommand = (RemoveExpiredCommand) c;
             removeExpiredCommand.init(notifier, configuration);
             break;
+         case SortedStreamSegmentResponseCommand.COMMAND_ID:
+            SortedStreamSegmentResponseCommand sortedStreamSegmentResponseCommand =
+                    (SortedStreamSegmentResponseCommand) c;
+            sortedStreamSegmentResponseCommand.inject(clusterStreamManager);
+            break;
          default:
             ModuleCommandInitializer mci = moduleCommandInitializers.get(c.getCommandId());
             if (mci != null) {
@@ -696,11 +700,11 @@ public class CommandsFactoryImpl implements CommandsFactory {
    }
 
    @Override
-   public <R, E> SortedStreamResponseCommand<R, E> buildSortedStreamResponseCommand(UUID identifier, boolean complete,
+   public <R, E> StreamResponseCommand<Iterable<R>> buildSortedStreamResponseCommand(UUID identifier, boolean complete,
            Set<Integer> lostSegments, Iterable<R> response, E lastSeen) {
       if (lostSegments.isEmpty()) {
-         return new SortedStreamResponseCommand<>(cacheName, cache.getCacheManager().getAddress(), identifier, complete,
-                 response, lastSeen);
+         return new StreamResponseCommand<>(cacheName, cache.getCacheManager().getAddress(), identifier, complete,
+                 response);
       } else {
          // We have to copy the set in case of concurrent write
          Set<Integer> setToUse;
