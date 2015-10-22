@@ -57,7 +57,8 @@ public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation imple
       sortableStream.sequential().forEach(e -> {
          if (lastSeen == null || comparator.compare(lastSeen, e) < 0) {
             sortedSet.add(e);
-            if (sortedSet.size() == batchSize + 1) {
+            // Note we keep one more than batch size since we are going to always trim the last one
+            if (sortedSet.size() > batchSize + 1) {
                sortedSet.pollLast();
             }
          }
@@ -71,15 +72,13 @@ public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation imple
          descIterator.remove();
          // We have to remove any entries that have same compared value at the tail
          while (descIterator.hasNext()) {
-            if (comparator.compare(top, descIterator.next()) == 0) {
+            E descE = descIterator.next();
+            if (comparator.compare(top, descE) == 0) {
                descIterator.remove();
             } else {
+               lastSeen = descE;
                break;
             }
-         }
-         // This is the last seen value, so next iteration it won't add these
-         if (descIterator.hasNext()) {
-            lastSeen = descIterator.next();
          }
       } else {
          completed = true;
@@ -99,18 +98,26 @@ public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation imple
    @Override
    public Iterable<E> performOperation(Consumer<Iterable<E>> response) {
       Iterable<E> iterable;
-      do {
+      for (;;) {
          iterable = innerPerformOperation(supplier.get());
-      } while (!completed);
+         if (completed) {
+            break;
+         }
+         response.accept(iterable);
+      }
       return iterable;
    }
 
    @Override
    public Iterable<E> performOperationRehashAware(Consumer<Iterable<E>> response) {
       Iterable<E> iterable;
-      do {
+      for (;;) {
          iterable = coordinator.runOperation();
-      } while (!completed);
+         if (completed) {
+            break;
+         }
+         response.accept(iterable);
+      }
       return iterable;
    }
 }
