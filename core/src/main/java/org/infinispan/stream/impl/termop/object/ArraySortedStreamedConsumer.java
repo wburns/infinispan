@@ -11,19 +11,21 @@ import java.util.stream.Stream;
 public class ArraySortedStreamedConsumer<E> implements StreamedConsumer<E> {
    private final int size;
    private final Comparator<? super E> comparator;
+   private final boolean skipOverlapCheck;
 
    private final E[] array;
 
    private int virtualSize;
    private boolean sizeSorted = false;
 
-   public ArraySortedStreamedConsumer(int size, Comparator<? super E> comparator) {
+   public ArraySortedStreamedConsumer(int size, Comparator<? super E> comparator, boolean skipOverlapCheck) {
       if (size < 1) {
          throw new IllegalArgumentException("Size should be greater than 0, was " + size);
       }
       this.size = size;
       Objects.nonNull(comparator);
       this.comparator = comparator;
+      this.skipOverlapCheck = skipOverlapCheck;
 
       this.array = (E[]) new Object[size << 1];
 
@@ -65,7 +67,7 @@ public class ArraySortedStreamedConsumer<E> implements StreamedConsumer<E> {
          virtualSize = size;
          // This means we had a duplicate value spanning size boundaries.  We can't allow that so we have to throw
          // exception
-         if (virtualSize > 0 && comparator.compare(array[virtualSize - 1], array[virtualSize]) == 0) {
+         if (!skipOverlapCheck && comparator.compare(array[virtualSize - 1], array[virtualSize]) == 0) {
             throw new BatchOverlapException("Number of duplicates via compareTo outnumbers size " + size);
          }
       }

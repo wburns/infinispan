@@ -12,7 +12,8 @@ public class ArraySortedStreamedConsumerTest {
    @Test(expectedExceptions = BatchOverlapException.class)
    public void testDuplicatesLargerThanBatchDuringAccept() {
       int size = 5;
-      ArraySortedStreamedConsumer<Integer> consumer = new ArraySortedStreamedConsumer<>(size, Comparator.naturalOrder());
+      ArraySortedStreamedConsumer<Integer> consumer = new ArraySortedStreamedConsumer<>(size, Comparator.naturalOrder(),
+              false);
       for (int i = 0; i < size * 2 + 1; ++i) {
          consumer.accept(10);
       }
@@ -21,7 +22,8 @@ public class ArraySortedStreamedConsumerTest {
    @Test(expectedExceptions = BatchOverlapException.class)
    public void testDuplicatesLargerThanBatchDuringCompaction() {
       int size = 5;
-      ArraySortedStreamedConsumer<Integer> consumer = new ArraySortedStreamedConsumer<>(size, Comparator.naturalOrder());
+      ArraySortedStreamedConsumer<Integer> consumer = new ArraySortedStreamedConsumer<>(size, Comparator.naturalOrder(),
+              false);
       for (int i = 0; i < size + 1; ++i) {
          consumer.accept(10);
       }

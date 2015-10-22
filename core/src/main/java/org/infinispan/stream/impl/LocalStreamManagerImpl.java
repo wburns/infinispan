@@ -325,7 +325,7 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
    @Override
    public <Sorted, R> void sortedRehashOperation(UUID requestId, Address origin, Set<Integer> segments,
            Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader,
-           SortedMapTerminalOperation<Sorted, R> operation) {
+           SortedIterableTerminalOperation<Sorted, R> operation) {
       log.tracef("Received sorted rehash aware operation request for id %s from %s for segments %s", requestId, origin,
               segments);
       CacheSet<CacheEntry<K, V>> cacheEntrySet = getCacheRespectingLoader(includeLoader).cacheEntrySet();
@@ -339,31 +339,13 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
       try {
          operation.setSupplier(() -> getRehashStream(cacheEntrySet, requestId, listener, false, segments,
                  keysToInclude, keysToExclude));
-         results = operation.performOperationRehashAware(new SegmentAwareIntermediateCollector<>(origin, requestId,
+         operation.performOperationRehashAware(new SegmentAwareIntermediateCollector<>(origin, requestId,
                  false, listener));
          log.tracef("Request %s completed segments %s with %s suspected segments", requestId, segments,
                  listener.segmentsLost);
       } finally {
          changeListener.remove(requestId);
          log.tracef("UnRegistered change listener for %s", requestId);
-      }
-      if (cache.getStatus() != ComponentStatus.RUNNING) {
-         if (log.isTraceEnabled()) {
-            log.tracef("Cache status is no longer running, all segments are now suspect for %s", requestId);
-         }
-         listener.segmentsLost.addAll(segments);
-         results = null;
-      }
-
-      rpc.invokeRemotely(Collections.singleton(origin), factory.buildStreamResponseCommand(requestId, true,
-              listener.segmentsLost, results), rpc.getDefaultRpcOptions(true));
-   }
-
-   class SortedRehashIntermediateCollector<R> implements Consumer<R> {
-
-      @Override
-      public void accept(R r) {
-
       }
    }
 
@@ -427,28 +409,50 @@ public class LocalStreamManagerImpl<K, V> implements LocalStreamManager<K> {
       }
    }
 
-   class SegmentAwareIntermediateCollector<R> extends IntermediateCollector<R> {
-      private final SegmentListener listener;
+   class SegmentAwareIntermediateCollector<Sorted, R>
+           implements SortedIterableTerminalOperation.SortedConsumer<Sorted, R> {
+      protected final Address origin;
+      protected final UUID requestId;
+      protected final SegmentListener listener;
 
       SegmentAwareIntermediateCollector(Address origin, UUID requestId, boolean useManagedBlocker,
               SegmentListener listener) {
-         super(origin, requestId, useManagedBlocker);
+         this.origin = origin;
+         this.requestId = requestId;
          this.listener = listener;
       }
 
-      @Override
-      public StreamResponseCommand<R> createCommand(R response) {
+      void sendResponse(Iterable<R> response, Sorted highestSort, boolean completed) {
+         // If the cache ever went to not running we have to suspect all of the segments that are left
+         if (cache.getStatus() != ComponentStatus.RUNNING) {
+            if (log.isTraceEnabled()) {
+               log.tracef("Cache status is no longer running, all segments are now suspect for %s", requestId);
+            }
+            listener.segmentsLost.addAll(listener.segments);
+         }
+         // TODO: implement this
          if (listener.segmentsLost.isEmpty()) {
-            return super.createCommand(response);
+            // TODO: need to create response that includes last seen
+//            return super.createCommand(response);
          } else {
             // We have to copy the set in case of concurrent write
             Set<Integer> setToUse;
             synchronized (listener.segmentsLost) {
                setToUse = new HashSet<>(listener.segmentsLost);
             }
-            return new StreamSegmentResponseCommand<>(cache.getName(), localAddress,
+            new StreamSegmentResponseCommand<>(cache.getName(), localAddress,
                     requestId, false, response, setToUse);
          }
+      }
+
+      @Override
+      public void accept(Iterable<R> response, Sorted highestSort) {
+         sendResponse(response, highestSort, false);
+      }
+
+      @Override
+      public void completed(Iterable<R> response, Sorted highestSort) {
+         sendResponse(response, highestSort, true);
       }
    }
 }

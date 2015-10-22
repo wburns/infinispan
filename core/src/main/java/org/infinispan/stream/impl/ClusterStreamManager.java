@@ -127,9 +127,23 @@ public interface ClusterStreamManager<K> {
                                                  KeyTrackingTerminalOperation<K, ?, R2> operation,
                                                  ResultsCallback<Map<K, R2>> callback);
 
-   <Sorted> UUID remoteSortedRehashOperation(boolean parallelDistribution, ConsistentHash ch, Set<Integer> segments,
-           Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
-           SortedNoMapTerminalOperation<Sorted> operation, ResultsCallback<Iterable<Sorted>> callback);
+   /**
+    * TODO:
+    * @param parallelDistribution
+    * @param ch
+    * @param segments
+    * @param keysToInclude
+    * @param keysToExclude
+    * @param includeLoader
+    * @param operation
+    * @param callback
+    * @param <Sorted>
+    * @param <R>
+    * @return
+    */
+   <Sorted, R> UUID remoteSortedRehashOperation(boolean parallelDistribution, ConsistentHash ch,
+           Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
+           SortedIterableTerminalOperation<Sorted, R> operation, ResultsCallback<Map.Entry<Iterable<R>, Sorted>> callback);
 
    /**
     * Tests whether this operation is still pending or not.

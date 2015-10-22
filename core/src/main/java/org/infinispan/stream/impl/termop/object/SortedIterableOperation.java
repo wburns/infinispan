@@ -1,7 +1,7 @@
 package org.infinispan.stream.impl.termop.object;
 
 import org.infinispan.stream.impl.SegmentRetryingCoordinator;
-import org.infinispan.stream.impl.SortedNoMapTerminalOperation;
+import org.infinispan.stream.impl.SortedIterableTerminalOperation;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 import org.infinispan.stream.impl.termop.BaseTerminalOperation;
 
@@ -14,16 +14,16 @@ import java.util.stream.Stream;
 /**
  * This is a sorted operation where no post operation includes a map or flat map
  */
-public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation implements SortedNoMapTerminalOperation<E> {
+public class SortedIterableOperation<E, R> extends BaseTerminalOperation implements SortedIterableTerminalOperation<E, R> {
    protected int batchSize;
    protected long limit;
 
    protected final Iterable<IntermediateOperation> afterOperations;
    protected final Comparator<? super E> comparator;
-   protected final SegmentRetryingCoordinator<Iterable<E>> coordinator;
+   protected final SegmentRetryingCoordinator<Iterable<R>> coordinator;
    protected E lastSeen;
 
-   protected SortedNoMapIteratorOperation(Iterable<IntermediateOperation> beforeOperations,
+   protected SortedIterableOperation(Iterable<IntermediateOperation> beforeOperations,
            Iterable<IntermediateOperation> afterOperations, Supplier<? extends BaseStream<?, ?>> supplier,
            int batchSize, Comparator<? super E> comparator, Long limit, E lastSeen) {
       super(beforeOperations, supplier);
@@ -35,19 +35,24 @@ public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation imple
       this.lastSeen = lastSeen;
    }
 
-   private int getLocalBatchSize() {
+   public Iterable<R> innerPerformOperation(BaseStream<?, ?> stream) {
+      int batchSize;
+      boolean skipOverlap;
       if (limit == -1) {
-         return batchSize;
+         batchSize = this.batchSize;
+         skipOverlap = false;
       } else if (limit > 0) {
-         return batchSize > limit ? (int) limit : batchSize;
+         // If the limist currently less than batch size, use that instead and we can skip the overlap check
+         // since we can just truncate the top end without error
+         if (limit < this.batchSize) {
+            batchSize = (int) limit;
+            skipOverlap = true;
+         } else {
+            batchSize = this.batchSize;
+            skipOverlap = false;
+         }
       } else {
-         return Integer.MIN_VALUE;
-      }
-   }
-
-   public Iterable<E> innerPerformOperation(BaseStream<?, ?> stream) {
-      int batchSize = getLocalBatchSize();
-      if (batchSize == Integer.MIN_VALUE) {
+         // If limit is 0 then that means we already returned the limit number
          return null;
       }
       for (IntermediateOperation op : intermediateOperations) {
@@ -56,7 +61,7 @@ public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation imple
 
       // now we should have a Stream of E
       Stream<E> sortableStream = (Stream<E>) stream.sequential();
-      StreamedConsumer<E> consumer = new ArraySortedStreamedConsumer<>(batchSize, comparator);
+      StreamedConsumer<E> consumer = new ArraySortedStreamedConsumer<>(batchSize, comparator, skipOverlap);
       if (lastSeen != null) {
          sortableStream = sortableStream.filter(e -> comparator.compare(lastSeen, e) < 0);
       }
@@ -82,16 +87,17 @@ public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation imple
       if (limit > 0) {
          if (limit < actualCount) {
             afterStream = afterStream.limit(limit);
-            limit = Long.MIN_VALUE;
+            limit = 0;
          } else {
             limit -= actualCount;
          }
       }
 
+      Stream<R> finalStream = (Stream<R>) afterStream;
       for (IntermediateOperation op : afterOperations) {
-         afterStream = (Stream<E>) op.perform(afterStream);
+         finalStream = (Stream<R>) op.perform(finalStream);
       }
-      return afterStream::iterator;
+      return finalStream::iterator;
    }
 
    @Override
@@ -100,9 +106,9 @@ public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation imple
    }
 
    @Override
-   public Iterable<E> performOperation(Consumer<Iterable<E>> response) {
-      Iterable<E> lastIterable = null;
-      Iterable<E> freshIterable;
+   public Iterable<R> performOperation(Consumer<Iterable<R>> response) {
+      Iterable<R> lastIterable = null;
+      Iterable<R> freshIterable;
       while ((freshIterable = innerPerformOperation(supplier.get())) != null) {
          if (lastIterable != null) {
             response.accept(lastIterable);
@@ -113,15 +119,17 @@ public class SortedNoMapIteratorOperation<E> extends BaseTerminalOperation imple
    }
 
    @Override
-   public Iterable<E> performOperationRehashAware(Consumer<Iterable<E>> response) {
-      Iterable<E> lastIterable = null;
-      Iterable<E> freshIterable;
+   public void performOperationRehashAware(SortedConsumer<E, R> response) {
+      Iterable<R> lastIterable = null;
+      Iterable<R> freshIterable;
+      E lastSeen = null;
       while ((freshIterable = coordinator.runOperation()) != null) {
          if (lastIterable != null) {
-            response.accept(lastIterable);
+            response.accept(lastIterable, lastSeen);
          }
+         lastSeen = this.lastSeen;
          lastIterable = freshIterable;
       }
-      return lastIterable;
+      response.completed(lastIterable, lastSeen);
    }
 }

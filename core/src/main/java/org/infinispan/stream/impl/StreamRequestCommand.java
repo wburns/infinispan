@@ -101,7 +101,7 @@ public class StreamRequestCommand<K> extends BaseRpcCommand implements Cancellab
             break;
          case SORTED:
             lsm.sortedRehashOperation(id, getOrigin(), segments, keys, excludedKeys, includeLoader,
-                    (SortedMapTerminalOperation)terminalOperation);
+                    (SortedIterableTerminalOperation)terminalOperation);
          case SORTED_REHASH:
          default:
             throw new IllegalArgumentException("Unsupported terminal type: " + type);

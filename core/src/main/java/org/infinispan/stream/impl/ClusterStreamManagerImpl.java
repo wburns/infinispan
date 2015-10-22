@@ -159,14 +159,14 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
    }
 
    @Override
-   public <Sorted> UUID remoteSortedRehashOperation(boolean parallelDistribution, ConsistentHash ch,
+   public <Sorted, R> UUID remoteSortedRehashOperation(boolean parallelDistribution, ConsistentHash ch,
            Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
-           SortedNoMapTerminalOperation<Sorted> operation, ResultsCallback<Iterable<Sorted>> callback) {
+           SortedIterableTerminalOperation<Sorted, R> operation, ResultsCallback<Map.Entry<Iterable<R>, Sorted>> callback) {
       Map<Address, Set<Integer>> targets = determineTargets(ch, segments);
       UUID uuid = UUID.randomUUID();
       if (!targets.isEmpty()) {
          log.tracef("Performing remote rehash key aware operations %s for id %s", targets, uuid);
-         RequestTracker<Iterable<Sorted>> tracker = new RequestTracker<>(callback, targets, null);
+         RequestTracker<Map.Entry<Iterable<R>, Sorted>> tracker = new RequestTracker<>(callback, targets, null);
          currentlyRunning.put(uuid, tracker);
          if (parallelDistribution) {
             submitAsyncTasks(uuid, targets, keysToExclude, false, keysToInclude, includeLoader,

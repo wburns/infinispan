@@ -9,22 +9,27 @@ import java.util.stream.Stream;
 /**
  * TODO:
  * A terminal operation for use with distributed stream
- * @param <Sorted> the type of the sorted result.  In this case it is also resulting values
+ * @param <R> resulting values
  */
-public interface SortedMapTerminalOperation<Sorted, R> extends SegmentAwareOperation {
+public interface SortedIterableTerminalOperation<Sorted, R> extends SegmentAwareOperation {
+   interface SortedConsumer<Sorted, R> {
+      void accept(Iterable<R> response, Sorted highestSort);
+      void completed(Iterable<R> response, Sorted highestSort);
+   }
+
    /**
     * Invoked when a key aware operation is desired without rehash being enabled.
     * @param response the consumer that will be called back for any intermediate results
     * @return the final response from the remote node
     */
-   Iterable<R> performOperation(Consumer<Iterable<Sorted>> response);
+   Iterable<R> performOperation(Consumer<Iterable<R>> response);
 
    /**
     * Invoked when a key and rehash aware operation is desired.
     * @param response the consumer that will be called back for any intermediate results
     * @return the final response from the remote node
     */
-   Iterable<R> performOperationRehashAware(Consumer<Iterable<Sorted>> response);
+   void performOperationRehashAware(SortedConsumer<Sorted, R> response);
 
    /**
     * This method is to be invoked only locally after a key tracking operation has been serialized to a new node

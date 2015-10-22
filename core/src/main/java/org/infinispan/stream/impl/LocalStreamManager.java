@@ -74,5 +74,5 @@ public interface LocalStreamManager<K> {
            KeyTrackingTerminalOperation<K, ?, R2> operation);
 
    <Sorted, R> void sortedRehashOperation(UUID requestId, Address origin, Set<Integer> segments, Set<K> keysToInclude,
-           Set<K> keysToExclude, boolean includeLoader, SortedMapTerminalOperation<Sorted, R> operation);
+           Set<K> keysToExclude, boolean includeLoader, SortedIterableTerminalOperation<Sorted, R> operation);
 }
