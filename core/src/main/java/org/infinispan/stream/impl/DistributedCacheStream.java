@@ -12,6 +12,7 @@ import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.distribution.ch.impl.ReplicatedConsistentHash;
 import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.remoting.transport.Address;
+import org.infinispan.stream.impl.intops.IntermediateOperation;
 import org.infinispan.stream.impl.intops.object.*;
 import org.infinispan.stream.impl.termop.SingleRunOperation;
 import org.infinispan.stream.impl.termop.object.ForEachOperation;
@@ -182,14 +183,14 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
 
    @Override
    public Stream<R> sorted() {
-      markSorted(IntermediateType.OBJ);
-      return addIntermediateOperation(SortedOperation.getInstance());
+      SortedOperation<R> op = SortedOperation.getInstance();
+      return sortOp(op, IntermediateType.OBJ);
    }
 
    @Override
    public Stream<R> sorted(Comparator<? super R> comparator) {
-      markSorted(IntermediateType.OBJ);
-      return addIntermediateOperation(new SortedComparatorOperation<>(comparator));
+      SortedComparatorOperation<R> op = new SortedComparatorOperation<>(comparator);
+      return sortOp(op, IntermediateType.OBJ);
    }
 
    @Override

@@ -85,6 +85,8 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
    protected long timeout = 30;
    protected TimeUnit timeoutUnit = TimeUnit.SECONDS;
 
+   protected boolean distributedSort = false;
+
    protected AbstractCacheStream(Address localAddress, boolean parallel, DistributionManager dm,
            Supplier<CacheStream<CacheEntry>> supplier, ClusterStreamManager<Object> csm,
            boolean includeLoader, int distributedBatchSize, Executor executor, ComponentRegistry registry) {
@@ -137,16 +139,36 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
 
       this.timeout = other.timeout;
       this.timeoutUnit = other.timeoutUnit;
+
+      this.distributedSort = other.distributedSort;
    }
 
-   protected void markSorted(IntermediateType type) {
+   protected S sortOp(IntermediateOperation<T, S, T, S> op, IntermediateType type) {
+      if (!markSorted(op, type)) {
+         return addIntermediateOperation(op);
+      }
+      return unwrap();
+   }
+
+   /**
+    * Marks the operation for sorting if applicable
+    * @param sortOperation the operation that will perform sorting
+    * @param type the intermediate type
+    * @return whether or not the sort operation will be performed remotely
+    */
+   protected boolean markSorted(IntermediateOperation<T, S, T, S> sortOperation, IntermediateType type) {
+      boolean distributed = false;
       if (intermediateType == IntermediateType.NONE) {
          intermediateType = type;
          if (localIntermediateOperations == null) {
+            intermediateOperations.add(sortOperation);
             localIntermediateOperations = new ArrayDeque<>();
+            distributedSort = true;
+            distributed = true;
          }
       }
       sorted = true;
+      return distributed;
    }
 
    protected void markDistinct(IntermediateOperation<T, S, T, S> intermediateOperation, IntermediateType type) {

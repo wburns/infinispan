@@ -83,8 +83,7 @@ public class DistributedDoubleCacheStream extends AbstractCacheStream<Double, Do
 
    @Override
    public DoubleStream sorted() {
-      markSorted(IntermediateType.DOUBLE);
-      return addIntermediateOperation(SortedDoubleOperation.getInstance());
+      return sortOp(SortedDoubleOperation.getInstance(), IntermediateType.DOUBLE);
    }
 
    @Override

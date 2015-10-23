@@ -84,8 +84,7 @@ public class DistributedLongCacheStream extends AbstractCacheStream<Long, LongSt
 
    @Override
    public LongStream sorted() {
-      markSorted(IntermediateType.LONG);
-      return addIntermediateOperation(SortedLongOperation.getInstance());
+      return sortOp(SortedLongOperation.getInstance(), IntermediateType.LONG);
    }
 
    @Override

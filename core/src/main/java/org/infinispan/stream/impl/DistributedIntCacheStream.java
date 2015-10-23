@@ -77,8 +77,7 @@ public class DistributedIntCacheStream extends AbstractCacheStream<Integer, IntS
 
    @Override
    public IntStream sorted() {
-      markSorted(IntermediateType.INT);
-      return addIntermediateOperation(SortedIntOperation.getInstance());
+      return sortOp(SortedIntOperation.getInstance(), IntermediateType.INT);
    }
 
    @Override
