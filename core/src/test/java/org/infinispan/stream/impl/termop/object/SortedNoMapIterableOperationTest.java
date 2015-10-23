@@ -62,7 +62,7 @@ public class SortedNoMapIterableOperationTest {
       List<Integer> input = generateInts();
       List<Integer> streamInput = new ArrayList<>(input);
 
-      SortedNoMapIterableOperation<Integer, Integer> op = new SortedNoMapIterableOperation(Collections.emptyList(),
+      SortedNoMapIterableOperation<Integer> op = new SortedNoMapIterableOperation(Collections.emptyList(),
               Collections.emptyList(), () -> streamInput.stream(), batchCount, null, null, null);
 
       Consumer<Iterable<Integer>> consumer = Mockito.mock(Consumer.class);
@@ -94,7 +94,7 @@ public class SortedNoMapIterableOperationTest {
       List<Integer> input = generateInts();
       List<Integer> streamInput = new ArrayList<>(input);
 
-      SortedNoMapIterableOperation<Integer, Integer> op = new SortedNoMapIterableOperation(Collections.emptyList(),
+      SortedNoMapIterableOperation<Integer> op = new SortedNoMapIterableOperation(Collections.emptyList(),
               Collections.emptyList(), () -> streamInput.stream(), batchSize, null, (long) limit, null);
 
       Consumer<Iterable<Integer>> consumer = Mockito.mock(Consumer.class);

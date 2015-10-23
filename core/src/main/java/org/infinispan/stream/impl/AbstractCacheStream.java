@@ -618,7 +618,6 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
 
    static class IterableConsumer<R> implements ClusterStreamManager.ResultsCallback<Iterable<R>>, Consumer<Iterable<R>> {
       private final Consumer<R> consumer;
-      private final Set<Integer> lostSegments = new ConcurrentHashSet<>();
 
       IterableConsumer(Consumer<R> consumer) {
          this.consumer = consumer;
@@ -639,10 +638,6 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
 
       @Override
       public void onSegmentsLost(Set<Integer> segments) {
-         // Have to use for loop since ConcurrentHashSet doesn't support addAll
-         for (Integer segment : segments) {
-            lostSegments.add(segment);
-         }
       }
 
       @Override

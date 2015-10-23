@@ -486,7 +486,8 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
       });
    }
 
-   private void rehashAwareIteration(AtomicBoolean complete, Consumer<R> consumer, IteratorSupplier<R> supplier, boolean iteratorParallelDistribute) {
+   private void rehashAwareIteration(AtomicBoolean complete, Consumer<R> consumer, IteratorSupplier<R> supplier,
+           boolean iteratorParallelDistribute) {
       ConsistentHash segmentInfoCH = dm.getReadConsistentHash();
       SegmentListenerNotifier<R> listenerNotifier;
       if (segmentCompletionListener != null) {

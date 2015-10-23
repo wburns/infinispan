@@ -162,6 +162,7 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
    public <Sorted, R> UUID remoteSortedIterableRehashOperation(boolean parallelDistribution, ConsistentHash ch,
            Set<Integer> segments, Set<K> keysToInclude, Map<Integer, Set<K>> keysToExclude, boolean includeLoader,
            SortedIterableTerminalOperation<Sorted, R> operation, ResultsCallback<Map.Entry<Iterable<R>, Sorted>> callback) {
+      // TODO:
       return null;
    }
 
