@@ -9,6 +9,7 @@ import org.infinispan.stream.impl.termop.object.FlatMapIteratorOperation;
 import org.infinispan.stream.impl.termop.object.ForEachOperation;
 import org.infinispan.stream.impl.termop.object.MapIteratorOperation;
 import org.infinispan.stream.impl.termop.object.NoMapIteratorOperation;
+import org.infinispan.stream.impl.termop.object.SortedNoMapIterableOperation;
 import org.infinispan.stream.impl.termop.primitive.ForEachDoubleOperation;
 import org.infinispan.stream.impl.termop.primitive.ForEachFlatMapDoubleOperation;
 import org.infinispan.stream.impl.termop.primitive.ForEachFlatMapIntOperation;
@@ -20,6 +21,7 @@ import org.jboss.marshalling.util.IdentityIntMap;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
+import java.util.Comparator;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.DoubleConsumer;
@@ -44,6 +46,7 @@ public class TerminalOperationExternalizer implements AdvancedExternalizer<BaseT
    private static final int FOREACH_DOUBLE = 9;
    private static final int FOREACH_INT = 10;
    private static final int FOREACH_LONG = 11;
+   private static final int SORTED_NOMAP = 12;
 
    private final IdentityIntMap<Class<? extends BaseTerminalOperation>> operations = new IdentityIntMap<>();
 
@@ -60,6 +63,7 @@ public class TerminalOperationExternalizer implements AdvancedExternalizer<BaseT
       operations.put(ForEachDoubleOperation.class, FOREACH_DOUBLE);
       operations.put(ForEachIntOperation.class, FOREACH_INT);
       operations.put(ForEachLongOperation.class, FOREACH_LONG);
+      operations.put(SortedNoMapIterableOperation.class, SORTED_NOMAP);
    }
 
    @Override
@@ -68,7 +72,8 @@ public class TerminalOperationExternalizer implements AdvancedExternalizer<BaseT
               SegmentRetryingOperation.class, FlatMapIteratorOperation.class,
               MapIteratorOperation.class, NoMapIteratorOperation.class, ForEachOperation.class,
               ForEachFlatMapDoubleOperation.class, ForEachFlatMapIntOperation.class, ForEachFlatMapLongOperation.class,
-              ForEachDoubleOperation.class, ForEachIntOperation.class, ForEachLongOperation.class);
+              ForEachDoubleOperation.class, ForEachIntOperation.class, ForEachLongOperation.class,
+              SortedNoMapIterableOperation.class);
    }
 
    @Override
@@ -125,6 +130,15 @@ public class TerminalOperationExternalizer implements AdvancedExternalizer<BaseT
             UnsignedNumeric.writeUnsignedInt(output, ((ForEachLongOperation) object).getBatchSize());
             output.writeObject(((ForEachLongOperation) object).getConsumer());
             break;
+         case SORTED_NOMAP:
+            SortedNoMapIterableOperation sortedNoMapOp = (SortedNoMapIterableOperation) object;
+            output.writeObject(sortedNoMapOp.getAfterOperations());
+            UnsignedNumeric.writeUnsignedInt(output, sortedNoMapOp.getBatchSize());
+            output.writeObject(sortedNoMapOp.getComparator());
+            // Limit can be -1 for no limit
+            output.writeLong(sortedNoMapOp.getLimit());
+            output.writeObject(sortedNoMapOp.getLastSeen());
+            break;
       }
    }
 
@@ -168,6 +182,10 @@ public class TerminalOperationExternalizer implements AdvancedExternalizer<BaseT
          case FOREACH_LONG:
             return new ForEachLongOperation<>((Iterable<IntermediateOperation>) input.readObject(), null,
                     UnsignedNumeric.readUnsignedInt(input), (LongConsumer) input.readObject());
+         case SORTED_NOMAP:
+            return new SortedNoMapIterableOperation<>((Iterable<IntermediateOperation>) input.readObject(),
+                    (Iterable<IntermediateOperation>) input.readObject(), null, UnsignedNumeric.readUnsignedInt(input),
+                    (Comparator) input.readObject(), input.readLong(), input.readObject());
 
          default:
             throw new IllegalArgumentException("Found invalid number " + number);

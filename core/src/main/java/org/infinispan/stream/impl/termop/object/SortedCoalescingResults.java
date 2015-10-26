@@ -1,30 +1,29 @@
 package org.infinispan.stream.impl.termop.object;
 
+import org.infinispan.commons.CacheException;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.stream.impl.ClusterStreamManager;
+import org.infinispan.stream.impl.StreamCloseableSupplier;
+import org.infinispan.util.CloseableSupplier;
 import org.infinispan.util.concurrent.ConcurrentHashSet;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 
-import java.util.Arrays;
-import java.util.Collections;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Consumer;
 
 /**
  * Created by wburns on 10/23/15.
  */
-public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsCallback<Iterable<R>>, AutoCloseable {
+public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsCallback<Iterable<R>>,
+        StreamCloseableSupplier<R>, Consumer<Iterable<R>> {
    private final static Log log = LogFactory.getLog(SortedCoalescingResults.class);
 
+   private final Address localAddress;
    private final Set<Address> targets;
    private final Comparator<? super R> comparator;
 
@@ -35,10 +34,16 @@ public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsC
    private final Map<Address, BlockingQueue<R>> sortableValues;
 
    private final AtomicBoolean closed = new AtomicBoolean(false);
+   private volatile CacheException exception;
 
    private Address lastValueFrom;
 
-   public SortedCoalescingResults(Set<Address> targets, int batchSize, Comparator<? super R> comparator) {
+   private Consumer<? super R> consumer;
+   private UUID identifier;
+
+   public SortedCoalescingResults(Address localAddress, Collection<Address> targets, int batchSize,
+           Comparator<? super R> comparator) {
+      this.localAddress = localAddress;
       if (targets.size() <= 1) {
          throw new IllegalArgumentException("Requires more than 1 target, use a simple queued callback instead");
       }
@@ -59,7 +64,11 @@ public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsC
 
    @Override
    public Set<Integer> onIntermediateResult(Address address, Iterable<R> results) {
+      log.tracef("Received intermediate result from %s", address);
       BlockingQueue<R> queue = sortableValues.get(address);
+      if (results == null) {
+         System.currentTimeMillis();
+      }
       Iterator<R> iterator = results.iterator();
       while (!closed.get() && iterator.hasNext()) {
          R value = iterator.next();
@@ -81,6 +90,7 @@ public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsC
 
    @Override
    public void onCompletion(Address address, Set<Integer> completedSegments, Iterable<R> results) {
+      log.tracef("Received final result from %s", address);
       onIntermediateResult(address, results);
       targets.remove(address);
    }
@@ -90,12 +100,7 @@ public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsC
       // We aren't rehash aware with this
    }
 
-   /**
-    *
-    * @return
-    * @throws InterruptedException
-    */
-   public R getNextValue() throws InterruptedException {
+   public R get() {
       // If last value from isn't set this is the first value, so we have to pull an entry from each address
       if (lastValueFrom == null) {
          int offset = 0;
@@ -127,25 +132,59 @@ public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsC
       return value;
    }
 
-   private R retrieveFromQueue(Address address, BlockingQueue<R> queue) throws InterruptedException {
+   private R retrieveFromQueue(Address address, BlockingQueue<R> queue) {
+      throwExceptionOnClose();
       // If it doesn't contain than we don't need to do waits
       if (!targets.contains(address)) {
          return queue.poll();
       }
       R value;
-      while ((value = queue.poll(100, TimeUnit.MILLISECONDS)) == null) {
-         if (closed.get()) {
-            throw new InterruptedException();
-         } else if (!targets.contains(address)) {
-            // This can happen if a completed response comes in with no values in the iterable
-            break;
+
+      try {
+         while ((value = queue.poll(100, TimeUnit.MILLISECONDS)) == null) {
+            throwExceptionOnClose();
+            if (!targets.contains(address)) {
+               // This can happen if a completed response comes in with no values in the iterable
+               break;
+            }
          }
+      } catch (InterruptedException e) {
+         throw new CacheException(e);
       }
       return value;
+   }
+
+   private void throwExceptionOnClose() {
+      if (closed.get()) {
+         if (exception != null) {
+            throw exception;
+         }
+         throw new CacheException("Sorted Coalescer was closed!");
+      }
    }
 
    @Override
    public void close() {
       closed.set(true);
+   }
+
+   public void close(CacheException e) {
+      exception = e;
+      closed.set(true);
+   }
+
+   @Override
+   public void addConsumerOnSupply(Consumer<? super R> consumer) {
+      this.consumer = consumer;
+   }
+
+   @Override
+   public void setIdentifier(UUID identifier) {
+      this.identifier = identifier;
+   }
+
+   @Override
+   public void accept(Iterable<R> rs) {
+      onIntermediateResult(localAddress, rs);
    }
 }

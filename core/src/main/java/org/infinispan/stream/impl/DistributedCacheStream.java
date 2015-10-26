@@ -17,6 +17,8 @@ import org.infinispan.stream.impl.intops.object.*;
 import org.infinispan.stream.impl.termop.SingleRunOperation;
 import org.infinispan.stream.impl.termop.object.ForEachOperation;
 import org.infinispan.stream.impl.termop.object.NoMapIteratorOperation;
+import org.infinispan.stream.impl.termop.object.SortedCoalescingResults;
+import org.infinispan.stream.impl.termop.object.SortedNoMapIterableOperation;
 import org.infinispan.util.CloseableSuppliedIterator;
 import org.infinispan.util.CloseableSupplier;
 import org.infinispan.util.concurrent.TimeoutException;
@@ -418,23 +420,78 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
    }
 
    Iterator<R> remoteIterator() {
-      BlockingQueue<R> queue = new ArrayBlockingQueue<>(distributedBatchSize);
+      StreamCloseableSupplier<R> supplier;
+      if (distributedSortComparator != null) {
+         ConsistentHash ch = dm.getConsistentHash();
+         boolean stayLocal = ch.getMembers().contains(localAddress) && segmentsToFilter != null
+                 && ch.getSegmentsForOwner(localAddress).containsAll(segmentsToFilter);
+         SortedCoalescingResults<R> results = new SortedCoalescingResults<>(localAddress, ch.getMembers(),
+                 distributedBatchSize, (Comparator<R>) Comparator.naturalOrder());
+         supplier = results;
 
-      final AtomicBoolean complete = new AtomicBoolean();
+         Long limitCount;
+         if (localIntermediateOperations != null && localIntermediateOperations.peek() instanceof LimitOperation) {
+            LimitOperation limitOp = (LimitOperation) localIntermediateOperations.poll();
+            limitCount = limitOp.getLimit();
+         } else {
+            limitCount = null;
+         }
 
-      Lock nextLock = new ReentrantLock();
-      Condition nextCondition = nextLock.newCondition();
+         SortedIterableTerminalOperation<?, R> op = new SortedNoMapIterableOperation<>(intermediateOperations,
+                 Collections.emptyList(), supplierForSegments(ch, segmentsToFilter, null, !stayLocal),
+                 distributedBatchSize, (Comparator<? super R>) distributedSortComparator, limitCount, null);
 
-      Consumer<R> consumer = new HandOffConsumer<>(queue, complete, nextLock, nextCondition);
+         Thread thread = Thread.currentThread();
+         executor.execute(() -> {
+            try {
+               log.tracef("Thread %s submitted iterator request for stream", thread);
+               Iterable<R> localValue = op.performOperation(results);
+               results.onCompletion(localAddress, Collections.emptySet(), localValue);
+               if (!stayLocal) {
+                  UUID id = csm.remoteSortedIterableOperation(true, ch, segmentsToFilter,
+                          keysToFilter, Collections.emptyMap(), includeLoader, op, results);
+                  supplier.setIdentifier(id);
+                  try {
+                     try {
+                        if (!csm.awaitCompletion(id, timeout, timeoutUnit)) {
+                           throw new TimeoutException();
+                        }
+                     } catch (InterruptedException e) {
+                        throw new CacheException(e);
+                     }
 
-      IteratorSupplier<R> supplier = new IteratorSupplier<>(queue, complete, nextLock, nextCondition, csm);
-
-      boolean iteratorParallelDistribute = parallelDistribution == null ? false : parallelDistribution;
-
-      if (rehashAware) {
-         rehashAwareIteration(complete, consumer, supplier, iteratorParallelDistribute);
+                  } finally {
+                     csm.forgetOperation(id);
+                  }
+               }
+               supplier.close();
+            } catch (CacheException e) {
+               log.trace("Encountered local cache exception for stream", e);
+               supplier.close(e);
+            } catch (Throwable t) {
+               log.trace("Encountered local throwable for stream", t);
+               supplier.close(new CacheException(t));
+            }
+         });
       } else {
-         ignoreRehashIteration(consumer, supplier, iteratorParallelDistribute);
+         BlockingQueue<R> queue = new ArrayBlockingQueue<>(distributedBatchSize);
+
+         final AtomicBoolean complete = new AtomicBoolean();
+
+         Lock nextLock = new ReentrantLock();
+         Condition nextCondition = nextLock.newCondition();
+
+         Consumer<R> consumer = new HandOffConsumer<>(queue, complete, nextLock, nextCondition);
+
+         supplier = new IteratorSupplier<>(queue, complete, nextLock, nextCondition, csm);
+
+         boolean iteratorParallelDistribute = parallelDistribution == null ? false : parallelDistribution;
+
+         if (rehashAware) {
+            rehashAwareIteration(complete, consumer, supplier, iteratorParallelDistribute);
+         } else {
+            ignoreRehashIteration(consumer, supplier, iteratorParallelDistribute);
+         }
       }
 
       CloseableIterator<R> closeableIterator = new CloseableSuppliedIterator<>(supplier);
@@ -442,7 +499,7 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
       return closeableIterator;
    }
 
-   private void ignoreRehashIteration(Consumer<R> consumer, IteratorSupplier<R> supplier, boolean iteratorParallelDistribute) {
+   private void ignoreRehashIteration(Consumer<R> consumer, StreamCloseableSupplier<R> supplier, boolean iteratorParallelDistribute) {
       IterableConsumer<R> remoteResults = new IterableConsumer<>(consumer);
       ConsistentHash ch = dm.getConsistentHash();
 
@@ -457,11 +514,11 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
          try {
             log.tracef("Thread %s submitted iterator request for stream", thread);
             Iterable<R> localValue = op.performOperation(remoteResults);
-            remoteResults.onCompletion(null, Collections.emptySet(), localValue);
+            remoteResults.onCompletion(localAddress, Collections.emptySet(), localValue);
             if (!stayLocal) {
                UUID id = csm.remoteStreamOperation(iteratorParallelDistribute, parallel, ch, segmentsToFilter,
                        keysToFilter, Collections.emptyMap(), includeLoader, op, remoteResults);
-               supplier.pending = id;
+               supplier.setIdentifier(id);
                try {
                   try {
                      if (!csm.awaitCompletion(id, timeout, timeoutUnit)) {
@@ -486,14 +543,14 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
       });
    }
 
-   private void rehashAwareIteration(AtomicBoolean complete, Consumer<R> consumer, IteratorSupplier<R> supplier,
+   private void rehashAwareIteration(AtomicBoolean complete, Consumer<R> consumer, StreamCloseableSupplier<R> supplier,
            boolean iteratorParallelDistribute) {
       ConsistentHash segmentInfoCH = dm.getReadConsistentHash();
       SegmentListenerNotifier<R> listenerNotifier;
       if (segmentCompletionListener != null) {
          listenerNotifier = new SegmentListenerNotifier<>(
                  segmentCompletionListener);
-         supplier.setConsumer(listenerNotifier);
+         supplier.addConsumerOnSupply(listenerNotifier);
       } else {
          listenerNotifier = null;
       }
@@ -531,7 +588,7 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
                   UUID id = csm.remoteStreamOperationRehashAware(iteratorParallelDistribute, parallel, ch,
                           segmentsToProcess, keysToFilter, new AtomicReferenceArrayToMap<>(results.referenceArray),
                           includeLoader, op, results);
-                  supplier.pending = id;
+                  supplier.setIdentifier(id);
                   try {
                      if (runLocal) {
                         performLocalRehashAwareOperation(results, segmentsToProcess, ch, segments, op,
@@ -564,7 +621,7 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
       });
    }
 
-   private Set<Integer> segmentsToProcess(IteratorSupplier<R> supplier, KeyTrackingConsumer<Object, R> results,
+   private Set<Integer> segmentsToProcess(CloseableSupplier<R> supplier, KeyTrackingConsumer<Object, R> results,
                                           Set<Integer> segmentsToProcess, UUID id) {
       String strId = id == null ? "local" : id.toString();
       if (!results.lostSegments.isEmpty()) {
@@ -667,7 +724,7 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
       }
    }
 
-   static class IteratorSupplier<R> implements CloseableSupplier<R> {
+   static class IteratorSupplier<R> implements StreamCloseableSupplier<R> {
       private final BlockingQueue<R> queue;
       private final AtomicBoolean completed;
       private final Lock nextLock;
@@ -677,7 +734,7 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
       CacheException exception;
       volatile UUID pending;
 
-      private Consumer<R> consumer;
+      private Consumer<? super R> consumer;
 
       IteratorSupplier(BlockingQueue<R> queue, AtomicBoolean completed, Lock nextLock, Condition nextCondition,
               ClusterStreamManager<?> clusterStreamManager) {
@@ -709,6 +766,17 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
          } finally {
             nextLock.unlock();
          }
+      }
+
+      @Override
+      public void addConsumerOnSupply(Consumer<? super R> consumer) {
+         this.consumer = consumer;
+      }
+
+      @Override
+      public void setIdentifier(UUID identifier) {
+         Objects.nonNull(identifier);
+         this.pending = identifier;
       }
 
       @Override
@@ -749,10 +817,6 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
             consumer.accept(entry);
          }
          return entry;
-      }
-
-      public void setConsumer(Consumer<R> consumer) {
-         this.consumer = consumer;
       }
    }
 

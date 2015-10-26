@@ -20,11 +20,12 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
    protected long limit;
 
    protected final Iterable<IntermediateOperation> afterOperations;
+
    protected final Comparator<? super E> comparator;
    protected final SegmentRetryingCoordinator<Iterable<E>> coordinator;
    protected E lastSeen;
 
-   protected SortedNoMapIterableOperation(Iterable<IntermediateOperation> beforeOperations,
+   public SortedNoMapIterableOperation(Iterable<IntermediateOperation> beforeOperations,
            Iterable<IntermediateOperation> afterOperations, Supplier<? extends BaseStream<?, ?>> supplier,
            int batchSize, Comparator<? super E> comparator, Long limit, E lastSeen) {
       super(beforeOperations, supplier);
@@ -131,5 +132,25 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
          lastIterable = freshIterable;
       }
       response.completed(lastIterable, lastSeen);
+   }
+
+   public Iterable<IntermediateOperation> getAfterOperations() {
+      return afterOperations;
+   }
+
+   public Comparator<? super E> getComparator() {
+      return comparator;
+   }
+
+   public E getLastSeen() {
+      return lastSeen;
+   }
+
+   public int getBatchSize() {
+      return batchSize;
+   }
+
+   public long getLimit() {
+      return limit;
    }
 }

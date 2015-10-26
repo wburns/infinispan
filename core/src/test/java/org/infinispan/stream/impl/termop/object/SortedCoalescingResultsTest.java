@@ -42,7 +42,8 @@ public class SortedCoalescingResultsTest extends AbstractInfinispanTest {
 
       int[] ints = IntStream.iterate(82, i -> i -= 3).limit(count).toArray();
 
-      SortedCoalescingResults<Integer> res = new SortedCoalescingResults<>(addresses, batchSize, Comparator.reverseOrder());
+      SortedCoalescingResults<Integer> res = new SortedCoalescingResults<>(null, addresses, batchSize,
+              Comparator.reverseOrder());
 
       int offset = 0;
       for (Address address : addresses) {
@@ -68,7 +69,7 @@ public class SortedCoalescingResultsTest extends AbstractInfinispanTest {
          if (value == -74) {
             System.currentTimeMillis();
          }
-         assertEquals(value, res.getNextValue().intValue());
+         assertEquals(value, res.get().intValue());
       }
    }
 

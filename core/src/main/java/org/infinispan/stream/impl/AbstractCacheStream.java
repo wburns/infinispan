@@ -13,7 +13,9 @@ import org.infinispan.distribution.ch.impl.ReplicatedConsistentHash;
 import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.partitionhandling.impl.PartitionHandlingManager;
 import org.infinispan.remoting.transport.Address;
+import org.infinispan.stream.CacheComparators;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
+import org.infinispan.stream.impl.intops.object.SortedComparatorOperation;
 import org.infinispan.stream.impl.termop.SegmentRetryingOperation;
 import org.infinispan.stream.impl.termop.SingleRunOperation;
 import org.infinispan.stream.impl.termop.object.FlatMapIteratorOperation;
@@ -85,7 +87,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
    protected long timeout = 30;
    protected TimeUnit timeoutUnit = TimeUnit.SECONDS;
 
-   protected boolean distributedSort = false;
+   protected Comparator<?> distributedSortComparator = null;
 
    protected AbstractCacheStream(Address localAddress, boolean parallel, DistributionManager dm,
            Supplier<CacheStream<CacheEntry>> supplier, ClusterStreamManager<Object> csm,
@@ -140,7 +142,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       this.timeout = other.timeout;
       this.timeoutUnit = other.timeoutUnit;
 
-      this.distributedSort = other.distributedSort;
+      this.distributedSortComparator = other.distributedSortComparator;
    }
 
    protected S sortOp(IntermediateOperation<T, S, T, S> op, IntermediateType type) {
@@ -161,9 +163,13 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
       if (intermediateType == IntermediateType.NONE) {
          intermediateType = type;
          if (localIntermediateOperations == null) {
-            intermediateOperations.add(sortOperation);
+            if (sortOperation instanceof SortedComparatorOperation) {
+               distributedSortComparator = ((SortedComparatorOperation) sortOperation).getComparator();
+            } else {
+               distributedSortComparator = CacheComparators.serializableComparator(() ->
+                       (Comparator<T>) Comparator.naturalOrder());
+            }
             localIntermediateOperations = new ArrayDeque<>();
-            distributedSort = true;
             distributed = true;
          }
       }
