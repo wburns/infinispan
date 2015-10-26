@@ -15,6 +15,7 @@ import org.infinispan.partitionhandling.impl.PartitionHandlingManager;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.stream.CacheComparators;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
+import org.infinispan.stream.impl.intops.object.LimitOperation;
 import org.infinispan.stream.impl.intops.object.SortedComparatorOperation;
 import org.infinispan.stream.impl.termop.SegmentRetryingOperation;
 import org.infinispan.stream.impl.termop.SingleRunOperation;
@@ -151,6 +152,15 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
          return addIntermediateOperation(op);
       }
       return unwrap();
+   }
+
+   protected void addLimitIfPossible() {
+      if (distributedSortComparator != null && localIntermediateOperations.isEmpty()) {
+         // Add this to tell the stream to only return the first one - note we rely currently that the various
+         // primitive iterators use boxing
+         // TODO: we could also do this for when there is no flatmap or filter method in local intermediate
+         localIntermediateOperations.add(new LimitOperation<>(1));
+      }
    }
 
    /**

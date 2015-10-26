@@ -385,6 +385,7 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
    @Override
    public Optional<R> findFirst() {
       if (intermediateType.shouldUseIntermediate(sorted, distinct)) {
+         addLimitIfPossible();
          Iterator<R> iterator = iterator();
          SingleRunOperation<Optional<R>, R, Stream<R>> op = new SingleRunOperation<>(localIntermediateOperations,
                  () -> StreamSupport.stream(Spliterators.spliteratorUnknownSize(

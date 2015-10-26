@@ -50,8 +50,7 @@ public class ArraySortedStreamedConsumer<E> implements StreamedConsumer<E> {
       if (virtualSize == 0) {
          return Stream.empty();
       }
-      Stream<E> stream = Arrays.stream(array, 0, virtualSize);
-      return comparator == null ? stream.sorted() : stream.sorted(comparator);
+      return Arrays.stream(array, 0, virtualSize);
    }
 
    @Override
