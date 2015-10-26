@@ -148,6 +148,13 @@ public interface CacheStream<R> extends Stream<R> {
    CacheStream<R> timeout(long timeout, TimeUnit unit);
 
    /**
+    *
+    * @param sortedValue
+    * @return
+    */
+   CacheStream<R> ignoreUntil(Object sortedValue);
+
+   /**
     * Functional interface that is used as a callback when segments are completed.  Please see
     * {@link CacheStream#segmentCompletionListener(SegmentCompletionListener)} for more details.
     * @since 8.0

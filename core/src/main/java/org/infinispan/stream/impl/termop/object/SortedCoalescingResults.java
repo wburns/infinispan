@@ -66,9 +66,6 @@ public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsC
    public Set<Integer> onIntermediateResult(Address address, Iterable<R> results) {
       log.tracef("Received intermediate result from %s", address);
       BlockingQueue<R> queue = sortableValues.get(address);
-      if (results == null) {
-         System.currentTimeMillis();
-      }
       Iterator<R> iterator = results.iterator();
       while (!closed.get() && iterator.hasNext()) {
          R value = iterator.next();
@@ -107,10 +104,23 @@ public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsC
          for (Map.Entry<Address, BlockingQueue<R>> entry : sortableValues.entrySet()) {
             Address address = entry.getKey();
             R value = retrieveFromQueue(address, entry.getValue());
+            if (value == null) {
+               targetsCompleted++;
+               // we have to shift all of the values over 1
+               for (int i = offset; i > 0; --i) {
+                  currentTargets[i] = currentTargets[i - 1];
+               }
+               offset++;
+               continue;
+            }
             currentTargets[offset++] = value;
             currentAddressForValue.put(value, entry.getKey());
          }
-         Arrays.sort(currentTargets, comparator);
+         try {
+            Arrays.sort(currentTargets, comparator);
+         } catch (NullPointerException e) {
+            System.currentTimeMillis();
+         }
       } else {
          BlockingQueue<R> q = sortableValues.get(lastValueFrom);
          R value = retrieveFromQueue(lastValueFrom, q);
@@ -133,7 +143,6 @@ public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsC
    }
 
    private R retrieveFromQueue(Address address, BlockingQueue<R> queue) {
-      throwExceptionOnClose();
       // If it doesn't contain than we don't need to do waits
       if (!targets.contains(address)) {
          return queue.poll();
@@ -142,8 +151,7 @@ public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsC
 
       try {
          while ((value = queue.poll(100, TimeUnit.MILLISECONDS)) == null) {
-            throwExceptionOnClose();
-            if (!targets.contains(address)) {
+            if (!targets.contains(address) || isClosed()) {
                // This can happen if a completed response comes in with no values in the iterable
                break;
             }
@@ -154,13 +162,14 @@ public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsC
       return value;
    }
 
-   private void throwExceptionOnClose() {
+   private boolean isClosed() {
       if (closed.get()) {
          if (exception != null) {
             throw exception;
          }
-         throw new CacheException("Sorted Coalescer was closed!");
+         return true;
       }
+      return false;
    }
 
    @Override

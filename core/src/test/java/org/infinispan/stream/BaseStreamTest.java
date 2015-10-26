@@ -7,6 +7,8 @@ import org.infinispan.CacheStream;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.container.entries.ImmortalCacheEntry;
+import org.infinispan.context.Flag;
+import org.infinispan.distribution.DistributionManager;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
@@ -19,6 +21,7 @@ import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.*;
@@ -180,6 +183,7 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
       CacheSet<Map.Entry<Integer, String>> entrySet = cache.entrySet();
 
       List<Map.Entry<Integer, String>> list = createStream(entrySet).sorted(
+              (Serializable & Comparator<Map.Entry<Integer, String>>)
               (e1, e2) -> Integer.compare(e1.getKey(), e2.getKey())).collect(
               CacheCollectors.serializableCollector(() -> Collectors.toList()));
       assertEquals(cache.size(), list.size());
@@ -228,7 +232,7 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
       assertEquals(range, cache.size());
       CacheSet<Map.Entry<Integer, String>> entrySet = cache.entrySet();
 
-      assertEquals(0, createStream(entrySet).sorted(
+      assertEquals(0, createStream(entrySet).sorted((Serializable & Comparator<Map.Entry<Integer, String>>)
               (e1, e2) -> Integer.compare(e1.getKey(), e2.getKey())).findFirst().get().getKey().intValue());
    }
 
@@ -367,7 +371,8 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
 
       List<Map.Entry<Integer, String>> list = new ArrayList<>(range);
       // we sort inverted order
-      createStream(entrySet).sorted((e1, e2) -> Integer.compare(e2.getKey(), e1.getKey())).forEachOrdered(
+      createStream(entrySet).sorted((Serializable & Comparator<Map.Entry<Integer, String>>)
+              (e1, e2) -> Integer.compare(e2.getKey(), e1.getKey())).forEachOrdered(
               list::add);
       assertEquals(range, list.size());
       for (int i = 0; i < range; ++i) {
@@ -512,6 +517,7 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
       CacheSet<Map.Entry<Integer, String>> entrySet = cache.entrySet();
 
       Iterator<Map.Entry<Integer, String>> iterator = createStream(entrySet).sorted(
+              (Serializable & Comparator<Map.Entry<Integer, String>>)
               (e1, e2) -> Integer.compare(e1.getKey(), e2.getKey())).iterator();
       AtomicInteger i = new AtomicInteger();
       iterator.forEachRemaining(e -> {
@@ -828,9 +834,17 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
       assertEquals(range, cache.size());
       CacheSet<Map.Entry<Integer, String>> entrySet = cache.entrySet();
 
+//      AtomicInteger cacheOffset = new AtomicInteger();
+//      DistributionManager dm = cache.getAdvancedCache().getDistributionManager();
+//      getCaches(CACHE_NAME).forEach(c -> {
+//         System.out.println("Cache " + cacheOffset.getAndIncrement());
+//         c.getAdvancedCache().withFlags(Flag.CACHE_MODE_LOCAL).keySet().stream().filter(k -> dm.getPrimaryLocation(k).equals(c.getCacheManager().getAddress())).forEach(System.out::println);
+//      });
+
       PrimitiveIterator.OfInt iterator = createStream(entrySet).mapToInt(toInt).sorted().iterator();
       AtomicLong i = new AtomicLong();
       iterator.forEachRemaining((int e) -> assertEquals(i.getAndIncrement(), e));
+      assertEquals(range, i.get());
    }
 
    public void testIntFlatMapIterator() {
@@ -1490,7 +1504,7 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
       assertEquals(range, cache.size());
       CacheSet<Map.Entry<Double, String>> entrySet = cache.entrySet();
 
-      assertEquals(0.0, createStream(entrySet).mapToDouble(toDouble).sorted().findFirst().getAsDouble());
+      assertEquals(0.0, createStream(entrySet).timeout(10, TimeUnit.MINUTES).mapToDouble(toDouble).sorted().findFirst().getAsDouble());
    }
 
    public void testDoubleForEach() {

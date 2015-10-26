@@ -4,8 +4,12 @@ import org.infinispan.stream.impl.SegmentRetryingCoordinator;
 import org.infinispan.stream.impl.SortedIterableTerminalOperation;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 import org.infinispan.stream.impl.termop.BaseTerminalOperation;
+import org.infinispan.util.logging.Log;
+import org.infinispan.util.logging.LogFactory;
 
+import java.util.Collections;
 import java.util.Comparator;
+import java.util.Objects;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 import java.util.stream.BaseStream;
@@ -16,6 +20,8 @@ import java.util.stream.Stream;
  * before the sort though and it will operate fine.
  */
 public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation implements SortedIterableTerminalOperation<E, E> {
+   private static final Log log = LogFactory.getLog(SortedNoMapIterableOperation.class);
+
    protected int batchSize;
    protected long limit;
 
@@ -32,7 +38,8 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
       this.limit = limit == null ? -1 : limit;
       this.batchSize = batchSize;
       this.afterOperations = afterOperations;
-      this.comparator = comparator == null ? (Comparator<E>) Comparator.naturalOrder() : comparator;
+      Objects.nonNull(comparator);
+      this.comparator = comparator;
       this.coordinator = new SegmentRetryingCoordinator<>(this::innerPerformOperation, () -> supplier.get());
       this.lastSeen = lastSeen;
    }
@@ -68,10 +75,11 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
          sortableStream = sortableStream.filter(e -> comparator.compare(lastSeen, e) < 0);
       }
       try {
-         sortableStream.sequential().forEach(consumer);
+         sortableStream.forEach(consumer);
 
          // We do this before sort just in case
          if (consumer.estimatedSize() == 0) {
+            log.tracef("No estimated results found: lastSeen was %s!", lastSeen);
             return null;
          }
 
@@ -86,9 +94,11 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
       Stream<E> afterStream = consumer.stream();
 
       long actualCount = consumer.estimatedSize();
+      log.tracef("Found %s result(s)", actualCount);
       if (limit > 0) {
          if (limit < actualCount) {
             afterStream = afterStream.limit(limit);
+            log.tracef("Limited results to %s", limit);
             limit = 0;
          } else {
             limit -= actualCount;
@@ -98,7 +108,7 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
       for (IntermediateOperation op : afterOperations) {
          afterStream = (Stream<E>) op.perform(afterStream);
       }
-      return afterStream::iterator;
+      return new MarshallableIterable<>(afterStream::iterator);
    }
 
    @Override
@@ -116,7 +126,11 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
          }
          lastIterable = freshIterable;
       }
-      return lastIterable;
+      if (lastIterable != null) {
+         return lastIterable;
+      } else {
+         return Collections.emptyList();
+      }
    }
 
    @Override

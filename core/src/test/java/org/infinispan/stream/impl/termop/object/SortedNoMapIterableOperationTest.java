@@ -7,6 +7,7 @@ import org.testng.annotations.Test;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
@@ -63,7 +64,7 @@ public class SortedNoMapIterableOperationTest {
       List<Integer> streamInput = new ArrayList<>(input);
 
       SortedNoMapIterableOperation<Integer> op = new SortedNoMapIterableOperation(Collections.emptyList(),
-              Collections.emptyList(), () -> streamInput.stream(), batchCount, null, null, null);
+              Collections.emptyList(), () -> streamInput.stream(), batchCount, Comparator.naturalOrder(), null, null);
 
       Consumer<Iterable<Integer>> consumer = Mockito.mock(Consumer.class);
       Iterable<Integer> lastIterable = op.performOperation(consumer);
@@ -95,7 +96,8 @@ public class SortedNoMapIterableOperationTest {
       List<Integer> streamInput = new ArrayList<>(input);
 
       SortedNoMapIterableOperation<Integer> op = new SortedNoMapIterableOperation(Collections.emptyList(),
-              Collections.emptyList(), () -> streamInput.stream(), batchSize, null, (long) limit, null);
+              Collections.emptyList(), () -> streamInput.stream(), batchSize, Comparator.naturalOrder(), (long) limit,
+              null);
 
       Consumer<Iterable<Integer>> consumer = Mockito.mock(Consumer.class);
       Iterable<Integer> lastIterable = op.performOperation(consumer);

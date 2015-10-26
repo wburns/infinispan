@@ -88,6 +88,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, T_CONS>
    protected TimeUnit timeoutUnit = TimeUnit.SECONDS;
 
    protected Comparator<?> distributedSortComparator = null;
+   protected Object lastSeen;
 
    protected AbstractCacheStream(Address localAddress, boolean parallel, DistributionManager dm,
            Supplier<CacheStream<CacheEntry>> supplier, ClusterStreamManager<Object> csm,

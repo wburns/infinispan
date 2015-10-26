@@ -79,7 +79,7 @@ public abstract class AbstractLocalCacheStream<T, S extends BaseStream<T, S>> im
 
    @Override
    public boolean isParallel() {
-      return createStream().isParallel();
+      return this.parallel;
    }
 
    @Override

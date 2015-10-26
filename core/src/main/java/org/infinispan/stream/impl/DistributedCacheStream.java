@@ -426,7 +426,7 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
          boolean stayLocal = ch.getMembers().contains(localAddress) && segmentsToFilter != null
                  && ch.getSegmentsForOwner(localAddress).containsAll(segmentsToFilter);
          SortedCoalescingResults<R> results = new SortedCoalescingResults<>(localAddress, ch.getMembers(),
-                 distributedBatchSize, (Comparator<R>) Comparator.naturalOrder());
+                 distributedBatchSize, (Comparator<R>) distributedSortComparator);
          supplier = results;
 
          Long limitCount;
@@ -439,18 +439,23 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
 
          SortedIterableTerminalOperation<?, R> op = new SortedNoMapIterableOperation<>(intermediateOperations,
                  Collections.emptyList(), supplierForSegments(ch, segmentsToFilter, null, !stayLocal),
-                 distributedBatchSize, (Comparator<? super R>) distributedSortComparator, limitCount, null);
+                 distributedBatchSize, (Comparator<? super R>) distributedSortComparator, limitCount, (R) lastSeen);
 
          Thread thread = Thread.currentThread();
          executor.execute(() -> {
             try {
                log.tracef("Thread %s submitted iterator request for stream", thread);
-               Iterable<R> localValue = op.performOperation(results);
-               results.onCompletion(localAddress, Collections.emptySet(), localValue);
+               UUID id;
                if (!stayLocal) {
-                  UUID id = csm.remoteSortedIterableOperation(true, ch, segmentsToFilter,
+                  id = csm.remoteSortedIterableOperation(true, ch, segmentsToFilter,
                           keysToFilter, Collections.emptyMap(), includeLoader, op, results);
                   supplier.setIdentifier(id);
+               } else {
+                  id = null;
+               }
+               Iterable<R> localValue = op.performOperation(results);
+               results.onCompletion(localAddress, Collections.emptySet(), localValue);
+               if (id != null) {
                   try {
                      try {
                         if (!csm.awaitCompletion(id, timeout, timeoutUnit)) {
@@ -932,6 +937,12 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
       }
       this.timeout = timeout;
       this.timeoutUnit = unit;
+      return this;
+   }
+
+   @Override
+   public CacheStream<R> ignoreUntil(Object sortedValue) {
+      lastSeen = sortedValue;
       return this;
    }
 
