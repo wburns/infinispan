@@ -116,11 +116,7 @@ public class SortedCoalescingResults<R> implements ClusterStreamManager.ResultsC
             currentTargets[offset++] = value;
             currentAddressForValue.put(value, entry.getKey());
          }
-         try {
-            Arrays.sort(currentTargets, comparator);
-         } catch (NullPointerException e) {
-            System.currentTimeMillis();
-         }
+         Arrays.sort(currentTargets, comparator);
       } else {
          BlockingQueue<R> q = sortableValues.get(lastValueFrom);
          R value = retrieveFromQueue(lastValueFrom, q);

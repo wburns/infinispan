@@ -367,18 +367,18 @@ public class ClusterStreamManagerImpl<K> implements ClusterStreamManager<K> {
 
       if (tracker != null) {
          boolean notify = false;
-         // TODO: need to reorganize the tracker to reduce synchronization so it only contains missing segments
-         // and completing the tracker
+         boolean containedKey;
          synchronized(tracker) {
-            if (tracker.awaitingResponse.containsKey(origin)) {
-               if (!missingSegments.isEmpty()) {
-                  tracker.missingSegments(missingSegments);
-               }
-               if (complete) {
-                  notify = tracker.lastResult(origin, response);
-               } else {
-                  tracker.intermediateResults(origin, response);
-               }
+            containedKey = tracker.awaitingResponse.containsKey(origin);
+         }
+         if (containedKey) {
+            if (!missingSegments.isEmpty()) {
+               tracker.missingSegments(missingSegments);
+            }
+            if (complete) {
+               notify = tracker.lastResult(origin, response);
+            } else {
+               tracker.intermediateResults(origin, response);
             }
          }
          if (notify) {
