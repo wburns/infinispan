@@ -254,4 +254,20 @@ public final class AtomicHashMap<K, V> implements AtomicMap<K, V>, CopyableDelta
          return Util.<Class<? extends AtomicHashMap>>asSet(AtomicHashMap.class);
       }
    }
+
+   @Override
+   public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+
+      AtomicHashMap<?, ?> that = (AtomicHashMap<?, ?>) o;
+
+      return delegate.equals(that.delegate);
+
+   }
+
+   @Override
+   public int hashCode() {
+      return delegate.hashCode();
+   }
 }

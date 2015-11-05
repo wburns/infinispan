@@ -134,6 +134,23 @@ public final class MetaParams {
          '}';
    }
 
+   @Override
+   public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+
+      MetaParams that = (MetaParams) o;
+
+      // Probably incorrect - comparing Object[] arrays with Arrays.equals
+      return Arrays.equals(metas, that.metas);
+
+   }
+
+   @Override
+   public int hashCode() {
+      return Arrays.hashCode(metas);
+   }
+
    /**
     * Construct a collection of {@link MetaParam} instances. If multiple
     * instances of the same {@link MetaParam} are present, the last value is

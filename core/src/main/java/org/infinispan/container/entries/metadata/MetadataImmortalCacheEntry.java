@@ -51,6 +51,25 @@ public class MetadataImmortalCacheEntry extends ImmortalCacheEntry implements Me
             toStr(key), toStr(value), metadata);
    }
 
+   @Override
+   public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+      if (!super.equals(o)) return false;
+
+      MetadataImmortalCacheEntry that = (MetadataImmortalCacheEntry) o;
+
+      return !(metadata != null ? !metadata.equals(that.metadata) : that.metadata != null);
+
+   }
+
+   @Override
+   public int hashCode() {
+      int result = super.hashCode();
+      result = 31 * result + (metadata != null ? metadata.hashCode() : 0);
+      return result;
+   }
+
    public static class Externalizer extends AbstractExternalizer<MetadataImmortalCacheEntry> {
       @Override
       public void writeObject(ObjectOutput output, MetadataImmortalCacheEntry ice) throws IOException {

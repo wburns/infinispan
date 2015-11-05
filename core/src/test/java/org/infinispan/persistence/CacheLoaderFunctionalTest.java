@@ -38,7 +38,9 @@ import javax.transaction.TransactionManager;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
@@ -535,18 +537,19 @@ public class CacheLoaderFunctionalTest extends AbstractInfinispanTest {
 
    public void testValuesForCacheLoader() {
       cache.putIfAbsent("k1", "v1");
-      List<String> copy1 = copyValues(cache);
+      Collection<String> copy1 = copyValues(cache);
       assertEquals(1, copy1.size());
-      assertEquals("v1", copy1.get(0));
+      assertEquals("v1", copy1.iterator().next());
 
       cache.putIfAbsent("k2", "v2");
-      List<String> copy2 = copyValues(cache);
+      Collection<String> copy2 = copyValues(cache);
       assertEquals(2, copy2.size());
-      assertEquals(Arrays.asList("v1", "v2"), copy2);
+      assertTrue(copy2.contains("v1"));
+      assertTrue(copy2.contains("v2"));
    }
 
-   private List<String> copyValues(Cache<?, String> cache) {
-      return new ArrayList<>(cache.values());
+   private Collection<String> copyValues(Cache<?, String> cache) {
+      return cache.values();
    }
 
 

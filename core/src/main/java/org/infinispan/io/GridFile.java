@@ -591,6 +591,29 @@ public class GridFile extends File {
       }
 
       @Override
+      public boolean equals(Object o) {
+         if (this == o) return true;
+         if (o == null || getClass() != o.getClass()) return false;
+
+         Metadata metadata = (Metadata) o;
+
+         if (length != metadata.length) return false;
+         if (modificationTime != metadata.modificationTime) return false;
+         if (chunkSize != metadata.chunkSize) return false;
+         return flags == metadata.flags;
+
+      }
+
+      @Override
+      public int hashCode() {
+         int result = length;
+         result = 31 * result + (int) (modificationTime ^ (modificationTime >>> 32));
+         result = 31 * result + chunkSize;
+         result = 31 * result + (int) flags;
+         return result;
+      }
+
+      @Override
       public void writeExternal(ObjectOutput out) throws IOException {
          out.writeInt(length);
          out.writeLong(modificationTime);

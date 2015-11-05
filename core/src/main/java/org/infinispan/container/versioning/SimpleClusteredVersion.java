@@ -60,6 +60,25 @@ public class SimpleClusteredVersion implements IncrementableEntryVersion {
             '}';
    }
 
+   @Override
+   public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+
+      SimpleClusteredVersion that = (SimpleClusteredVersion) o;
+
+      if (topologyId != that.topologyId) return false;
+      return version == that.version;
+
+   }
+
+   @Override
+   public int hashCode() {
+      int result = topologyId;
+      result = 31 * result + (int) (version ^ (version >>> 32));
+      return result;
+   }
+
    public static class Externalizer extends AbstractExternalizer<SimpleClusteredVersion> {
 
       @Override

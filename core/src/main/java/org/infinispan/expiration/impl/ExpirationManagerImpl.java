@@ -132,7 +132,8 @@ public class ExpirationManagerImpl<K, V> implements ExpirationManager<K, V> {
    @Override
    public void handleInMemoryExpiration(InternalCacheEntry<K, V> entry, long currentTime) {
       dataContainer.compute(entry.getKey(), ((k, oldEntry, factory) -> {
-         if (entry == oldEntry) {
+         // TODO: only do equals if offheap solution in use
+         if (entry == oldEntry || entry.equals(oldEntry)) {
             // We have to delete from shared stores as well to make sure there are not multiple expiration events
             persistenceManager.deleteFromAllStores(k, PersistenceManager.AccessMode.BOTH);
             if (cacheNotifier != null) {

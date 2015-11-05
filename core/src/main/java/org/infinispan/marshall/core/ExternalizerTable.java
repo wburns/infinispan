@@ -26,12 +26,14 @@ import org.infinispan.commons.util.InfinispanCollections;
 import org.infinispan.configuration.global.GlobalConfiguration;
 import org.infinispan.container.entries.ImmortalCacheEntry;
 import org.infinispan.container.entries.ImmortalCacheValue;
+import org.infinispan.container.entries.L1InternalCacheEntry;
 import org.infinispan.container.entries.MortalCacheEntry;
 import org.infinispan.container.entries.MortalCacheValue;
 import org.infinispan.container.entries.TransientCacheEntry;
 import org.infinispan.container.entries.TransientCacheValue;
 import org.infinispan.container.entries.TransientMortalCacheEntry;
 import org.infinispan.container.entries.TransientMortalCacheValue;
+import org.infinispan.container.entries.metadata.L1MetadataInternalCacheEntry;
 import org.infinispan.container.entries.metadata.MetadataImmortalCacheEntry;
 import org.infinispan.container.entries.metadata.MetadataImmortalCacheValue;
 import org.infinispan.container.entries.metadata.MetadataMortalCacheEntry;
@@ -286,6 +288,8 @@ public class ExternalizerTable implements ObjectTable {
       addInternalExternalizer(new MortalCacheValue.Externalizer());
       addInternalExternalizer(new TransientCacheValue.Externalizer());
       addInternalExternalizer(new TransientMortalCacheValue.Externalizer());
+      addInternalExternalizer(new L1InternalCacheEntry.Externalizer());
+      addInternalExternalizer(new L1MetadataInternalCacheEntry.Externalizer());
 
       addInternalExternalizer(new SimpleClusteredVersion.Externalizer());
       addInternalExternalizer(new MetadataImmortalCacheEntry.Externalizer());
@@ -380,6 +384,7 @@ public class ExternalizerTable implements ObjectTable {
       addInternalExternalizer(new MetaParamExternalizers.LifespanExternalizer());
       addInternalExternalizer(new MetaParamExternalizers.EntryVersionParamExternalizer());
       addInternalExternalizer(new MetaParamExternalizers.NumericEntryVersionExternalizer());
+      addInternalExternalizer(new MetaParamExternalizers.MaxIdleExternalizer());
 
       addInternalExternalizer(new EntryViews.ReadWriteSnapshotViewExternalizer());
       addInternalExternalizer(new MarshallableFunctionExternalizers.ConstantLambdaExternalizer());

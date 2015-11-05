@@ -145,4 +145,20 @@ public abstract class AbstractInternalCacheEntry implements InternalCacheEntry {
          throw new RuntimeException("Should never happen!", e);
       }
    }
+
+   @Override
+   public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+
+      AbstractInternalCacheEntry that = (AbstractInternalCacheEntry) o;
+
+      return !(key != null ? !key.equals(that.key) : that.key != null);
+
+   }
+
+   @Override
+   public int hashCode() {
+      return key != null ? key.hashCode() : 0;
+   }
 }

@@ -11,6 +11,7 @@ import org.infinispan.test.SingleCacheManagerTest;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.Test;
 
+import java.io.Serializable;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
@@ -156,7 +157,7 @@ public class MetadataAPITest extends SingleCacheManagerTest {
       return new EmbeddedMetadata.Builder().version(version).build();
    }
 
-   private class CustomMetadata implements Metadata, Metadata.Builder {
+   private static class CustomMetadata implements Metadata, Metadata.Builder, Serializable {
 
       private final long lifespan;
       private final long maxIdle;

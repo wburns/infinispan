@@ -35,6 +35,8 @@ public interface Ids extends org.infinispan.commons.marshall.Ids {
    // internal collections (id=18 no longer in use, might get reused at a later stage)
    // id=19 moved to parent interface
    int ATOMIC_HASH_MAP = 20;
+   int L1_ENTRY = 21;
+   int L1_ENTRY_METADATA = 22;
    // others
    int GLOBAL_TRANSACTION = 38;
    int JGROUPS_ADDRESS = 39;
@@ -154,7 +156,7 @@ public interface Ids extends org.infinispan.commons.marshall.Ids {
    int META_PARAMS_INTERNAL_METADATA = 152;
    int META_PARAMS = 153;
 
-   // TODO: Add other meta params
+   // Other meta start again at 163
    int META_LIFESPAN = 154;
    int META_ENTRY_VERSION = 155;
    int NUMERIC_ENTRY_VERSION = 156;
@@ -164,4 +166,6 @@ public interface Ids extends org.infinispan.commons.marshall.Ids {
    // 158 - 160 used by functions in commons
    int AVAILABILITY_MODE = 161;
    int VALUE_MATCHER = 162;
+
+   int META_MAXIDLE = 163;
 }

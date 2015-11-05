@@ -642,7 +642,7 @@ public class MapReduceManagerImpl implements MapReduceManager {
       }
    }
 
-   private static class DeltaAwareList<E> implements Iterable<E>, DeltaAware {
+   private static class DeltaAwareList<E> implements Iterable<E>, DeltaAware, Serializable {
 
       private final List<E> list;
 
@@ -668,6 +668,22 @@ public class MapReduceManagerImpl implements MapReduceManager {
       @Override
       public String toString() {
          return "DeltaAwareList(" + list.size() + ")" + String.valueOf(list);
+      }
+
+      @Override
+      public boolean equals(Object o) {
+         if (this == o) return true;
+         if (o == null || getClass() != o.getClass()) return false;
+
+         DeltaAwareList<?> that = (DeltaAwareList<?>) o;
+
+         return list.equals(that.list);
+
+      }
+
+      @Override
+      public int hashCode() {
+         return list.hashCode();
       }
    }
 

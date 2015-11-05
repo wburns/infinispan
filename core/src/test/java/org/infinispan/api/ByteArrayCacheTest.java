@@ -94,14 +94,22 @@ public class ByteArrayCacheTest extends SingleCacheManagerTest {
          Map<byte[], byte[]> map, boolean expectFound) {
       byte[] key = {1, 2, 3};
       byte[] value = {4, 5, 6};
-      map.put(key, value);
+      try {
+         map.put(key, value);
+      } catch (IllegalArgumentException e) {
+         // This is valid for some data containers that require equivalence to be used
+         if (expectFound) {
+            throw e;
+         }
+      }
       byte[] lookupKey = {1, 2, 3}; // on purpose, different instance required
       if (expectFound)
          assertTrue(String.format("Expected key=%s to return value=%s",
                Util.toStr(lookupKey), Util.toStr(value)),
                Arrays.equals(value, map.get(lookupKey)));
-      else
+      else {
          assertNull(map.get(lookupKey));
+      }
    }
 
 }

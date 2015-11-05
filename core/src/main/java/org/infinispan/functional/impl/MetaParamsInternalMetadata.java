@@ -89,6 +89,22 @@ public final class MetaParamsInternalMetadata implements InternalMetadata, MetaP
          '}';
    }
 
+   @Override
+   public boolean equals(Object o) {
+      if (this == o) return true;
+      if (o == null || getClass() != o.getClass()) return false;
+
+      MetaParamsInternalMetadata that = (MetaParamsInternalMetadata) o;
+
+      return !(params != null ? !params.equals(that.params) : that.params != null);
+
+   }
+
+   @Override
+   public int hashCode() {
+      return params != null ? params.hashCode() : 0;
+   }
+
    public static final class Externalizer extends AbstractExternalizer<MetaParamsInternalMetadata> {
       @Override
       public void writeObject(ObjectOutput oo, MetaParamsInternalMetadata o) throws IOException {

@@ -374,7 +374,7 @@ public class APINonTxTest extends SingleCacheManagerTest {
       cache.putAll(m);
 
       Set<Map.Entry<Object, Object>> entries = cache.entrySet();
-      Object newObj = new Object();
+      String newObj = "newObj";
 
       for (Map.Entry entry : entries) {
          entry.setValue(newObj);

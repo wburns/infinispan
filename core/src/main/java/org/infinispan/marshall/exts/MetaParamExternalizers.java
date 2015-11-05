@@ -2,6 +2,7 @@ package org.infinispan.marshall.exts;
 
 import org.infinispan.commons.api.functional.EntryVersion;
 import org.infinispan.commons.api.functional.EntryVersion.NumericEntryVersion;
+import org.infinispan.commons.api.functional.MetaParam;
 import org.infinispan.commons.api.functional.MetaParam.MetaEntryVersion;
 import org.infinispan.commons.api.functional.MetaParam.MetaLifespan;
 import org.infinispan.commons.marshall.AbstractExternalizer;
@@ -87,4 +88,25 @@ public final class MetaParamExternalizers {
       }
    }
 
+   public static final class MaxIdleExternalizer extends AbstractExternalizer<MetaParam.MetaMaxIdle> {
+      @Override
+      public void writeObject(ObjectOutput output, MetaParam.MetaMaxIdle object) throws IOException {
+         output.writeLong(object.get());
+      }
+
+      @Override
+      public MetaParam.MetaMaxIdle readObject(ObjectInput input) throws IOException, ClassNotFoundException {
+         return new MetaParam.MetaMaxIdle(input.readLong());
+      }
+
+      @Override
+      public Set<Class<? extends MetaParam.MetaMaxIdle>> getTypeClasses() {
+         return Util.<Class<? extends MetaParam.MetaMaxIdle>>asSet(MetaParam.MetaMaxIdle.class);
+      }
+
+      @Override
+      public Integer getId() {
+         return Ids.META_MAXIDLE;
+      }
+   }
 }
