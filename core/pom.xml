@@ -30,7 +30,12 @@
          <artifactId>jgroups</artifactId>
       </dependency>
 
-      
+    <dependency>
+        <groupId>org.mapdb</groupId>
+        <artifactId>mapdb</artifactId>
+        <version>2.0-beta10</version>
+    </dependency>
+
       <dependency>
          <groupId>org.jboss.spec.javax.transaction</groupId>
          <artifactId>jboss-transaction-api_1.1_spec</artifactId>

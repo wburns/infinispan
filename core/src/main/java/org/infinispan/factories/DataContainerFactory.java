@@ -6,6 +6,7 @@ import org.infinispan.commons.util.concurrent.jdk8backported.EntrySizeCalculator
 import org.infinispan.configuration.cache.EvictionConfiguration;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.DefaultDataContainer;
+import org.infinispan.container.MapDBContainer;
 import org.infinispan.container.entries.MarshalledValueEntrySizeCalculator;
 import org.infinispan.container.entries.PrimitiveEntrySizeCalculator;
 import org.infinispan.eviction.EvictionStrategy;
@@ -38,8 +39,13 @@ public class DataContainerFactory extends AbstractNamedCacheComponentFactory imp
 
          //handle case when < 0 value signifies unbounded container
          if(thresholdSize < 0) {
-            return (T) DefaultDataContainer.unBoundedDataContainer(
-                    level, keyEquivalence);
+            if (configuration.locking().writeSkewCheck()) {
+               return (T) DefaultDataContainer.unBoundedDataContainer(
+                       level, keyEquivalence);
+            }
+            boolean passivationEnabled = configuration.persistence().passivation() &&
+                    configuration.persistence().usingStores();
+            return componentType.cast(new MapDBContainer(passivationEnabled, keyEquivalence));
          }
 
          DefaultDataContainer dataContainer;
