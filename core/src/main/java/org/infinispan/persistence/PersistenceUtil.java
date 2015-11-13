@@ -59,6 +59,15 @@ public class PersistenceUtil {
       return set;
    }
 
+   public static <K, V> Set<K> toKeySet(PersistenceManager persistenceManager, KeyFilter<? super K> filter) {
+      if (persistenceManager == null)
+         return Collections.emptySet();
+      final Set<K> set = new HashSet<K>();
+      persistenceManager.processOnAllStores(filter, (marshalledEntry, taskContext) ->
+              set.add((K) marshalledEntry.getKey()), false, false);
+      return set;
+   }
+
    public static <K, V> Set<InternalCacheEntry> toEntrySet(AdvancedCacheLoader<K, V> acl, KeyFilter<? super K> filter, final InternalEntryFactory ief) {
       if (acl == null)
          return Collections.emptySet();
@@ -69,6 +78,16 @@ public class PersistenceUtil {
             set.add(ief.create(ce.getKey(), ce.getValue(), ce.getMetadata()));
          }
       }, new WithinThreadExecutor(), true, true);
+      return set;
+   }
+
+   public static <K, V> Set<InternalCacheEntry> toEntrySet(PersistenceManager persistenceManager,
+                                                           KeyFilter<? super K> filter, final InternalEntryFactory ief) {
+      if (persistenceManager == null)
+         return Collections.emptySet();
+      final Set<InternalCacheEntry> set = new HashSet<>();
+      persistenceManager.processOnAllStores(filter, (ce, taskContext) ->
+            set.add(ief.create(ce.getKey(), ce.getValue(), ce.getMetadata())), true, true);
       return set;
    }
 
