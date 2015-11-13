@@ -1,7 +1,11 @@
 package org.infinispan.container;
 
+import org.infinispan.commons.marshall.StreamingMarshaller;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.impl.ImmutableContext;
+import org.infinispan.factories.KnownComponentNames;
+import org.infinispan.factories.annotations.ComponentName;
+import org.infinispan.factories.annotations.Inject;
 import org.infinispan.filter.KeyFilter;
 import org.infinispan.filter.KeyValueFilter;
 import org.infinispan.filter.KeyValueFilterAsKeyFilter;
@@ -32,7 +36,16 @@ public class PersistenceDataContainer<K, V> implements DataContainer<K, V> {
    private PersistenceManager persistenceManager;
    private InternalEntryFactory factory;
    private TimeService timeService;
-   private JBossMarshaller marshaller;
+   private StreamingMarshaller marshaller;
+
+   @Inject
+   public void inject(PersistenceManager persistenceManager, InternalEntryFactory factory, TimeService timeService,
+                      @ComponentName(KnownComponentNames.CACHE_MARSHALLER) StreamingMarshaller marshaller) {
+      this.persistenceManager = persistenceManager;
+      this.factory = factory;
+      this.timeService = timeService;
+      this.marshaller = marshaller;
+   }
 
    @Override
    public InternalCacheEntry<K, V> get(Object k) {
