@@ -66,6 +66,7 @@ public class ArraySortedStreamedConsumer<E> implements StreamedConsumer<E> {
          virtualSize = size;
          // This means we had a duplicate value spanning size boundaries.  We can't allow that so we have to throw
          // exception
+         // TODO: instead return # of duplicates for last value?
          if (!skipOverlapCheck && comparator.compare(array[virtualSize - 1], array[virtualSize]) == 0) {
             throw new BatchOverlapException("Number of duplicates via compareTo outnumbers size " + size);
          }

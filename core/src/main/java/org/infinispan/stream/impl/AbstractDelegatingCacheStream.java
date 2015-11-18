@@ -79,6 +79,12 @@ public class AbstractDelegatingCacheStream<R> implements CacheStream<R> {
    }
 
    @Override
+   public CacheStream<R> ignoreUntil(Object sortedValue) {
+      underlyingStream.ignoreUntil(sortedValue);
+      return this;
+   }
+
+   @Override
    public void forEach(Consumer<? super R> action) {
       castStream(underlyingStream).forEach(action);
    }

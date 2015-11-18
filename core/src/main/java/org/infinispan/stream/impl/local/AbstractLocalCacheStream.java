@@ -31,6 +31,7 @@ public abstract class AbstractLocalCacheStream<T, S extends BaseStream<T, S>> im
    protected Set<Integer> segmentsToFilter;
    protected Set<?> keysToFilter;
    protected boolean parallel;
+   protected Object ignoreUntil;
 
    public interface StreamSupplier<R> {
       Stream<R> buildStream(Set<Integer> segmentsToFilter, Set<?> keysToFilter);
@@ -64,6 +65,7 @@ public abstract class AbstractLocalCacheStream<T, S extends BaseStream<T, S>> im
       this.keysToFilter = original.keysToFilter;
 
       this.parallel = original.parallel;
+      this.ignoreUntil = original.ignoreUntil;
    }
 
    protected final S createStream() {

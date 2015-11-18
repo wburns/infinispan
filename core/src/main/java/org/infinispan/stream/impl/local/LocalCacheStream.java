@@ -285,4 +285,10 @@ public class LocalCacheStream<R> extends AbstractLocalCacheStream<R, Stream<R>> 
       // Timeout does nothing for a local cache stream
       return this;
    }
+
+   @Override
+   public CacheStream<R> ignoreUntil(Object sortedValue) {
+      this.ignoreUntil = sortedValue;
+      return this;
+   }
 }
