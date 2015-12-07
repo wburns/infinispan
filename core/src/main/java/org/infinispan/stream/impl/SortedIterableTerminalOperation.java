@@ -12,15 +12,10 @@ import java.util.stream.Stream;
  * @param <R> resulting values
  */
 public interface SortedIterableTerminalOperation<Sorted, R> extends SegmentAwareOperation, IterableTerminalOperation<R> {
-   interface SortedConsumer<Sorted, R> {
-      void accept(Iterable<R> response, Sorted highestSort);
-      void completed(Iterable<R> response, Sorted highestSort);
-   }
-
    /**
     * Invoked when a key and rehash aware operation is desired.
     * @param response the consumer that will be called back for any intermediate results
     * @return the final response from the remote node
     */
-   void performOperationRehashAware(SortedConsumer<Sorted, R> response);
+   void performOperationRehashAware(Consumer<Iterable<Sorted>> response);
 }

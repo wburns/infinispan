@@ -28,7 +28,6 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
    protected final Iterable<IntermediateOperation> afterOperations;
 
    protected final Comparator<? super E> comparator;
-   protected final SegmentRetryingCoordinator<Iterable<E>> coordinator;
    protected E lastSeen;
 
    public SortedNoMapIterableOperation(Iterable<IntermediateOperation> beforeOperations,
@@ -40,7 +39,6 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
       this.afterOperations = afterOperations;
       Objects.nonNull(comparator);
       this.comparator = comparator;
-      this.coordinator = new SegmentRetryingCoordinator<>(this::innerPerformOperation, () -> supplier.get());
       this.lastSeen = lastSeen;
    }
 
@@ -83,7 +81,7 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
             return null;
          }
 
-         lastSeen = consumer.compact();
+         consumer.compact();
       } catch (BatchOverlapException e) {
          // We retry the operation with the batchSize doubled to try to see if we can fit the values without
          // overlapping into the buffer space of the batch size
@@ -113,39 +111,22 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
 
    @Override
    public boolean lostSegment(boolean allSegmentsLost) {
-      return coordinator.lostSegment(allSegmentsLost);
+      // TODO: need to do this
+      return false;
    }
 
    @Override
    public Iterable<E> performOperation(Consumer<Iterable<E>> response) {
-      Iterable<E> lastIterable = null;
-      Iterable<E> freshIterable;
-      while ((freshIterable = innerPerformOperation(supplier.get())) != null) {
-         if (lastIterable != null) {
-            response.accept(lastIterable);
-         }
-         lastIterable = freshIterable;
-      }
-      if (lastIterable != null) {
-         return lastIterable;
-      } else {
-         return Collections.emptyList();
-      }
+      return innerPerformOperation(supplier.get());
    }
 
    @Override
-   public void performOperationRehashAware(SortedConsumer<E, E> response) {
-      Iterable<E> lastIterable = null;
-      Iterable<E> freshIterable;
-      E lastSeen = null;
-      while ((freshIterable = coordinator.runOperation()) != null) {
-         if (lastIterable != null) {
-            response.accept(lastIterable, lastSeen);
-         }
-         lastSeen = this.lastSeen;
-         lastIterable = freshIterable;
+   public void performOperationRehashAware(Consumer<Iterable<E>> response) {
+      Iterable<E> iterable = innerPerformOperation(supplier.get());
+      // TODO: need to worry about rehash still
+      if (iterable != null) {
+         response.accept(iterable);
       }
-      response.completed(lastIterable, lastSeen);
    }
 
    public Iterable<IntermediateOperation> getAfterOperations() {
@@ -154,10 +135,6 @@ public class SortedNoMapIterableOperation<E> extends BaseTerminalOperation imple
 
    public Comparator<? super E> getComparator() {
       return comparator;
-   }
-
-   public E getLastSeen() {
-      return lastSeen;
    }
 
    public int getBatchSize() {

@@ -423,61 +423,67 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
    Iterator<R> remoteIterator() {
       StreamCloseableSupplier<R> supplier;
       if (distributedSortComparator != null) {
-         ConsistentHash ch = dm.getConsistentHash();
-         boolean stayLocal = ch.getMembers().contains(localAddress) && segmentsToFilter != null
-                 && ch.getSegmentsForOwner(localAddress).containsAll(segmentsToFilter);
-         SortedCoalescingResults<R> results = new SortedCoalescingResults<>(localAddress, ch.getMembers(),
-                 distributedBatchSize, (Comparator<R>) distributedSortComparator);
-         supplier = results;
-
-         Long limitCount;
-         if (localIntermediateOperations != null && localIntermediateOperations.peek() instanceof LimitOperation) {
-            LimitOperation limitOp = (LimitOperation) localIntermediateOperations.poll();
-            limitCount = limitOp.getLimit();
-         } else {
-            limitCount = null;
-         }
-
-         SortedIterableTerminalOperation<?, R> op = new SortedNoMapIterableOperation<>(intermediateOperations,
-                 Collections.emptyList(), supplierForSegments(ch, segmentsToFilter, null, !stayLocal),
-                 distributedBatchSize, (Comparator<? super R>) distributedSortComparator, limitCount, (R) lastSeen);
-
          Thread thread = Thread.currentThread();
          executor.execute(() -> {
-            try {
-               log.tracef("Thread %s submitted iterator request for stream", thread);
-               UUID id;
-               if (!stayLocal) {
-                  id = csm.remoteSortedIterableOperation(true, ch, segmentsToFilter,
-                          keysToFilter, Collections.emptyMap(), includeLoader, op, results);
-                  supplier.setIdentifier(id);
-               } else {
-                  id = null;
-               }
-               Iterable<R> localValue = op.performOperation(results);
-               results.onCompletion(localAddress, Collections.emptySet(), localValue);
-               if (id != null) {
-                  try {
-                     try {
-                        if (!csm.awaitCompletion(id, timeout, timeoutUnit)) {
-                           throw new TimeoutException();
-                        }
-                     } catch (InterruptedException e) {
-                        throw new CacheException(e);
-                     }
+            while (true) {
+               ConsistentHash ch = dm.getConsistentHash();
+               boolean stayLocal = ch.getMembers().contains(localAddress) && segmentsToFilter != null
+                       && ch.getSegmentsForOwner(localAddress).containsAll(segmentsToFilter);
+               SortedCoalescingResults<R> results = new SortedCoalescingResults<>(localAddress, ch.getMembers(),
+   ]                    distributedBatchSize, (Comparator<R>) distributedSortComparator);
+               supplier = results;
 
-                  } finally {
-                     csm.forgetOperation(id);
-                  }
+               Long limitCount;
+               if (localIntermediateOperations != null && localIntermediateOperations.peek() instanceof LimitOperation) {
+                  LimitOperation limitOp = (LimitOperation) localIntermediateOperations.poll();
+                  limitCount = limitOp.getLimit();
+               } else {
+                  limitCount = null;
                }
-               supplier.close();
-            } catch (CacheException e) {
-               log.trace("Encountered local cache exception for stream", e);
-               supplier.close(e);
-            } catch (Throwable t) {
-               log.trace("Encountered local throwable for stream", t);
-               supplier.close(new CacheException(t));
+
+               SortedIterableTerminalOperation<?, R> op = new SortedNoMapIterableOperation<>(intermediateOperations,
+                       Collections.emptyList(), supplierForSegments(ch, segmentsToFilter, null, !stayLocal),
+                       distributedBatchSize, (Comparator<? super R>) distributedSortComparator, limitCount, (R) lastSeen);
+
+               try {
+                  log.tracef("Thread %s submitted iterator request for stream", thread);
+                  UUID id;
+                  if (!stayLocal) {
+                     id = csm.remoteSortedIterableOperation(true, ch, segmentsToFilter,
+                             keysToFilter, Collections.emptyMap(), includeLoader, op, results);
+                     supplier.setIdentifier(id);
+                  } else {
+                     id = null;
+                  }
+                  Iterable<R> localValue = op.performOperation(results);
+                  results.onCompletion(localAddress, Collections.emptySet(), localValue);
+                  if (id != null) {
+                     try {
+                        try {
+                           if (!csm.awaitCompletion(id, timeout, timeoutUnit)) {
+                              throw new TimeoutException();
+                           }
+                        } catch (InterruptedException e) {
+                           throw new CacheException(e);
+                        }
+
+                     } finally {
+                        csm.forgetOperation(id);
+                     }
+                  }
+                  supplier.close();
+               } catch (CacheException e) {
+                  log.trace("Encountered local cache exception for stream", e);
+                  supplier.close(e);
+               } catch (Throwable t) {
+                  log.trace("Encountered local throwable for stream", t);
+                  supplier.close(new CacheException(t));
+               }
             }
+
+
+
+
          });
       } else {
          BlockingQueue<R> queue = new ArrayBlockingQueue<>(distributedBatchSize);
