@@ -2,10 +2,11 @@ package org.infinispan.server.hotrod
 
 import java.io.{ObjectInput, ObjectOutput}
 import java.lang.reflect.Constructor
-import java.util.concurrent.ConcurrentMap
+import java.util.concurrent.{LinkedBlockingQueue, ConcurrentMap}
 import java.util.concurrent.atomic.AtomicLong
 
 import io.netty.channel.Channel
+import io.netty.util.concurrent.GenericFutureListener
 import org.infinispan.commons.equivalence.{AnyEquivalence, ByteArrayEquivalence}
 import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller
 import org.infinispan.commons.marshall.{AbstractExternalizer, Marshaller}
@@ -41,6 +42,8 @@ class ClientListenerRegistry(configuration: HotRodServerConfiguration) extends L
    private val cacheEventFilterFactories = CollectionFactory.makeConcurrentMap[String, CacheEventFilterFactory](4, 0.9f, 16)
    private val cacheEventConverterFactories = CollectionFactory.makeConcurrentMap[String, CacheEventConverterFactory](4, 0.9f, 16)
    private val cacheEventFilterConverterFactories = CollectionFactory.makeConcurrentMap[String, CacheEventFilterConverterFactory](4, 0.9f, 16)
+
+   private val eventQueue = new LinkedBlockingQueue[AnyRef](Runtime.getRuntime.availableProcessors() * 10000);
 
    def setEventMarshaller(eventMarshaller: Option[Marshaller]): Unit = {
       // Set a custom marshaller or reset to default if none
@@ -218,7 +221,11 @@ class ClientListenerRegistry(configuration: HotRodServerConfiguration) extends L
          if (isTrace)
             log.tracef("Send %s to remote clients", remoteEvent)
 
-         ch.writeAndFlush(remoteEvent)
+         eventQueue.put(remoteEvent)
+
+         ch.writeAndFlush(remoteEvent).addListener(new GenericFutureListener[Nothing] {
+            override def operationComplete(future: Nothing): Unit = eventQueue.remove(remoteEvent)
+         })
       }
 
       private def createRemoteEvent(key: Bytes, value: Bytes, dataVersion: Long, event: CacheEntryEvent[_, _]): AnyRef = {
