@@ -2,7 +2,7 @@ package org.infinispan.server.core.transport
 
 import java.net.SocketAddress
 
-import io.netty.buffer.ByteBuf
+import io.netty.buffer.{ByteBufHolder, ByteBuf}
 import io.netty.channel._
 
 /**
@@ -12,6 +12,7 @@ import io.netty.channel._
  * @since 7.1
  */
 class StatsChannelHandler(transport: NettyTransport) extends ChannelDuplexHandler {
+   
 
    override def channelRead(ctx: ChannelHandlerContext, msg: scala.Any): Unit = {
       transport.updateTotalBytesRead(msg.asInstanceOf[ByteBuf].readableBytes())
@@ -24,13 +25,22 @@ class StatsChannelHandler(transport: NettyTransport) extends ChannelDuplexHandle
    }
 
    override def write(ctx: ChannelHandlerContext, msg: scala.Any, promise: ChannelPromise): Unit = {
-      val readable = msg.asInstanceOf[ByteBuf].readableBytes()
-      ctx.write(msg, promise.addListener(new ChannelFutureListener {
+      val readable = getByteSize(msg)
+      ctx.attr()
+      super.write(ctx, msg, promise.addListener(new ChannelFutureListener {
          def operationComplete(future: ChannelFuture): Unit = {
             if (future.isSuccess) {
                transport.updateTotalBytesWritten(readable)
             }
          }
       }))
+   }
+
+   def getByteSize(msg: scala.Any): Int = {
+      msg match {
+         case buf: ByteBuf => buf.readableBytes()
+         case bufHolder: ByteBufHolder => bufHolder.content().readableBytes()
+         case _ => -1
+      }
    }
 }
