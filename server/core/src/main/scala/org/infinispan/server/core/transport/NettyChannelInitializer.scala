@@ -17,13 +17,14 @@ import io.netty.handler.ssl.SslHandler
  * @author Galder Zamarreño
  * @since 4.1
  */
-class NettyChannelInitializer(server: ProtocolServer,
+class NettyChannelInitializer(server: ProtocolServer, transport: NettyTransport,
                                   encoder: ChannelOutboundHandler)
       extends ChannelInitializer[Channel] {
 
    override def initChannel(ch: Channel): Unit = {
       val pipeline = ch.pipeline
-      pipeline.addLast(new LoggingHandler(LogLevel.ERROR))
+      pipeline.addLast("logging", new LoggingHandler(LogLevel.ERROR))
+      pipeline.addLast("stats", new StatsChannelHandler(transport))
       val ssl = server.getConfiguration.ssl
       if (ssl.enabled())
          pipeline.addLast("ssl", new SslHandler(createSslEngine(ssl)))

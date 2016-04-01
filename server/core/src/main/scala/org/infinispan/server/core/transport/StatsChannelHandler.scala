@@ -11,9 +11,7 @@ import io.netty.channel._
  * @author gustavonalle
  * @since 7.1
  */
-trait StatsChannelHandler extends ChannelDuplexHandler {
-
-   val transport: NettyTransport
+class StatsChannelHandler(transport: NettyTransport) extends ChannelDuplexHandler {
 
    override def channelRead(ctx: ChannelHandlerContext, msg: scala.Any): Unit = {
       transport.updateTotalBytesRead(msg.asInstanceOf[ByteBuf].readableBytes())

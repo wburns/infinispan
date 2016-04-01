@@ -64,9 +64,9 @@ abstract class AbstractProtocolServer(protocolName: String) extends ProtocolServ
 
    override def getInitializer: ChannelInitializer[Channel] = {
       if (configuration.idleTimeout > 0)
-         new TimeoutEnabledChannelInitializer(this, getEncoder)
+         new TimeoutEnabledChannelInitializer(this, transport, getEncoder)
       else // Idle timeout logic is disabled with -1 or 0 values
-         new NettyChannelInitializer(this, getEncoder)
+         new NettyChannelInitializer(this, transport, getEncoder)
    }
 
    protected def registerTransportMBean() {

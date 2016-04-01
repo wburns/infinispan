@@ -11,9 +11,9 @@ import io.netty.handler.timeout.IdleStateHandler
  * @author Galder Zamarreño
  * @since 5.1
  */
-class TimeoutEnabledChannelInitializer(server: ProtocolServer,
+class TimeoutEnabledChannelInitializer(server: ProtocolServer, transport: NettyTransport,
                                            encoder: ChannelOutboundHandler)
-      extends NettyChannelInitializer(server, encoder) {
+      extends NettyChannelInitializer(server, transport, encoder) {
 
    override def initChannel(ch: Channel): Unit = {
       super.initChannel(ch)

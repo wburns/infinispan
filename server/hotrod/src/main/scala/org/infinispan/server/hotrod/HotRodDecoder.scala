@@ -31,7 +31,7 @@ import java.security.PrivilegedActionException
  */
 class HotRodDecoder(cacheManager: EmbeddedCacheManager, val transport: NettyTransport, server: HotRodServer,
                     val isCacheIgnored: String => Boolean = Function.const(false))
-extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with StatsChannelHandler with ServerConstants with Constants with Log {
+extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants with Constants with Log {
    val authenticationConfig = server.getConfiguration.authentication()
    val secure = authenticationConfig.enabled()
    val requireAuthentication = secure && authenticationConfig.mechProperties().containsKey(Sasl.POLICY_NOANONYMOUS) && authenticationConfig.mechProperties().get(Sasl.POLICY_NOANONYMOUS).equals("true");
