@@ -1,6 +1,7 @@
 package org.infinispan.functional;
 
 import org.infinispan.AdvancedCache;
+import org.infinispan.Cache;
 import org.infinispan.commons.api.functional.EntryVersion.NumericEntryVersion;
 import org.infinispan.commons.api.functional.EntryView.ReadEntryView;
 import org.infinispan.commons.api.functional.EntryView.ReadWriteEntryView;
@@ -8,10 +9,12 @@ import org.infinispan.commons.api.functional.EntryView.WriteEntryView;
 import org.infinispan.commons.api.functional.FunctionalMap.ReadOnlyMap;
 import org.infinispan.commons.api.functional.FunctionalMap.ReadWriteMap;
 import org.infinispan.commons.api.functional.FunctionalMap.WriteOnlyMap;
+import org.infinispan.commons.api.functional.MetaParam;
 import org.infinispan.commons.api.functional.MetaParam.MetaEntryVersion;
 import org.infinispan.commons.api.functional.MetaParam.MetaLifespan;
 import org.infinispan.commons.api.functional.Traversable;
 import org.infinispan.commons.marshall.Externalizer;
+import org.infinispan.commons.marshall.MarshallableFunctions;
 import org.infinispan.commons.marshall.SerializeFunctionWith;
 import org.infinispan.commons.marshall.SerializeWith;
 import org.infinispan.functional.impl.FunctionalMapImpl;
@@ -446,8 +449,26 @@ public class FunctionalMapTest extends AbstractFunctionalTest {
       doUpdateSubsetAndReturnPrevs(supplyKeyForCache(1, DIST), ro(fmapD1), wo(fmapD2), rw(fmapD2));
    }
 
+   static class ExpirePast implements MetaParam.Writable<Long>, Serializable {
+
+
+      @Override
+      public Long get() {
+         return null;
+      }
+   }
+
    private <K> void doUpdateSubsetAndReturnPrevs(Supplier<K> keySupplier,
          ReadOnlyMap<K, String> map1, WriteOnlyMap<K, String> map2, ReadWriteMap<K, String> map3) {
+
+      Cache<String, String> cache = null;
+      FunctionalMapImpl<String, String> functionalMap = FunctionalMapImpl.create(cache.getAdvancedCache());
+      ReadOnlyMap<String, String> readOnlyMap = ReadOnlyMapImpl.create(functionalMap);
+      WriteOnlyMap<String, String> writeOnlyMap = WriteOnlyMapImpl.create(functionalMap);
+
+
+      writeOnlyMap.eval("key", "value", MarshallableFunctions.setValueMetasConsumer());
+
       K key1 = keySupplier.get(), key2 = keySupplier.get(), key3 = keySupplier.get();
       Map<K, String> data = new HashMap<>();
       data.put(key1, "one");

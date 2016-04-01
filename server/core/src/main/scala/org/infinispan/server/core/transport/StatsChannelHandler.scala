@@ -11,21 +11,9 @@ import io.netty.channel._
  * @author gustavonalle
  * @since 7.1
  */
-trait StatsChannelHandler extends ChannelInboundHandlerAdapter with ChannelOutboundHandler {
+trait StatsChannelHandler extends ChannelDuplexHandler {
 
    val transport: NettyTransport
-
-   def bind(ctx: ChannelHandlerContext, localAddress: SocketAddress, promise: ChannelPromise): Unit = ctx.bind(localAddress, promise)
-
-   def connect(ctx: ChannelHandlerContext, remoteAddress: SocketAddress, localAddress: SocketAddress, promise: ChannelPromise): Unit = ctx.connect(remoteAddress, localAddress, promise)
-
-   def disconnect(ctx: ChannelHandlerContext, promise: ChannelPromise): Unit = ctx.disconnect(promise)
-
-   def close(ctx: ChannelHandlerContext, promise: ChannelPromise): Unit = ctx.close(promise)
-
-   def deregister(ctx: ChannelHandlerContext, promise: ChannelPromise): Unit = ctx.deregister(promise)
-
-   def read(ctx: ChannelHandlerContext): Unit = ctx.read()
 
    override def channelRead(ctx: ChannelHandlerContext, msg: scala.Any): Unit = {
       transport.updateTotalBytesRead(msg.asInstanceOf[ByteBuf].readableBytes())
@@ -47,7 +35,4 @@ trait StatsChannelHandler extends ChannelInboundHandlerAdapter with ChannelOutbo
          }
       }))
    }
-
-   def flush(ctx: ChannelHandlerContext): Unit = ctx.flush()
-
 }

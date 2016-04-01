@@ -1,5 +1,7 @@
 package org.infinispan.server.core.transport
 
+import io.netty.handler.logging.LoggingHandler
+import io.netty.handler.logging.LogLevel
 import org.infinispan.server.core.ProtocolServer
 import org.infinispan.server.core.configuration.SslConfiguration
 import javax.net.ssl.SSLEngine
@@ -21,6 +23,7 @@ class NettyChannelInitializer(server: ProtocolServer,
 
    override def initChannel(ch: Channel): Unit = {
       val pipeline = ch.pipeline
+      pipeline.addLast(new LoggingHandler(LogLevel.ERROR))
       val ssl = server.getConfiguration.ssl
       if (ssl.enabled())
          pipeline.addLast("ssl", new SslHandler(createSslEngine(ssl)))
