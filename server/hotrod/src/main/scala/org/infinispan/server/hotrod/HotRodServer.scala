@@ -1,5 +1,6 @@
 package org.infinispan.server.hotrod
 
+import io.netty.channel.{Channel, ChannelInitializer}
 import logging.Log
 import org.infinispan
 import org.infinispan.AdvancedCache
@@ -10,6 +11,7 @@ import org.infinispan.notifications.Listener
 import org.infinispan.notifications.cachelistener.annotation.TopologyChanged
 import org.infinispan.notifications.cachelistener.event.TopologyChangedEvent
 import org.infinispan.notifications.cachelistener.filter.{CacheEventFilterConverterFactory, CacheEventConverterFactory, CacheEventFilterFactory}
+import org.infinispan.server.core.transport.{NettyChannelInitializer, TimeoutEnabledChannelInitializer}
 import org.infinispan.server.hotrod.iteration.{DefaultIterationManager, IterationManager}
 import org.infinispan.manager.EmbeddedCacheManager
 import org.infinispan.server.core.{QueryFacade, AbstractProtocolServer}
@@ -19,6 +21,7 @@ import org.infinispan.commons.equivalence.AnyEquivalence
 import org.infinispan.remoting.transport.Address
 import org.infinispan.configuration.cache.{Configuration, CacheMode, ConfigurationBuilder}
 import org.infinispan.context.Flag
+import org.infinispan.server.hotrod.transport.HotRodChannelInitializer
 import org.infinispan.upgrade.RollingUpgradeManager
 import org.infinispan.server.hotrod.configuration.HotRodServerConfiguration
 import java.util.ServiceLoader
@@ -111,6 +114,13 @@ class HotRodServer extends AbstractProtocolServer("HotRod") with Log {
 
          addSelfToTopologyView(cacheManager)
       }
+   }
+
+   override def getInitializer: ChannelInitializer[Channel] = {
+      if (configuration.idleTimeout > 0)
+         new HotRodChannelInitializer(this, transport, getEncoder) with TimeoutEnabledChannelInitializer
+      else // Idle timeout logic is disabled with -1 or 0 values
+         new HotRodChannelInitializer(this, transport, getEncoder)
    }
 
    private def loadFilterConverterFactories[T](c: Class[T])(action: (String, T) => Any) = ServiceFinder.load(c).foreach { factory =>

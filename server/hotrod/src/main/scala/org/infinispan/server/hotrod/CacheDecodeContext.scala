@@ -32,7 +32,7 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
 
    val isTrace = isTraceEnabled
 
-   var isError = false
+   var error: Throwable = _
    var decoder: AbstractVersionedDecoder = _
    var header: HotRodHeader = _
    var cache: AdvancedCache[Bytes, Bytes] = _
@@ -144,10 +144,11 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
          }
 
          if (!cacheName.isEmpty && !(cacheManager.getCacheNames contains cacheName)) {
-            isError = true // Mark it as error so that the rest of request is ignored
-            throw new CacheNotFoundException(
+            val excp = new CacheNotFoundException(
                "Cache with name '%s' not found amongst the configured caches".format(cacheName),
-               header.version, header.messageId)
+               header.version, header.messageId);
+            error = excp // Mark it as error so that the rest of request is ignored
+            throw excp
          }
          cache = server.getCacheInstance(cacheName, cacheManager, skipCacheCheck = true)
       }

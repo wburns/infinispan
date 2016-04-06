@@ -55,6 +55,8 @@ extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants
                case DECODE_VALUE => decodeValue(ctx, in, state)
             }
          }
+         // We fire the channel read so that subsequent handlers can do processing if necessary
+         ctx.fireChannelRead(decodeCtx)
       } catch {
          case e: SecurityException =>
             val (serverException, isClientError) = decodeCtx.createServerException(e, in)
@@ -85,8 +87,9 @@ extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants
          return null
       }
       if (isCacheIgnored(decodeCtx.header.cacheName)) {
-         decodeCtx.isError = true
-         throw new CacheUnavailableException()
+         val excp = new CacheUnavailableException()
+         decodeCtx.error = excp
+         throw excp
       }
       val ch = ctx.channel
       decodeCtx.obtainCache(cacheManager)
@@ -157,7 +160,7 @@ extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants
       try {
          val magic = buffer.readUnsignedByte
          if (magic != MAGIC_REQ) {
-            if (!decodeCtx.isError) {
+            if (decodeCtx.error != null) {
                throw new InvalidMagicIdException("Error reading magic byte or message id: " + magic)
             } else {
                trace("Error happened previously, ignoring %d byte until we find the magic number again", magic)
@@ -166,7 +169,7 @@ extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants
          }
       } catch {
          case e: Exception =>
-            decodeCtx.isError = true
+            decodeCtx.error = e
             throw e
       }
 
@@ -182,17 +185,17 @@ extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants
          val endOfOp = decoder.readHeader(buffer, version, messageId, header, requireAuthentication && subject==ANONYMOUS)
          decodeCtx.decoder = decoder
          if (decodeCtx.isTrace) trace("Decoded header %s", header)
-         decodeCtx.isError = false
+         decodeCtx.error = null
          Some(endOfOp)
       } catch {
          case e: HotRodUnknownOperationException =>
-            decodeCtx.isError = true
+            decodeCtx.error = e
             throw e
          case e: SecurityException =>
-            decodeCtx.isError = true
+            decodeCtx.error = e
             throw e
          case e: Exception =>
-            decodeCtx.isError = true
+            decodeCtx.error = e
             throw new RequestParsingException("Unable to parse header", version, messageId, e)
       }
    }

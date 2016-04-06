@@ -1,5 +1,6 @@
 package org.infinispan.server.memcached
 
+import io.netty.channel.{Channel, ChannelInitializer}
 import org.infinispan.server.core.AbstractProtocolServer
 import java.util.concurrent.Executors
 import org.infinispan.manager.EmbeddedCacheManager
@@ -43,5 +44,12 @@ class MemcachedServer extends AbstractProtocolServer("Memcached") with Log {
    override def stop {
       super.stop
       scheduler.shutdown()
+   }
+
+   /**
+     * Returns a pipeline factory
+     */
+   override def getInitializer: ChannelInitializer[Channel] = {
+      null
    }
 }

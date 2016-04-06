@@ -12,7 +12,7 @@ import org.infinispan.util.concurrent.TimeoutException
 import java.io.IOException
 import org.infinispan.context.Flag._
 import org.infinispan.server.core.transport.ExtendedByteBuf._
-import transport.NettyTransport
+import org.infinispan.server.core.transport.NettyTransport
 import org.infinispan.container.entries.CacheEntry
 import org.infinispan.container.versioning.NumericVersion
 import io.netty.buffer.ByteBuf
