@@ -17,14 +17,9 @@ import io.netty.handler.ssl.SslHandler
  * @author Galder Zamarreño
  * @since 4.1
  */
-trait NettyChannelInitializer extends ChannelInitializer[Channel] {
-   val server: ProtocolServer
-   val transport: NettyTransport
-   val encoder: ChannelOutboundHandler
-
-   abstract override def initChannel(ch: Channel): Unit = {
-      super.initChannel(ch)
-
+abstract class NettyChannelInitializer(server: ProtocolServer, transport: NettyTransport,
+                                       encoder: ChannelOutboundHandler) extends ChannelInitializer[Channel] {
+   override def initChannel(ch: Channel): Unit = {
       val pipeline = ch.pipeline
       pipeline.addLast("netty-logging", new LoggingHandler(LogLevel.ERROR))
       pipeline.addLast("stats", new StatsChannelHandler(transport))

@@ -13,7 +13,7 @@ import org.infinispan.server.hotrod.logging.HotRodLoggingHandler
   * @since 9.0
   */
 class HotRodChannelInitializer(val server: ProtocolServer, val transport: NettyTransport,
-      val encoder: ChannelOutboundHandler) extends ChannelInitializer[Channel] with NettyChannelInitializer {
+      val encoder: ChannelOutboundHandler) extends NettyChannelInitializer(server, transport, encoder) {
 
    override def initChannel(ch: Channel): Unit = {
       super.initChannel(ch)
