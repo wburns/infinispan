@@ -22,6 +22,7 @@ abstract class AbstractVersionedDecoder {
    /**
     * Having read the message's Id, read the rest of Hot Rod header from the given buffer and return it.
     */
+   @throws(classOf[Exception])
    def readHeader(buffer: ByteBuf, version: Byte, messageId: Long, header: HotRodHeader, requireAuth: Boolean): Boolean
 
    /**
@@ -54,16 +55,15 @@ abstract class AbstractVersionedDecoder {
     */
    def createGetResponse(header: HotRodHeader, entry: CacheEntry[Array[Byte], Array[Byte]]): Response
 
-   /**
-    * Handle a protocol specific header reading.
+  /**
+    * Read operation specific data for an operation that only requires a header
     */
-   def customReadHeader(header: HotRodHeader, buffer: ByteBuf,
-       cache: Cache, server: HotRodServer, ctx: ChannelHandlerContext): AnyRef
+   def customReadHeader(header: HotRodHeader, buffer: ByteBuf, hrCtx: CacheDecodeContext, out: java.util.List[AnyRef]): Unit
 
    /**
     * Handle a protocol specific key reading.
     */
-   def customReadKey(decoder: HotRodDecoder, header: HotRodHeader, buffer: ByteBuf, cache: Cache, server: HotRodServer, ch: Channel): AnyRef
+   def customReadKey(header: HotRodHeader, buffer: ByteBuf, hrCtx: CacheDecodeContext, out: java.util.List[AnyRef]): Unit
 
    /**
     * Handle a protocol specific value reading.

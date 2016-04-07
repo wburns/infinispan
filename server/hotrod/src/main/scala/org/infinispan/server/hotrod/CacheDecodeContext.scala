@@ -32,8 +32,11 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
 
    val isTrace = isTraceEnabled
 
+   @scala.beans.BeanProperty
    var error: Throwable = _
+   @scala.beans.BeanProperty
    var decoder: AbstractVersionedDecoder = _
+   @scala.beans.BeanProperty
    var header: HotRodHeader = _
    var cache: AdvancedCache[Bytes, Bytes] = _
    var key: Bytes = _
@@ -41,12 +44,15 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
    var params: RequestParameters = _
    var putAllMap: Map[Bytes, Bytes] = _
    var getAllSet: Set[Bytes] = _
+   var operationDecodeContext: Any = _
 
    def resetParams(): Unit = {
       params = null
+      key = null
       rawValue = null
       putAllMap = null
       getAllSet = null
+      error = null
    }
 
    def createErrorResponse(t: Throwable): AnyRef = {

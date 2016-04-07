@@ -21,6 +21,8 @@ import org.infinispan.server.core.transport._
 import javax.security.sasl.Sasl
 import java.security.PrivilegedActionException
 
+import scala.annotation.switch
+
 /**
  * Top level Hot Rod decoder that after figuring out the version, delegates the rest of the reading to the
  * corresponding versioned decoder.
@@ -55,8 +57,6 @@ extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants
                case DECODE_VALUE => decodeValue(ctx, in, state)
             }
          }
-         // We fire the channel read so that subsequent handlers can do processing if necessary
-         ctx.fireChannelRead(decodeCtx)
       } catch {
          case e: SecurityException =>
             val (serverException, isClientError) = decodeCtx.createServerException(e, in)
@@ -95,13 +95,9 @@ extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants
       decodeCtx.obtainCache(cacheManager)
       val cacheConfiguration = server.getCacheConfiguration(decodeCtx.header.cacheName)
       if (endOfOp.get) {
-         val message = decodeCtx.header.op match {
-            case StatsRequest => writeResponse(ch, createStatsResponse)
+         val message = (decodeCtx.header.op: @switch) match {
+            case NewHotRodOperation.StatsRequest => writeResponse(ch, createStatsResponse)
             case _ => customDecodeHeader(ctx, buffer)
-         }
-         message match {
-            case pr: PartialResponse => pr.buffer.map(out.add(_))
-            case _ => null
          }
          null
       } else {
@@ -111,13 +107,14 @@ extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants
 
    private def decodeKey(ctx: ChannelHandlerContext, buffer: ByteBuf, state: HotRodDecoderState): AnyRef = {
       val ch = ctx.channel
-      decodeCtx.header.op match {
+      (decodeCtx.header.op: @switch) match {
          // Get, put and remove are the most typical operations, so they're first
-         case GetRequest => writeResponse(ch, decodeCtx.get(readKey(buffer)._1))
-         case PutRequest => handleModification(ch, buffer)
-         case RemoveRequest => handleModification(ch, buffer)
-         case GetWithVersionRequest => writeResponse(ch, decodeCtx.get(readKey(buffer)._1))
-         case PutIfAbsentRequest | ReplaceRequest | ReplaceIfUnmodifiedRequest =>
+         case NewHotRodOperation.GetRequest => writeResponse(ch, decodeCtx.get(readKey(buffer)._1))
+         case NewHotRodOperation.PutRequest => handleModification(ch, buffer)
+         case NewHotRodOperation.RemoveRequest => handleModification(ch, buffer)
+         case NewHotRodOperation.GetWithVersionRequest => writeResponse(ch, decodeCtx.get(readKey(buffer)._1))
+         case NewHotRodOperation.PutIfAbsentRequest | NewHotRodOperation.ReplaceRequest |
+              NewHotRodOperation.ReplaceIfUnmodifiedRequest =>
             handleModification(ch, buffer)
          case _ => customDecodeKey(ctx, buffer)
       }
@@ -141,16 +138,17 @@ extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants
 
    private def decodeValue(ctx: ChannelHandlerContext, buffer: ByteBuf, state: HotRodDecoderState): AnyRef = {
       val ch = ctx.channel
-      val ret = decodeCtx.header.op match {
-         case PutRequest | PutIfAbsentRequest | ReplaceRequest | ReplaceIfUnmodifiedRequest =>
+      val ret = (decodeCtx.header.op: @switch) match {
+         case NewHotRodOperation.PutRequest | NewHotRodOperation.PutIfAbsentRequest |
+              NewHotRodOperation.ReplaceRequest | NewHotRodOperation.ReplaceIfUnmodifiedRequest =>
             buffer.readBytes(decodeCtx.rawValue)
             decodeCtx.header.op match {
-               case PutRequest => decodeCtx.put
-               case PutIfAbsentRequest => decodeCtx.putIfAbsent
-               case ReplaceRequest => decodeCtx.replace
-               case ReplaceIfUnmodifiedRequest => decodeCtx.replaceIfUnmodified
+               case NewHotRodOperation.PutRequest => decodeCtx.put
+               case NewHotRodOperation.PutIfAbsentRequest => decodeCtx.putIfAbsent
+               case NewHotRodOperation.ReplaceRequest => decodeCtx.replace
+               case NewHotRodOperation.ReplaceIfUnmodifiedRequest => decodeCtx.replaceIfUnmodified
             }
-         case RemoveRequest => decodeCtx.remove
+         case NewHotRodOperation.RemoveRequest => decodeCtx.remove
          case _ => customDecodeValue(ctx, buffer)
       }
       writeResponse(ch, ret)
@@ -160,7 +158,7 @@ extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants
       try {
          val magic = buffer.readUnsignedByte
          if (magic != MAGIC_REQ) {
-            if (decodeCtx.error != null) {
+            if (decodeCtx.error == null) {
                throw new InvalidMagicIdException("Error reading magic byte or message id: " + magic)
             } else {
                trace("Error happened previously, ignoring %d byte until we find the magic number again", magic)
@@ -249,7 +247,6 @@ extends ReplayingDecoder[HotRodDecoderState](DECODE_HEADER) with ServerConstants
                   ch.flush
                case a: Bytes => ch.writeAndFlush(wrappedBuffer(a))
                case cs: CharSequence => ch.writeAndFlush(Unpooled.copiedBuffer(cs, CharsetUtil.UTF_8))
-               case pr: PartialResponse => return pr
                case _ => ch.writeAndFlush(response)
             }
          }
@@ -311,7 +308,7 @@ extends IOException(reason, cause) {
 }
 
 class HotRodHeader {
-   var op: Enumeration#Value = _
+   var op: NewHotRodOperation = _
    var version: Byte = _
    var messageId: Long = _
    var cacheName: String = _
@@ -338,5 +335,3 @@ extends RequestParsingException(msg, version, messageId)
 class HotRodException(val response: ErrorResponse, cause: Throwable) extends Exception(cause)
 
 class UnknownOperationException(reason: String) extends StreamCorruptedException(reason)
-
-class PartialResponse(val buffer: Option[ByteBuf])

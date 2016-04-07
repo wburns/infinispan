@@ -4,6 +4,8 @@ import io.netty.buffer.{ByteBuf, Unpooled}
 import io.netty.util.CharsetUtil
 import org.infinispan.commons.io.SignedNumeric
 
+import scala.annotation.tailrec
+
 
 object ExtendedByteBuf {
 
@@ -55,6 +57,113 @@ object ExtendedByteBuf {
    def readString(bf: ByteBuf): String = {
       val bytes = readRangedBytes(bf)
       if (!bytes.isEmpty) new String(bytes, CharsetUtil.UTF_8) else ""
+   }
+
+   /**
+    * Reads a byte if possible.  If not present the reader index is reset to the last mark.
+    * @param bf
+    * @return
+    */
+   def readMaybeByte(bf: ByteBuf): Option[Byte] = {
+      if (bf.readableBytes() >= 1) {
+         Some(bf.readByte())
+      } else {
+         bf.resetReaderIndex()
+         None
+      }
+   }
+
+   /**
+    * Reads a variable long if possible.  If not present the reader index is reset to the last mark.
+    * @param bf
+    * @return
+    */
+   def readMaybeVLong(bf: ByteBuf): Option[Long] = {
+      if (bf.readableBytes() >= 1) {
+         val b = bf.readByte
+         @tailrec def read(buf: ByteBuf, b: Byte, shift: Int, i: Long, count: Int): Option[Long] = {
+            if ((b & 0x80) == 0) Some(i)
+            else {
+               if (count > 9)
+                  throw new IllegalStateException(
+                     "Stream corrupted.  A variable length long cannot be longer than 9 bytes.")
+
+               if (buf.readableBytes() >= 1) {
+                  val bb = buf.readByte
+                  read(buf, bb, shift + 7, i | (bb & 0x7FL) << shift, count + 1)
+               } else {
+                  buf.resetReaderIndex()
+                  None
+               }
+            }
+         }
+         read(bf, b, 7, b & 0x7F, 1)
+      } else {
+         bf.resetReaderIndex()
+         None
+      }
+   }
+
+   /**
+    * Reads a variable size int if possible.  If not present the reader index is reset to the last mark.
+    * @param bf
+    * @return
+    */
+   def readMaybeVInt(bf: ByteBuf): Option[Int] = {
+      if (bf.readableBytes() >= 1) {
+         val b = bf.readByte
+         @tailrec def read(buf: ByteBuf, b: Byte, shift: Int, i: Int, count: Int): Option[Int] = {
+            if ((b & 0x80) == 0) Some(i)
+            else {
+               if (count > 5)
+                  throw new IllegalStateException(
+                     "Stream corrupted.  A variable length integer cannot be longer than 5 bytes.")
+
+               if (buf.readableBytes() >= 1) {
+                  val bb = buf.readByte
+                  read(buf, bb, shift + 7, i | ((bb & 0x7FL) << shift).toInt, count + 1)
+               } else {
+                  buf.resetReaderIndex()
+                  None
+               }
+            }
+         }
+         read(bf, b, 7, b & 0x7F, 1)
+      } else {
+         bf.resetReaderIndex()
+         None
+      }
+   }
+
+   /**
+    * Reads a range of bytes if possible.  If not present the reader index is reset to the last mark.
+    * @param bf
+    * @return
+    */
+   def readMaybeRangedBytes(bf: ByteBuf): Option[Array[Byte]] = {
+      val length = readMaybeVInt(bf)
+      if (length.isDefined && bf.readableBytes() >= length.get) {
+         if (length.get > 0) {
+            val array = new Array[Byte](length.get)
+            bf.readBytes(array)
+            Some(array)
+         } else {
+            Some(Array[Byte]())
+         }
+      } else {
+         bf.resetReaderIndex()
+         None
+      }
+   }
+
+   /**
+    * Reads a string if possible.  If not present the reader index is reset to the last mark.
+    * @param bf
+    * @return
+    */
+   def readMaybeString(bf: ByteBuf): Option[String] = {
+      val bytes = readMaybeRangedBytes(bf)
+      bytes.map(new String(_, CharsetUtil.UTF_8))
    }
 
    def writeUnsignedShort(i: Int, bf: ByteBuf) = bf.writeShort(i)
