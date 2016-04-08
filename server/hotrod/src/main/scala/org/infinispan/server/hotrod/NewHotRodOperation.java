@@ -1,70 +1,81 @@
 package org.infinispan.server.hotrod;
 
 /**
- * // TODO: Document this
+ * Enumeration defining all of the possible hotrod operations
  *
  * @author wburns
  * @since 9.0
  */
 public enum NewHotRodOperation {
    // Puts
-   PutRequest(true, DecoderRequirements.VALUE),
-   PutIfAbsentRequest(true, DecoderRequirements.VALUE),
+   PutRequest(true, true, DecoderRequirements.VALUE, true),
+   PutIfAbsentRequest(true, true, DecoderRequirements.VALUE, true),
    // Replace
-   ReplaceRequest(true, DecoderRequirements.VALUE),
-   ReplaceIfUnmodifiedRequest(true, DecoderRequirements.VALUE),
+   ReplaceRequest(true, true, DecoderRequirements.VALUE, true),
+   ReplaceIfUnmodifiedRequest(true, true, DecoderRequirements.VALUE, true),
    // Contains
-   ContainsKeyRequest(true, DecoderRequirements.KEY),
+   ContainsKeyRequest(true, false, DecoderRequirements.KEY, true),
    // Gets
-   GetRequest(true, DecoderRequirements.KEY),
-   GetWithVersionRequest(true, DecoderRequirements.KEY),
-   GetWithMetadataRequest(true, DecoderRequirements.KEY),
+   GetRequest(true, false, DecoderRequirements.KEY, true),
+   GetWithVersionRequest(true, false, DecoderRequirements.KEY, true),
+   GetWithMetadataRequest(true, false, DecoderRequirements.KEY, true),
    // Removes
-   RemoveRequest(true, DecoderRequirements.KEY),
-   RemoveIfUnmodifiedRequest(true, DecoderRequirements.PARAMETERS),
+   RemoveRequest(true, false, DecoderRequirements.KEY, true),
+   RemoveIfUnmodifiedRequest(true, false, DecoderRequirements.PARAMETERS, true),
 
    // Operation(s) that end after Header is read
-   PingRequest(false, DecoderRequirements.HEADER),
-   StatsRequest(false, DecoderRequirements.HEADER),
-   ClearRequest(false, DecoderRequirements.HEADER),
-   QuitRequest(false, DecoderRequirements.HEADER),
-   SizeRequest(false, DecoderRequirements.HEADER),
+   PingRequest(false, false, DecoderRequirements.HEADER, false),
+   StatsRequest(false, false, DecoderRequirements.HEADER, true),
+   ClearRequest(false, false, DecoderRequirements.HEADER, true),
+   QuitRequest(false, false, DecoderRequirements.HEADER, true),
+   SizeRequest(false, false, DecoderRequirements.HEADER, true),
+   AuthMechListRequest(false, false, DecoderRequirements.HEADER, false),
 
    // Operation(s) that end after Custom Header is read
-   AuthRequest(false, DecoderRequirements.HEADER_CUSTOM),
-   ExecRequest(false, DecoderRequirements.HEADER_CUSTOM),
+   AuthRequest(false, false, DecoderRequirements.HEADER_CUSTOM, false),
+   ExecRequest(false, false, DecoderRequirements.HEADER_CUSTOM, true),
 
    // Operations that end after a Custom Key is read
-   BulkGetRequest(false, DecoderRequirements.KEY_CUSTOM),
-   BulkGetKeysRequest(false, DecoderRequirements.KEY_CUSTOM),
-   QueryRequest(false, DecoderRequirements.KEY_CUSTOM),
-   AddClientListenerRequest(false, DecoderRequirements.KEY_CUSTOM),
-   RemoveClientListenerRequest(false, DecoderRequirements.KEY_CUSTOM),
-   IterationStartRequest(false, DecoderRequirements.KEY_CUSTOM),
-   IterationNextRequest(false, DecoderRequirements.KEY_CUSTOM),
-   IterationEndRequest(false, DecoderRequirements.KEY_CUSTOM),
+   BulkGetRequest(false, false, DecoderRequirements.KEY_CUSTOM, true),
+   BulkGetKeysRequest(false, false, DecoderRequirements.KEY_CUSTOM, true),
+   QueryRequest(false, false, DecoderRequirements.KEY_CUSTOM, true),
+   AddClientListenerRequest(false, false, DecoderRequirements.KEY_CUSTOM, true),
+   RemoveClientListenerRequest(false, false, DecoderRequirements.KEY_CUSTOM, true),
+   IterationStartRequest(false, false, DecoderRequirements.KEY_CUSTOM, true),
+   IterationNextRequest(false, false, DecoderRequirements.KEY_CUSTOM, true),
+   IterationEndRequest(false, false, DecoderRequirements.KEY_CUSTOM, true),
 
-   AuthMechListRequest(false, DecoderRequirements.VALUE_CUSTOM),
    // Operations that end after a Custom Value is read
-   PutAllRequest(false, DecoderRequirements.VALUE_CUSTOM),
-   GetAllRequest(false, DecoderRequirements.VALUE_CUSTOM)
+   PutAllRequest(false, false, DecoderRequirements.VALUE_CUSTOM, true),
+   GetAllRequest(false, false, DecoderRequirements.VALUE_CUSTOM, true)
    ;
 
-   private final boolean requiresSingleKey;
+   private final boolean requiresKey;
+   private final boolean requiresValue;
    private final DecoderRequirements decodeRequirements;
+   private final boolean requiresAuthentication;
 
-   NewHotRodOperation(boolean requiresSingleKey, DecoderRequirements decodeRequirements) {
-      this.requiresSingleKey = requiresSingleKey;
+   NewHotRodOperation(boolean requiresKey, boolean requiresValue, DecoderRequirements decodeRequirements,
+           boolean requiresAuthentication) {
+      this.requiresKey = requiresKey;
+      this.requiresValue = requiresValue;
       this.decodeRequirements = decodeRequirements;
+      this.requiresAuthentication = requiresAuthentication;
    }
 
    DecoderRequirements getDecoderRequirements() {
       return decodeRequirements;
    }
 
-   boolean requireSingleKey() {
-      return requiresSingleKey;
+   boolean requiresKey() {
+      return requiresKey;
    }
+
+   boolean requireValue() {
+      return requiresValue;
+   }
+
+   boolean requiresAuthentication() { return requiresAuthentication; }
 
    boolean canSkipIndexing() {
       switch (this) {
@@ -135,7 +146,6 @@ enum DecoderRequirements {
    KEY,
    KEY_CUSTOM,
    PARAMETERS,
-   PARAMETERS_CUSTOM,
    VALUE,
    VALUE_CUSTOM
 }

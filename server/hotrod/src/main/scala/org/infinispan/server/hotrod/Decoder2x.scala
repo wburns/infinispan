@@ -2,11 +2,9 @@ package org.infinispan.server.hotrod
 
 import java.io.IOException
 import java.security.PrivilegedActionException
-import java.util
-import java.util.{BitSet => JavaBitSet, HashMap, HashSet, Map}
+import java.util.{HashMap, HashSet, Map}
 
 import io.netty.buffer.ByteBuf
-import io.netty.channel.Channel
 import org.infinispan.IllegalLifecycleStateException
 import org.infinispan.commons.CacheException
 import org.infinispan.configuration.cache.Configuration
@@ -14,7 +12,6 @@ import org.infinispan.container.entries.CacheEntry
 import org.infinispan.container.versioning.NumericVersion
 import org.infinispan.context.Flag.{IGNORE_RETURN_VALUES, SKIP_CACHE_LOAD, SKIP_INDEXING}
 import org.infinispan.remoting.transport.jgroups.SuspectException
-import org.infinispan.server.core.Operation._
 import org.infinispan.server.core._
 import org.infinispan.server.core.transport.ExtendedByteBuf._
 import org.infinispan.server.core.transport.NettyTransport
@@ -24,7 +21,6 @@ import org.infinispan.stats.ClusterCacheStats
 import org.infinispan.util.concurrent.TimeoutException
 
 import scala.annotation.{switch, tailrec}
-import scala.collection.JavaConverters._
 import scala.collection.{immutable, mutable}
 import scala.collection.mutable.ListBuffer
 
@@ -43,85 +39,100 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
    private val isTrace = isTraceEnabled
 
    override def readHeader(buffer: ByteBuf, version: Byte, messageId: Long, header: HotRodHeader, requireAuth: Boolean): Boolean = {
-      val streamOp = buffer.readUnsignedByte
-      val (op, endOfOp) = (streamOp: @switch) match {
-         case 0x01 => (NewHotRodOperation.PutRequest, false)
-         case 0x03 => (NewHotRodOperation.GetRequest, false)
-         case 0x05 => (NewHotRodOperation.PutIfAbsentRequest, false)
-         case 0x07 => (NewHotRodOperation.ReplaceRequest, false)
-         case 0x09 => (NewHotRodOperation.ReplaceIfUnmodifiedRequest, false)
-         case 0x0B => (NewHotRodOperation.RemoveRequest, false)
-         case 0x0D => (NewHotRodOperation.RemoveIfUnmodifiedRequest, false)
-         case 0x0F => (NewHotRodOperation.ContainsKeyRequest, false)
-         case 0x11 => (NewHotRodOperation.GetWithVersionRequest, false)
-         case 0x13 => (NewHotRodOperation.ClearRequest, true)
-         case 0x15 => (NewHotRodOperation.StatsRequest, true)
-         case 0x17 => (NewHotRodOperation.PingRequest, true)
-         case 0x19 => (NewHotRodOperation.BulkGetRequest, false)
-         case 0x1B => (NewHotRodOperation.GetWithMetadataRequest, false)
-         case 0x1D => (NewHotRodOperation.BulkGetKeysRequest, false)
-         case 0x1F => (NewHotRodOperation.QueryRequest, false)
-         case 0x21 => (NewHotRodOperation.AuthMechListRequest, true)
-         case 0x23 => (NewHotRodOperation.AuthRequest, true)
-         case 0x25 => (NewHotRodOperation.AddClientListenerRequest, false)
-         case 0x27 => (NewHotRodOperation.RemoveClientListenerRequest, false)
-         case 0x29 => (NewHotRodOperation.SizeRequest, true)
-         case 0x2B => (NewHotRodOperation.ExecRequest, true)
-         case 0x2D => (NewHotRodOperation.PutAllRequest, false)
-         case 0x2F => (NewHotRodOperation.GetAllRequest, false)
-         case 0x31 => (NewHotRodOperation.IterationStartRequest, false)
-         case 0x33 => (NewHotRodOperation.IterationNextRequest, false)
-         case 0x35 => (NewHotRodOperation.IterationEndRequest, false)
-         case _ => throw new HotRodUnknownOperationException(
-            "Unknown operation: " + streamOp, version, messageId)
-      }
-      if (isTrace) trace("Operation code: %d has been matched to %s", streamOp, op)
-      if (requireAuth) {
-        op match {
-          case NewHotRodOperation.PingRequest | NewHotRodOperation.AuthMechListRequest | NewHotRodOperation.AuthRequest => ;
-          case _ => throw log.unauthorizedOperation
-        }
+      if (header.op == null) {
+         val part1 = for {
+            streamOp <- readMaybeByte(buffer)
+            cacheName <- readMaybeString(buffer)
+         } yield {
+            header.op = (streamOp: @switch) match {
+               case 0x01 => NewHotRodOperation.PutRequest
+               case 0x03 => NewHotRodOperation.GetRequest
+               case 0x05 => NewHotRodOperation.PutIfAbsentRequest
+               case 0x07 => NewHotRodOperation.ReplaceRequest
+               case 0x09 => NewHotRodOperation.ReplaceIfUnmodifiedRequest
+               case 0x0B => NewHotRodOperation.RemoveRequest
+               case 0x0D => NewHotRodOperation.RemoveIfUnmodifiedRequest
+               case 0x0F => NewHotRodOperation.ContainsKeyRequest
+               case 0x11 => NewHotRodOperation.GetWithVersionRequest
+               case 0x13 => NewHotRodOperation.ClearRequest
+               case 0x15 => NewHotRodOperation.StatsRequest
+               case 0x17 => NewHotRodOperation.PingRequest
+               case 0x19 => NewHotRodOperation.BulkGetRequest
+               case 0x1B => NewHotRodOperation.GetWithMetadataRequest
+               case 0x1D => NewHotRodOperation.BulkGetKeysRequest
+               case 0x1F => NewHotRodOperation.QueryRequest
+               case 0x21 => NewHotRodOperation.AuthMechListRequest
+               case 0x23 => NewHotRodOperation.AuthRequest
+               case 0x25 => NewHotRodOperation.AddClientListenerRequest
+               case 0x27 => NewHotRodOperation.RemoveClientListenerRequest
+               case 0x29 => NewHotRodOperation.SizeRequest
+               case 0x2B => NewHotRodOperation.ExecRequest
+               case 0x2D => NewHotRodOperation.PutAllRequest
+               case 0x2F => NewHotRodOperation.GetAllRequest
+               case 0x31 => NewHotRodOperation.IterationStartRequest
+               case 0x33 => NewHotRodOperation.IterationNextRequest
+               case 0x35 => NewHotRodOperation.IterationEndRequest
+               case _ => throw new HotRodUnknownOperationException(
+                  "Unknown operation: " + streamOp, version, messageId)
+            }
+            if (isTrace) trace("Operation code: %d has been matched to %s", streamOp, header.op)
+            if (requireAuth && header.op.requiresAuthentication()) {
+               throw log.unauthorizedOperation
+            }
+
+            header.cacheName = cacheName
+
+            // Mark that we read up to here
+            buffer.markReaderIndex()
+         }
+         if (part1.isEmpty) {
+            return false
+         }
       }
 
-      val cacheName = readString(buffer)
-      val flag = readUnsignedInt(buffer)
-      val clientIntelligence = buffer.readUnsignedByte
-      val topologyId = readUnsignedInt(buffer)
+      val part2 = for {
+         flag <- readMaybeVInt(buffer)
+         clientIntelligence <- readMaybeByte(buffer)
+         topologyId <- readMaybeVInt(buffer)
+      } yield {
+         header.flag = flag
+         header.clientIntel = clientIntelligence
+         header.topologyId = topologyId
 
-      header.op = op
+         // Mark that we read up to here
+         buffer.markReaderIndex()
+      }
+
       header.version = version
       header.messageId = messageId
-      header.cacheName = cacheName
-      header.flag = flag
-      header.clientIntel = clientIntelligence
-      header.topologyId = topologyId
-      endOfOp
+
+      part2.isDefined
    }
 
-   private def readKey(buffer: ByteBuf): Array[Byte] = readRangedBytes(buffer)
-
-   override def readParameters(header: HotRodHeader, buffer: ByteBuf): (RequestParameters, Boolean) = {
-      (header.op: @switch) match {
-         case NewHotRodOperation.RemoveRequest => (null, true)
-         case NewHotRodOperation.RemoveIfUnmodifiedRequest => (new RequestParameters(-1, new ExpirationParam(-1, TimeUnitValue.SECONDS), new ExpirationParam(-1, TimeUnitValue.SECONDS), buffer.readLong), true)
+   // TODO: this needs to use Option
+   override def readParameters(header: HotRodHeader, buffer: ByteBuf): Option[RequestParameters] = {
+      header.op match {
+         case NewHotRodOperation.RemoveRequest => Some(null)
+         case NewHotRodOperation.RemoveIfUnmodifiedRequest =>
+            Some(new RequestParameters(-1, new ExpirationParam(-1, TimeUnitValue.SECONDS), new ExpirationParam(-1, TimeUnitValue.SECONDS), buffer.readLong))
          case NewHotRodOperation.ReplaceIfUnmodifiedRequest =>
             val expirationParams = readLifespanMaxIdle(buffer, hasFlag(header, ProtocolFlag.DefaultLifespan), hasFlag(header, ProtocolFlag.DefaultMaxIdle), header.version)
             val version = buffer.readLong
             val valueLength = readUnsignedInt(buffer)
-            (new RequestParameters(valueLength, expirationParams._1, expirationParams._2, version), false)
+            Some(new RequestParameters(valueLength, expirationParams._1, expirationParams._2, version))
          case NewHotRodOperation.PutAllRequest =>
             // Since we have custom code handling for valueLength to allocate an array
             // always we have to pass back false and set the checkpoint manually...
             val expirationParams = readLifespanMaxIdle(buffer, hasFlag(header, ProtocolFlag.DefaultLifespan), hasFlag(header, ProtocolFlag.DefaultMaxIdle), header.version)
             val valueLength = readUnsignedInt(buffer)
-            (new RequestParameters(valueLength, expirationParams._1, expirationParams._2, -1), true)
+            Some(new RequestParameters(valueLength, expirationParams._1, expirationParams._2, -1))
          case NewHotRodOperation.GetAllRequest =>
             val count = readUnsignedInt(buffer)
-            (new RequestParameters(count, new ExpirationParam(-1, TimeUnitValue.SECONDS), new ExpirationParam(-1, TimeUnitValue.SECONDS), -1), true)
+            Some(new RequestParameters(count, new ExpirationParam(-1, TimeUnitValue.SECONDS), new ExpirationParam(-1, TimeUnitValue.SECONDS), -1))
          case _ =>
             val expirationParams = readLifespanMaxIdle(buffer, hasFlag(header, ProtocolFlag.DefaultLifespan), hasFlag(header, ProtocolFlag.DefaultMaxIdle), header.version)
             val valueLength = readUnsignedInt(buffer)
-            (new RequestParameters(valueLength, expirationParams._1, expirationParams._2, -1), false)
+            Some(new RequestParameters(valueLength, expirationParams._1, expirationParams._2, -1))
       }
    }
 
@@ -129,6 +140,7 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
       (h.flag & f.id) == f.id
    }
 
+   // TODO: need to make this use Option
    private def readLifespanMaxIdle(buffer: ByteBuf, usingDefaultLifespan: Boolean, usingDefaultMaxIdle: Boolean, version: Byte): (ExpirationParam, ExpirationParam) = {
       def readDuration(useDefault: Boolean) = {
          val duration = readUnsignedInt(buffer)
@@ -181,7 +193,7 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
          adjustedStatus match {
             case SuccessWithPrevious | NotExecutedWithPrevious =>
                new ResponseWithPrevious(h.version, h.messageId, h.cacheName,
-                  h.clientIntel, op, adjustedStatus, h.topologyId, if (prev == null) None else Some(prev))
+                  h.clientIntel, op, adjustedStatus, h.topologyId, Option(prev))
             case _ =>
                new Response(h.version, h.messageId, h.cacheName, h.clientIntel, op, adjustedStatus, h.topologyId)
          }
@@ -193,16 +205,16 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
 
    override def createGetResponse(h: HotRodHeader, entry: CacheEntry[Array[Byte], Array[Byte]]): Response = {
       val op = h.op
-      if (entry != null && op == GetRequest)
+      if (entry != null && op == NewHotRodOperation.GetRequest)
          new GetResponse(h.version, h.messageId, h.cacheName, h.clientIntel,
             GetResponse, Success, h.topologyId,
             Some(entry.getValue))
-      else if (entry != null && op == GetWithVersionRequest) {
+      else if (entry != null && op == NewHotRodOperation.GetWithVersionRequest) {
          val version = entry.getMetadata.version().asInstanceOf[NumericVersion].getVersion
          new GetWithVersionResponse(h.version, h.messageId, h.cacheName,
             h.clientIntel, GetWithVersionResponse, Success, h.topologyId,
             Some(entry.getValue), version)
-      } else if (op == GetRequest)
+      } else if (op == NewHotRodOperation.GetRequest)
          new GetResponse(h.version, h.messageId, h.cacheName, h.clientIntel,
             GetResponse, KeyDoesNotExist, h.topologyId, None)
       else
@@ -213,67 +225,53 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
 
    override def customReadHeader(h: HotRodHeader, buffer: ByteBuf, hrCtx: CacheDecodeContext,
                                  out: java.util.List[AnyRef]): Unit = {
-      (h.op: @switch) match {
+      h.op match {
          case NewHotRodOperation.AuthRequest =>
-            var authCtx = hrCtx.operationDecodeContext.asInstanceOf[AuthRequestContext]
-            // first time read
-            if (authCtx == null) {
-               val mech = readMaybeString(buffer)
-               mech.foreach(m => {
-                  authCtx = new AuthRequestContext(m)
-                  hrCtx.operationDecodeContext = authCtx
-                  buffer.markReaderIndex()
-               })
-            }
-            val clientResponse = readMaybeRangedBytes(buffer)
-            clientResponse.foreach(cr => {
-               authCtx.response = cr
-               // If we were able to read everything add the context to the output
+            for {
+               mech <- readMaybeString(buffer)
+               clientResponse <- readMaybeRangedBytes(buffer)
+            } yield {
+               hrCtx.operationDecodeContext = (mech, clientResponse)
+               buffer.markReaderIndex()
                out.add(hrCtx)
-            })
+            }
          case NewHotRodOperation.ExecRequest =>
             var execCtx = hrCtx.operationDecodeContext.asInstanceOf[ExecRequestContext]
             // first time read
             if (execCtx == null) {
-               val name = readMaybeString(buffer)
-               name.foreach(n => {
-                  execCtx = new ExecRequestContext(n)
+               val part1 = for {
+                  name <- readMaybeString(buffer)
+                  paramCount <- readMaybeVInt(buffer)
+               } yield {
+                  execCtx = new ExecRequestContext(name, paramCount, new HashMap[String, Bytes](paramCount))
                   hrCtx.operationDecodeContext = execCtx
+                  // Mark that we read these
                   buffer.markReaderIndex()
-               })
+               }
+               if (part1.isEmpty) {
+                  return
+               }
             }
 
-            if (execCtx != null) {
-               var params = execCtx.params
-               if (params == null) {
-                  val paramCount = readMaybeVInt(buffer)
-                  paramCount.foreach(p => {
-                     params = new HashMap[String, Bytes](p)
-                     execCtx.paramSize = p
-                     execCtx.params = params
-                     buffer.markReaderIndex()
-                  })
+            @tailrec def addEntry(map: Map[String, Bytes]): Boolean = {
+               val complete = for {
+                  key <- readMaybeString(buffer)
+                  value <- readMaybeRangedBytes(buffer)
+               } yield {
+                  map.put(key, value)
+                  // Mark after each key value pair since they are in the map now
+                  buffer.markReaderIndex()
                }
-               @tailrec def addEntry(map: Map[String, Bytes]): Boolean = {
-                  val complete = for {
-                     key <- readMaybeString(buffer)
-                     value <- readMaybeRangedBytes(buffer)
-                  } yield {
-                     map.put(key, value)
-                     buffer.markReaderIndex()
-                  }
-                  if (complete.isDefined) {
-                     // If we are the same size as param size we are done, otherwise continue until we
-                     // can't read anymore or finally get to size
-                     if (map.size() < execCtx.paramSize) {
-                        addEntry(map)
-                     } else true
-                  } else false
-               }
-               if (addEntry(params)) {
-                  // If we were able to read everything add the context to the output
-                  out.add(hrCtx)
-               }
+               if (complete.isDefined) {
+                  // If we are the same size as param size we are done, otherwise continue until we
+                  // can't read anymore or finally get to size
+                  if (map.size() < execCtx.paramSize) {
+                     addEntry(map)
+                  } else true
+               } else false
+            }
+            if (addEntry(execCtx.params)) {
+               out.add(hrCtx)
             }
          case _ =>
             // This operation doesn't need additional reads - has everything to process
@@ -282,88 +280,118 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
    }
 
    override def customReadKey(h: HotRodHeader, buffer: ByteBuf, hrCtx: CacheDecodeContext,
-                              out: java.util.List[AnyRef]): AnyRef = {
-      (h.op: @switch) match {
-         case NewHotRodOperation.BulkGetRequest =>
-            val count = readUnsignedInt(buffer)
-            if (isTrace) trace("About to create bulk response, count = %d", count)
-            new BulkGetResponse(h.version, h.messageId, h.cacheName, h.clientIntel,
-               BulkGetResponse, Success, h.topologyId, count)
-         case NewHotRodOperation.BulkGetKeysRequest =>
-            val scope = readUnsignedInt(buffer)
-            if (isTrace) trace("About to create bulk get keys response, scope = %d", scope)
-            new BulkGetKeysResponse(h.version, h.messageId, h.cacheName,
-               h.clientIntel, BulkGetKeysResponse, Success, h.topologyId, scope)
+                              out: java.util.List[AnyRef]): Unit = {
+      h.op match {
+         case NewHotRodOperation.BulkGetRequest | NewHotRodOperation.BulkGetKeysRequest =>
+            readMaybeVInt(buffer).foreach(number => {
+               hrCtx.operationDecodeContext = number
+               buffer.markReaderIndex()
+               out.add(hrCtx)
+            })
          case NewHotRodOperation.QueryRequest =>
-            val query = readRangedBytes(buffer)
-            val result = server.query(cache, query)
-            new QueryResponse(h.version, h.messageId, h.cacheName, h.clientIntel,
-               h.topologyId, result)
+            readMaybeRangedBytes(buffer).foreach(query => {
+               hrCtx.operationDecodeContext = query
+               buffer.markReaderIndex()
+               out.add(hrCtx)
+            })
          case NewHotRodOperation.AddClientListenerRequest =>
-            val listenerId = readRangedBytes(buffer)
-            val includeState = buffer.readByte() == 1
-            val filterFactoryInfo = readNamedFactory(buffer)
-            val converterFactoryInfo = readNamedFactory(buffer)
-            val useRawData = h.version match {
-               case ver if Constants.isVersion2x(ver) => buffer.readByte() == 1
-               case _ => false
+            var execCtx = hrCtx.operationDecodeContext.asInstanceOf[ClientListenerRequestContext]
+            if (execCtx == null) {
+               val part1 = for {
+                  listenerId <- readMaybeRangedBytes(buffer)
+                  includeState <- readMaybeByte(buffer)
+               } yield {
+                  execCtx = new ClientListenerRequestContext(listenerId, includeState == 1)
+                  hrCtx.operationDecodeContext = execCtx
+                  // Mark that we read these
+                  buffer.markReaderIndex()
+               }
+               if (part1.isEmpty) {
+                  return
+               }
             }
-            val reg = server.getClientListenerRegistry
-            reg.addClientListener(this, ch, h, listenerId, cache, includeState,
-                  (filterFactoryInfo, converterFactoryInfo), useRawData)
-            decoder.checkpointTo(HotRodDecoderState.DECODE_HEADER)
-            null
+            if (execCtx.filterFactoryInfo == null) {
+               if (!readMaybeNamedFactory(buffer).exists(f => {
+                  execCtx.filterFactoryInfo = f
+                  true
+               })) {
+                  return
+               }
+               buffer.markReaderIndex()
+            }
+            for {
+               converter <- readMaybeNamedFactory(buffer)
+               useRawData <- h.version match {
+                   // TODO: is this version check needed? - this should always be 2x
+                  case ver if Constants.isVersion2x(ver) => readMaybeByte(buffer).map(b => b == 1)
+                  case _ => Some(false)
+               }
+            } yield {
+               execCtx.converterFactoryInfo = converter
+               execCtx.useRawData = useRawData
+
+               buffer.markReaderIndex()
+               out.add(hrCtx)
+            }
          case NewHotRodOperation.RemoveClientListenerRequest =>
-            val listenerId = readRangedBytes(buffer)
-            val reg = server.getClientListenerRegistry
-            val removed = reg.removeClientListener(listenerId, cache)
-            if (removed)
-               createSuccessResponse(h, null)
-            else
-               createNotExecutedResponse(h, null)
-         case NewHotRodOperation.PutAllRequest | NewHotRodOperation.GetAllRequest =>
-            decoder.checkpointTo(HotRodDecoderState.DECODE_PARAMETERS)
+            readMaybeRangedBytes(buffer).foreach(listenerId => {
+               hrCtx.operationDecodeContext = listenerId
+               buffer.markReaderIndex()
+               out.add(hrCtx)
+            })
          case NewHotRodOperation.IterationStartRequest =>
-            val segments = readOptRangedBytes(buffer)
-            val namedFactory = if (Constants.isVersionPre24(h.version)) {
-               for (factory <- readOptString(buffer)) yield (factory, List[Bytes]())
-            } else {
-               for (factory <- readOptString(buffer)) yield (factory, readOptionalParams(buffer))
+            for {
+               segments <- readMaybeRangedBytes(buffer)
+               factory <- if (Constants.isVersionPre24(h.version)) {
+                              readMaybeString(buffer).map(name => Some(name, List[Bytes]()))
+                           } else {
+                              readMaybeNamedFactory(buffer)
+                           }
+               batchSize <- readMaybeVInt(buffer)
+               metadata <- if (Constants.isVersionPre24(h.version)) Some(false) else readMaybeByte(buffer).map(m => Some(m != 0))
+            } yield {
+               hrCtx.operationDecodeContext = (segments, factory, batchSize, metadata)
+               buffer.markReaderIndex()
+               out.add(hrCtx)
             }
-            val batchSize = readUnsignedInt(buffer)
-            val metadata = Constants.isVersionPost24(h.version) && buffer.readByte() != 0
-            val iterationId = server.iterationManager.start(cache.getName, segments.map(JavaBitSet.valueOf), namedFactory, batchSize, metadata)
-            new IterationStartResponse(h.version, h.messageId, h.cacheName, h.clientIntel, h.topologyId, iterationId)
-         case NewHotRodOperation.IterationNextRequest =>
-            val iterationId = readString(buffer)
-            val iterationResult = server.iterationManager.next(cache.getName, iterationId)
-            new IterationNextResponse(h.version, h.messageId, h.cacheName, h.clientIntel, h.topologyId, iterationResult)
-         case NewHotRodOperation.IterationEndRequest =>
-            val iterationId = readString(buffer)
-            val removed = server.iterationManager.close(cache.getName, iterationId)
-            new Response(h.version, h.messageId, h.cacheName, h.clientIntel, IterationEndResponse, if (removed) Success else InvalidIteration, h.topologyId)
-         case _ => null
+         case NewHotRodOperation.IterationNextRequest | NewHotRodOperation.IterationEndRequest =>
+            readMaybeString(buffer).foreach(iterationId => {
+               hrCtx.operationDecodeContext = iterationId
+               buffer.markReaderIndex()
+               out.add(hrCtx)
+            })
+         case _ =>
       }
    }
 
-   private def readNamedFactory(buffer: ByteBuf): NamedFactory = {
-      for {
-         factoryName <- readOptionalString(buffer)
-      } yield (factoryName, readOptionalParams(buffer))
+   private def readMaybeNamedFactory(buffer: ByteBuf): Option[NamedFactory] = {
+      readMaybeString(buffer).map(name => {
+         if (!name.isEmpty) {
+            readOptionalParams(buffer).map(p => {
+               Some(Some((name, p)))
+            }).getOrElse(None)
+         } else Some(None)
+      }).getOrElse(None)
    }
 
-   private def readOptionalString(buffer: ByteBuf): Option[String] = {
-      val string = readString(buffer)
-      if (string.isEmpty) None else Some(string)
-   }
-
-   private def readOptionalParams(buffer: ByteBuf): List[Bytes] = {
-      val numParams = buffer.readByte()
-      if (numParams > 0) {
-         var params = ListBuffer[Bytes]()
-         for (i <- 0 until numParams) params += readRangedBytes(buffer)
-         params.toList
-      } else List.empty
+   private def readOptionalParams(buffer: ByteBuf): Option[List[Bytes]] = {
+      val numParams = readMaybeByte(buffer)
+      numParams.map(p => {
+         if (p > 0) {
+            val params = ListBuffer[Bytes]()
+            @tailrec def readParams(buf: ListBuffer[Bytes]): Boolean = {
+               if (readMaybeRangedBytes(buffer).exists(param => {
+                  buf += param
+                  true
+               })) {
+                  if (buf.length < p) {
+                     readParams(buf)
+                  } else true
+               } else false
+            }
+            if (readParams(params)) Some(params.toList) else None
+         } else Some(List.empty)
+      }).getOrElse(None)
    }
 
    def getKeyMetadata(h: HotRodHeader, k: Array[Byte], cache: Cache): GetWithMetadataResponse = {
@@ -384,41 +412,59 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
       }
    }
 
-   override def customReadValue(decoder: HotRodDecoder, h: HotRodHeader,
-       hrCtx: CacheDecodeContext, buffer: ByteBuf, cache: Cache): AnyRef = {
-      (h.op: @switch) match {
+   override def customReadValue(h: HotRodHeader, buffer: ByteBuf, hrCtx: CacheDecodeContext,
+                                out: java.util.List[AnyRef]): Unit = {
+      h.op match {
          case NewHotRodOperation.PutAllRequest =>
+            val maxLength =  hrCtx.params.valueLength
             var map = hrCtx.putAllMap
             if (map == null) {
-              map = new HashMap[Bytes, Bytes]
+              map = new HashMap[Bytes, Bytes](maxLength)
               hrCtx.putAllMap = map
             }
-            for (i <- map.size until hrCtx.params.valueLength) {
-              val k = readRangedBytes(buffer)
-              val v = readRangedBytes(buffer)
-              map.put(k, v)
-              // We check point after each read entry
-              decoder.checkpoint
+            @tailrec def addEntry(): Boolean = {
+               val complete = for {
+                  key <- readMaybeRangedBytes(buffer)
+                  value <- readMaybeRangedBytes(buffer)
+               } yield {
+                  map.put(key, value)
+                  // Mark after each key value pair since they are in the map now
+                  buffer.markReaderIndex()
+               }
+               if (complete.isDefined) {
+                  // If we are the same size as param size we are done, otherwise continue until we
+                  // can't read anymore or finally get to size
+                  if (map.size() < maxLength) {
+                     addEntry()
+                  } else true
+               } else false
             }
-            cache.putAll(map, hrCtx.buildMetadata)
-            new Response(h.version, h.messageId, h.cacheName, h.clientIntel,
-               PutAllResponse, Success, h.topologyId)
+            if (addEntry()) {
+               out.add(hrCtx)
+            }
          case NewHotRodOperation.GetAllRequest =>
-           var set = hrCtx.getAllSet
-           if (set == null) {
-             set = new HashSet[Bytes]
-             hrCtx.getAllSet = set
-           }
-           for (i <- set.size until hrCtx.params.valueLength) {
-             val key = readRangedBytes(buffer)
-             set.add(key)
-             decoder.checkpoint
-           }
-           val results = cache.getAll(set)
-           new GetAllResponse(h.version, h.messageId, h.cacheName, h.clientIntel,
-               GetAllResponse, Success, h.topologyId, immutable.Map[Bytes, Bytes]() ++ results.asScala)
-        case _ => null
-     }
+            val maxLength =  hrCtx.params.valueLength
+            var set = hrCtx.getAllSet
+            if (set == null) {
+               set = new HashSet[Bytes](maxLength)
+               hrCtx.getAllSet = set
+            }
+            @tailrec def addItem(): Boolean = {
+               if (readMaybeRangedBytes(buffer).exists(k => {
+                  set.add(k)
+                  buffer.markReaderIndex()
+                  true
+               })) {
+                  if (set.size() < maxLength) {
+                     addItem()
+                  } else true
+               } else false
+            }
+            if (addItem()) {
+               out.add(hrCtx)
+            }
+         case _ =>
+      }
    }
 
    override def createStatsResponse(ctx: CacheDecodeContext, t: NettyTransport): StatsResponse = {
@@ -561,11 +607,10 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
    }
 }
 
-class AuthRequestContext(mech: String) {
-   var response: Bytes = _
-}
+class ExecRequestContext(val name: String, val paramSize: Int, val params: Map[String, Bytes]) { }
 
-class ExecRequestContext(name: String) {
-   var paramSize: Int = _
-   var params: Map[String, Bytes] = _
+class ClientListenerRequestContext(val bytes: Bytes, val includeCurrentState: Boolean) {
+   var filterFactoryInfo: NamedFactory = _
+   var converterFactoryInfo: NamedFactory = _
+   var useRawData: Boolean = _
 }

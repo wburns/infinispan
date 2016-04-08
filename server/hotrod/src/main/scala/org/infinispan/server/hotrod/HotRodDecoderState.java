@@ -13,4 +13,5 @@ public enum HotRodDecoderState {
    DECODE_KEY_CUSTOM,
    DECODE_PARAMETERS,
    DECODE_VALUE,
+   DECODE_VALUE_CUSTOM,
 }

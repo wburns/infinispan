@@ -1,5 +1,7 @@
 package org.infinispan.server.hotrod
 
+import java.util.function.Predicate
+
 import io.netty.channel.{Channel, ChannelInitializer}
 import logging.Log
 import org.infinispan
@@ -79,8 +81,10 @@ class HotRodServer extends AbstractProtocolServer("HotRod") with Log {
 
    override def getEncoder = new HotRodEncoder(getCacheManager, this)
 
-   override def getDecoder : HotRodDecoder =
-      new HotRodDecoder(getCacheManager, transport, this, isCacheIgnored)
+   override def getDecoder : NewHotRodDecoder =
+      new NewHotRodDecoder(cacheManager, transport, this, new Predicate[String] {
+               override def test(t: String): Boolean = isCacheIgnored(t)
+            })
 
    override def startInternal(configuration: HotRodServerConfiguration, cacheManager: EmbeddedCacheManager) {
       // These are also initialized by super.startInternal, but we need them before
@@ -117,10 +121,14 @@ class HotRodServer extends AbstractProtocolServer("HotRod") with Log {
    }
 
    override def getInitializer: ChannelInitializer[Channel] = {
+      // Pass by name since we have circular dependency
+      def getTransport() = {
+         transport
+      }
       if (configuration.idleTimeout > 0)
-         new HotRodChannelInitializer(this, transport, getEncoder) with TimeoutEnabledChannelInitializer
+         new HotRodChannelInitializer(this, getTransport(), getEncoder) with TimeoutEnabledChannelInitializer
       else // Idle timeout logic is disabled with -1 or 0 values
-         new HotRodChannelInitializer(this, transport, getEncoder)
+         new HotRodChannelInitializer(this, getTransport(), getEncoder)
    }
 
    private def loadFilterConverterFactories[T](c: Class[T])(action: (String, T) => Any) = ServiceFinder.load(c).foreach { factory =>

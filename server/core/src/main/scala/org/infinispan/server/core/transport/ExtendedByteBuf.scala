@@ -163,7 +163,7 @@ object ExtendedByteBuf {
     */
    def readMaybeString(bf: ByteBuf): Option[String] = {
       val bytes = readMaybeRangedBytes(bf)
-      bytes.map(new String(_, CharsetUtil.UTF_8))
+      bytes.map(b => if (b.isEmpty) "" else new String(b, CharsetUtil.UTF_8))
    }
 
    def writeUnsignedShort(i: Int, bf: ByteBuf) = bf.writeShort(i)

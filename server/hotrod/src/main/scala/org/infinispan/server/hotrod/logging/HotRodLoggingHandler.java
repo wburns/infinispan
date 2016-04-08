@@ -7,6 +7,7 @@ import org.infinispan.commons.logging.LogFactory;
 import org.infinispan.server.core.Operation;
 import org.infinispan.server.core.transport.StatsChannelHandler;
 import org.infinispan.server.hotrod.CacheDecodeContext;
+import org.infinispan.server.hotrod.NewHotRodOperation;
 import scala.Enumeration;
 
 import java.time.Instant;
@@ -38,7 +39,7 @@ public class HotRodLoggingHandler extends ChannelInboundHandlerAdapter {
          ldt = null;
       }
       // Method
-      Enumeration.Value op = cacheDecodeContext.header().op();
+      NewHotRodOperation op = cacheDecodeContext.header().op();
       // Cache name
       String cacheName = cacheDecodeContext.header().cacheName();
       // Status

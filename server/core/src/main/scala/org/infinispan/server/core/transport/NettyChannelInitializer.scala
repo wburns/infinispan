@@ -1,13 +1,13 @@
 package org.infinispan.server.core.transport
 
-import io.netty.handler.logging.LoggingHandler
-import io.netty.handler.logging.LogLevel
+import javax.net.ssl.SSLEngine
+
+import io.netty.channel.{Channel, ChannelInitializer, ChannelOutboundHandler}
+import io.netty.handler.logging.{LogLevel, LoggingHandler}
+import io.netty.handler.ssl.SslHandler
+import org.infinispan.commons.util.SslContextFactory
 import org.infinispan.server.core.ProtocolServer
 import org.infinispan.server.core.configuration.SslConfiguration
-import javax.net.ssl.SSLEngine
-import org.infinispan.commons.util.SslContextFactory
-import io.netty.channel.{ChannelInitializer, Channel, ChannelOutboundHandler}
-import io.netty.handler.ssl.SslHandler
 
 /**
  * Pipeline factory for Netty based channels. For each pipeline created, a new decoder is created which means that
@@ -17,7 +17,7 @@ import io.netty.handler.ssl.SslHandler
  * @author Galder Zamarreño
  * @since 4.1
  */
-abstract class NettyChannelInitializer(server: ProtocolServer, transport: NettyTransport,
+abstract class NettyChannelInitializer(server: ProtocolServer, transport: => NettyTransport,
                                        encoder: ChannelOutboundHandler) extends ChannelInitializer[Channel] {
    override def initChannel(ch: Channel): Unit = {
       val pipeline = ch.pipeline

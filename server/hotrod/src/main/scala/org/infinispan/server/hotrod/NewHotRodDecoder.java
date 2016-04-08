@@ -2,19 +2,17 @@ package org.infinispan.server.hotrod;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.handler.codec.ReplayingDecoder;
+import io.netty.handler.codec.ByteToMessageDecoder;
 import org.infinispan.commons.logging.LogFactory;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.security.Security;
 import org.infinispan.server.core.NewServerConstants;
-import org.infinispan.server.core.Operation;
+import org.infinispan.server.core.UnsignedNumeric;
 import org.infinispan.server.core.logging.JavaLog;
 import org.infinispan.server.core.transport.ExtendedByteBuf;
 import org.infinispan.server.core.transport.NettyTransport;
-import org.infinispan.server.core.transport.VLong;
 import org.infinispan.server.hotrod.configuration.AuthenticationConfiguration;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfiguration;
-import scala.Enumeration;
 import scala.Option;
 import scala.Tuple2;
 
@@ -23,7 +21,7 @@ import javax.security.sasl.Sasl;
 import java.security.PrivilegedActionException;
 import java.security.PrivilegedExceptionAction;
 import java.util.List;
-import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.Callable;
 import java.util.function.Predicate;
 
@@ -33,12 +31,11 @@ import java.util.function.Predicate;
  * @author wburns
  * @since 4.0
  */
-public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
+public class NewHotRodDecoder extends ByteToMessageDecoder {
    private final static JavaLog log = LogFactory.getLog(NewHotRodDecoder.class, JavaLog.class);
 
    private final EmbeddedCacheManager cacheManager;
    private final NettyTransport transport;
-   private final HotRodServer server;
    private final Predicate<? super String> ignoreCache;
 
    private final AuthenticationConfiguration authenticationConfig;
@@ -49,14 +46,14 @@ public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
 
    private Subject subject = NewServerConstants.ANONYMOUS;
 
+   private HotRodDecoderState state = HotRodDecoderState.DECODE_HEADER;
 
-   private volatile boolean resetRequested;
+   private volatile boolean resetRequested = true;
 
    public NewHotRodDecoder(EmbeddedCacheManager cacheManager, NettyTransport transport, HotRodServer server,
            Predicate<? super String> ignoreCache) {
       this.cacheManager = cacheManager;
       this.transport = transport;
-      this.server = server;
       this.ignoreCache = ignoreCache;
 
       authenticationConfig = ((HotRodServerConfiguration) server.getConfiguration()).authentication();
@@ -67,27 +64,26 @@ public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
       this.decodeCtx = new CacheDecodeContext(server);
    }
 
+   public NettyTransport getTransport() {
+      return transport;
+   }
+
    void resetNow() {
       decodeCtx.resetParams();
       decodeCtx.setHeader(new HotRodHeader());
-      super.state(HotRodDecoderState.DECODE_HEADER);
-   }
-
-   @Override
-   protected HotRodDecoderState state(HotRodDecoderState newState) {
-      throw new UnsupportedOperationException("Call state(HotRodDecoderState, ByteBuf)");
+      state = HotRodDecoderState.DECODE_HEADER;
+      resetRequested = false;
    }
 
    /**
-    * Should be called instead of {@link #state(HotRodDecoderState, ByteBuf)}.  This also marks the buffer read
+    * Should be called when state is transferred.  This also marks the buffer read
     * position so when we can't read bytes it will be reset to here.
-    * @param newState
-    * @param buf
-    * @return
+    * @param newState new hotrod decoder state
+    * @param buf the byte buffer to mark
     */
-   protected HotRodDecoderState state(HotRodDecoderState newState, ByteBuf buf) {
+   protected void state(HotRodDecoderState newState, ByteBuf buf) {
       buf.markReaderIndex();
-      return super.state(newState);
+      state = newState;
    }
 
    @Override
@@ -101,15 +97,11 @@ public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
             resetNow();
          }
 
+         // Mark the index to the beginning, just in case
+         in.markReaderIndex();
+
          Callable<Void> callable = () -> {
-            switch (state()) {
-               // These are terminal cases, meaning they only perform this operation and break
-               case DECODE_HEADER_CUSTOM:
-                  readCustomHeader(in, out);
-                  break;
-               case DECODE_KEY_CUSTOM:
-                  readCustomKey(in, out);
-                  break;
+            switch (state) {
                // These are all fall through cases which means they call to the one below if they needed additional
                // processing
                case DECODE_HEADER:
@@ -118,20 +110,32 @@ public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
                   }
                   state(HotRodDecoderState.DECODE_KEY, in);
                case DECODE_KEY:
-                  if (!decodeKey(ctx, in, out)) {
+                  if (!decodeKey(in, out)) {
                      return null;
                   }
                   state(HotRodDecoderState.DECODE_PARAMETERS, in);
                case DECODE_PARAMETERS:
-                  if (!decodeParameters(ctx, in, out)) {
+                  if (!decodeParameters(in, out)) {
                      return null;
                   }
                   state(HotRodDecoderState.DECODE_VALUE, in);
                case DECODE_VALUE:
-                  if (!decodeValue(ctx, in, out)) {
+                  if (!decodeValue(in, out)) {
                      return null;
                   }
                   state(HotRodDecoderState.DECODE_HEADER, in);
+                  break;
+
+               // These are terminal cases, meaning they only perform this operation and break
+               case DECODE_HEADER_CUSTOM:
+                  readCustomHeader(in, out);
+                  break;
+               case DECODE_KEY_CUSTOM:
+                  readCustomKey(in, out);
+                  break;
+               case DECODE_VALUE_CUSTOM:
+                  readCustomValue(in, out);
+                  break;
             }
             return null;
          };
@@ -159,7 +163,6 @@ public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
       boolean shouldContinue = readHeader(in);
       // If there was nothing present it means we throw this decoding away and start fresh
       if (!shouldContinue) {
-         resetRequested = true;
          return false;
       }
       HotRodHeader header = decodeCtx.getHeader();
@@ -169,6 +172,7 @@ public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
          decodeCtx.setError(excp);
          throw excp;
       }
+      decodeCtx.obtainCache(cacheManager);
       NewHotRodOperation op = header.op();
       switch (op.getDecoderRequirements()) {
          case HEADER_CUSTOM:
@@ -181,25 +185,21 @@ public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
             resetRequested = true;
             return false;
          default:
+            // Continue to key
             return true;
-      }
-   }
-
-   private void readCustomHeader(ByteBuf in, List<Object> out) {
-      decodeCtx.decoder().customReadHeader(decodeCtx.header(), in, decodeCtx, out);
-      // If out was written to, it means we read everything, else we have to reread again
-      if (!out.isEmpty()) {
-         resetRequested = true;
       }
    }
 
    /**
     * Reads the header and returns whether we should try to continue
-    * @param buffer
-    * @return
+    * @param buffer the buffer to read the header from
+    * @return whether or not we should continue
     * @throws Exception
     */
-   Boolean readHeader(ByteBuf buffer) throws Exception {
+   boolean readHeader(ByteBuf buffer) throws Exception {
+      if (buffer.readableBytes() < 1) {
+         return false;
+      }
       short magic = buffer.readUnsignedByte();
       if (magic != Constants$.MODULE$.MAGIC_REQ()) {
          if (decodeCtx.getError() == null) {
@@ -210,7 +210,14 @@ public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
          }
       }
 
-      long messageId = VLong.read(buffer);
+      OptionalLong optLong = UnsignedNumeric.readOptionalUnsignedLong(buffer);
+      if (!optLong.isPresent()) {
+         return false;
+      }
+      long messageId = optLong.getAsLong();
+      if (buffer.readableBytes() < 1) {
+         return false;
+      }
       byte version = (byte) buffer.readUnsignedByte();
 
       try {
@@ -223,8 +230,10 @@ public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
             throw new UnknownVersionException("Unknown version:" + version, version, messageId);
          }
          HotRodHeader header = decodeCtx.getHeader();
-         decoder.readHeader(buffer, version, messageId, header, requireAuthentication
-                 && subject == NewServerConstants.ANONYMOUS);
+         if (!decoder.readHeader(buffer, version, messageId, header, requireAuthentication
+                 && subject == NewServerConstants.ANONYMOUS)) {
+            return false;
+         }
          decodeCtx.setDecoder(decoder);
          if (decodeCtx.isTrace()) {
             log.tracef("Decoded header %s", header);
@@ -239,19 +248,44 @@ public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
       }
    }
 
-   boolean decodeKey(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
-      NewHotRodOperation op = decodeCtx.getHeader().op();
-      // If we want a single key read that - else we do custom read
-      if (op.requireSingleKey()) {
-         Option<byte[]> bytes = ExtendedByteBuf.readMaybeRangedBytes(in);
-         if (bytes.exists(a -> {
-            decodeCtx.key_$eq(a);
-            return true;
-         }));
-      } else {
-
+   private void readCustomHeader(ByteBuf in, List<Object> out) {
+      decodeCtx.decoder().customReadHeader(decodeCtx.header(), in, decodeCtx, out);
+      // If out was written to, it means we read everything, else we have to reread again
+      if (!out.isEmpty()) {
+         resetRequested = true;
       }
-      return true;
+   }
+
+   boolean decodeKey(ByteBuf in, List<Object> out) {
+      NewHotRodOperation op = decodeCtx.getHeader().op();
+      boolean shouldContinue;
+      // If we want a single key read that - else we do try for custom read
+      if (op.requiresKey()) {
+         Option<byte[]> bytes = ExtendedByteBuf.readMaybeRangedBytes(in);
+         // If the bytes don't exist then we need to reread
+         if (bytes.isDefined()) {
+            decodeCtx.key_$eq(bytes.get());
+            shouldContinue = true;
+         } else {
+            shouldContinue = false;
+         }
+      } else {
+         switch (op.getDecoderRequirements()) {
+            case KEY_CUSTOM:
+               state(HotRodDecoderState.DECODE_KEY_CUSTOM, in);
+               readCustomKey(in, out);
+               shouldContinue = false;
+               break;
+            case KEY:
+               out.add(decodeCtx);
+               resetRequested = true;
+               shouldContinue = false;
+               break;
+            default:
+               shouldContinue = true;
+         }
+      }
+      return shouldContinue;
    }
 
    private void readCustomKey(ByteBuf in, List<Object> out) {
@@ -262,11 +296,51 @@ public class NewHotRodDecoder extends ReplayingDecoder<HotRodDecoderState> {
       }
    }
 
-   boolean decodeParameters(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
+   boolean decodeParameters(ByteBuf in, List<Object> out) {
+      Option<RequestParameters> params = decodeCtx.decoder().readParameters(decodeCtx.header(), in);
+      if (params.isDefined()) {
+         decodeCtx.params_$eq(params.get());
+         if (decodeCtx.header().op().getDecoderRequirements() == DecoderRequirements.PARAMETERS) {
+            out.add(decodeCtx);
+            resetRequested = true;
+            return false;
+         }
+         return true;
+      } else {
+         return false;
+      }
+   }
+
+   boolean decodeValue(ByteBuf in, List<Object> out) {
+      NewHotRodOperation op = decodeCtx.header().op();
+      if (op.requireValue()) {
+         int valueLength = decodeCtx.params().valueLength();
+         if (in.readableBytes() < valueLength) {
+            return false;
+         }
+         byte[] bytes = new byte[valueLength];
+         in.readBytes(bytes);
+         decodeCtx.rawValue_$eq(bytes);
+      }
+      switch (op.getDecoderRequirements()) {
+         case VALUE_CUSTOM:
+            state(HotRodDecoderState.DECODE_VALUE_CUSTOM, in);
+            readCustomValue(in, out);
+            return false;
+         case VALUE:
+            out.add(decodeCtx);
+            resetRequested = true;
+            return false;
+      }
+
       return true;
    }
 
-   boolean decodeValue(ChannelHandlerContext ctx, ByteBuf in, List<Object> out) {
-      return true;
+   private void readCustomValue(ByteBuf in, List<Object> out) {
+      decodeCtx.decoder().customReadValue(decodeCtx.header(), in, decodeCtx, out);
+      // If out was written to, it means we read everything, else we have to reread again
+      if (!out.isEmpty()) {
+         resetRequested = true;
+      }
    }
 }
