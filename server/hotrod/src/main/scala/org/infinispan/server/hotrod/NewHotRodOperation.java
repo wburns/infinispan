@@ -27,7 +27,6 @@ public enum NewHotRodOperation {
    PingRequest(false, false, DecoderRequirements.HEADER, false),
    StatsRequest(false, false, DecoderRequirements.HEADER, true),
    ClearRequest(false, false, DecoderRequirements.HEADER, true),
-   QuitRequest(false, false, DecoderRequirements.HEADER, true),
    SizeRequest(false, false, DecoderRequirements.HEADER, true),
    AuthMechListRequest(false, false, DecoderRequirements.HEADER, false),
 

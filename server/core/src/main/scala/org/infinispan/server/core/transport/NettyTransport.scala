@@ -30,7 +30,8 @@ import io.netty.buffer.PooledByteBufAllocator
  * @since 4.1
  */
 class NettyTransport(server: ProtocolServer, handler: ChannelInitializer[Channel],
-                     address: InetSocketAddress, val configuration: ProtocolServerConfiguration, threadNamePrefix: String, cacheManager: EmbeddedCacheManager)
+                     address: InetSocketAddress, val configuration: ProtocolServerConfiguration,
+                     threadNamePrefix: String, cacheManager: EmbeddedCacheManager)
         extends Transport with Log {
 
    private val serverChannels = new DefaultChannelGroup(threadNamePrefix + "-Channels", ImmediateEventExecutor.INSTANCE)

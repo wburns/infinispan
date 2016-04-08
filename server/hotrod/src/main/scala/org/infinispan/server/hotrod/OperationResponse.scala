@@ -52,31 +52,8 @@ object OperationResponse extends Enumeration {
    val IterationEndResponse = Value(0x36)
 
    def toResponse(request: NewHotRodOperation): OperationResponse = {
-      request match {
-         case NewHotRodOperation.PutRequest => PutResponse
-         case NewHotRodOperation.GetRequest => GetResponse
-         case NewHotRodOperation.PutIfAbsentRequest => PutIfAbsentResponse
-         case NewHotRodOperation.ReplaceRequest => ReplaceResponse
-         case NewHotRodOperation.ReplaceIfUnmodifiedRequest => ReplaceIfUnmodifiedResponse
-         case NewHotRodOperation.RemoveRequest => RemoveResponse
-         case NewHotRodOperation.RemoveIfUnmodifiedRequest => RemoveIfUnmodifiedResponse
-         case NewHotRodOperation.ContainsKeyRequest => ContainsKeyResponse
-         case NewHotRodOperation.GetWithVersionRequest => GetWithVersionResponse
-         case NewHotRodOperation.ClearRequest => ClearResponse
-         case NewHotRodOperation.StatsRequest => StatsResponse
-         case NewHotRodOperation.PingRequest => PingResponse
-         case NewHotRodOperation.BulkGetRequest => BulkGetResponse
-         case NewHotRodOperation.GetWithMetadataRequest => GetWithMetadataResponse
-         case NewHotRodOperation.BulkGetKeysRequest => BulkGetKeysResponse
-         case NewHotRodOperation.QueryRequest => QueryResponse
-         case NewHotRodOperation.AuthMechListRequest => AuthMechListResponse
-         case NewHotRodOperation.AuthRequest => AuthResponse
-         case NewHotRodOperation.AddClientListenerRequest => AddClientListenerResponse
-         case NewHotRodOperation.RemoveClientListenerRequest => RemoveClientListenerResponse
-         case NewHotRodOperation.ExecRequest => ExecResponse
-         case NewHotRodOperation.PutAllRequest => PutAllResponse
-         case NewHotRodOperation.GetAllRequest => GetAllResponse
-      }
+      // Go to java so switch case will be optimized properly
+      OperationResponseJava.operationToResponse(request).asInstanceOf[OperationResponse]
    }
 
 }

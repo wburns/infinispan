@@ -182,7 +182,32 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
       metadata.build()
    }
 
-   def get(keyBytes: Bytes): Response = createGetResponse(cache.getCacheEntry(keyBytes))
+   def get: Response = createGetResponse(cache.getCacheEntry(key))
+
+   def getKeyMetadata: GetWithMetadataResponse = {
+      val ce = cache.getCacheEntry(key)
+      if (ce != null) {
+         val ice = ce.asInstanceOf[InternalCacheEntry]
+         val entryVersion = ice.getMetadata.version().asInstanceOf[NumericVersion]
+         val v = ce.getValue
+         val lifespan = if (ice.getLifespan < 0) -1 else (ice.getLifespan / 1000).toInt
+         val maxIdle = if (ice.getMaxIdle < 0) -1 else (ice.getMaxIdle / 1000).toInt
+         new GetWithMetadataResponse(header.version, header.messageId, header.cacheName,
+            header.clientIntel, OperationResponse.GetWithMetadataResponse, Success, header.topologyId,
+            Some(v), entryVersion.getVersion, ice.getCreated, lifespan, ice.getLastUsed, maxIdle)
+      } else {
+         new GetWithMetadataResponse(header.version, header.messageId, header.cacheName,
+            header.clientIntel, OperationResponse.GetWithMetadataResponse, KeyDoesNotExist, header.topologyId,
+            None, 0, -1, -1, -1, -1)
+      }
+   }
+
+   def containsKey: Response = {
+      if (cache.containsKey(key))
+         successResp(null)
+      else
+         notExistResp
+   }
 
    def replaceIfUnmodified: Response = {
       val entry = cache.withFlags(Flag.SKIP_LISTENER_NOTIFICATION).getCacheEntry(key)
@@ -242,6 +267,31 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
          successResp(prev)
       else
          notExistResp
+   }
+
+   def removeIfUnmodified: Response = {
+      val entry = cache.getCacheEntry(key)
+      if (entry != null) {
+         // Hacky, but CacheEntry has not been generified
+         val prev = entry.getValue
+         val streamVersion = new NumericVersion(params.streamVersion)
+         if (entry.getMetadata.version() == streamVersion) {
+            val removed = cache.remove(key, prev)
+            if (removed)
+               successResp(prev)
+            else
+               notExecutedResp(prev)
+         } else {
+            notExecutedResp(prev)
+         }
+      } else {
+         notExistResp
+      }
+   }
+
+   def clear: Response = {
+      cache.clear()
+      successResp(null)
    }
 
    def successResp(prev: Bytes): Response = decoder.createSuccessResponse(header, prev)

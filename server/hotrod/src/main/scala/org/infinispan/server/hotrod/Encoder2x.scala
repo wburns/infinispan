@@ -258,7 +258,7 @@ object Encoder2x extends AbstractVersionedEncoder with Constants with Log {
    override def writeResponse(r: Response, buf: ByteBuf, cacheManager: EmbeddedCacheManager, server: HotRodServer): Unit = {
       r match {
          case r: ResponseWithPrevious =>
-            if (r.previous == None)
+            if (r.previous.isEmpty)
                writeUnsignedInt(0, buf)
             else
                writeRangedBytes(r.previous.get, buf)
@@ -320,13 +320,12 @@ object Encoder2x extends AbstractVersionedEncoder with Constants with Log {
             if (g.status == Success) writeRangedBytes(g.data.get, buf)
          case q: QueryResponse =>
             writeRangedBytes(q.result, buf)
-         case a: AuthMechListResponse => {
+         case a: AuthMechListResponse =>
             writeUnsignedInt(a.mechs.size, buf)
             for(mech <- a.mechs) {
                writeString(mech, buf)
             }
-         }
-         case a: AuthResponse => {
+         case a: AuthResponse =>
             if (a.challenge != null) {
                buf.writeBoolean(false)
                writeRangedBytes(a.challenge, buf)
@@ -334,7 +333,6 @@ object Encoder2x extends AbstractVersionedEncoder with Constants with Log {
                buf.writeBoolean(true)
                writeUnsignedInt(0, buf)
             }
-         }
          case s: SizeResponse => writeUnsignedLong(s.size, buf)
          case e: ExecResponse =>
             writeRangedBytes(e.result, buf)

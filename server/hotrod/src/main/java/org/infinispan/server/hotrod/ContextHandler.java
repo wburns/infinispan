@@ -7,6 +7,8 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
 import io.netty.util.CharsetUtil;
 import org.infinispan.commons.logging.LogFactory;
+import org.infinispan.server.core.transport.NettyTransport;
+import org.infinispan.server.hotrod.configuration.HotRodServerConfiguration;
 import org.infinispan.server.hotrod.logging.JavaLog;
 
 /**
@@ -18,41 +20,69 @@ import org.infinispan.server.hotrod.logging.JavaLog;
 public class ContextHandler extends SimpleChannelInboundHandler<CacheDecodeContext> {
    private final static JavaLog log = LogFactory.getLog(ContextHandler.class, JavaLog.class);
 
+   private final HotRodServer server;
+   private final NettyTransport transport;
+
+   public ContextHandler(HotRodServer server, NettyTransport transport) {
+      this.server = server;
+      this.transport = transport;
+   }
+
+   private HotRodServerConfiguration config() {
+      return (HotRodServerConfiguration) server.configuration();
+   }
+
    @Override
    protected void channelRead0(ChannelHandlerContext ctx, CacheDecodeContext msg) throws Exception {
-      switch (msg.header().op()) {
+      HotRodHeader h = msg.header();
+      switch (h.op()) {
          case PutRequest:
             writeResponse(msg, ctx.channel(), msg.put());
             break;
          case PutIfAbsentRequest:
+            writeResponse(msg, ctx.channel(), msg.putIfAbsent());
             break;
          case ReplaceRequest:
+            writeResponse(msg, ctx.channel(), msg.replace());
             break;
          case ReplaceIfUnmodifiedRequest:
+            writeResponse(msg, ctx.channel(), msg.replaceIfUnmodified());
             break;
          case ContainsKeyRequest:
+            writeResponse(msg, ctx.channel(), msg.containsKey());
             break;
          case GetRequest:
+            writeResponse(msg, ctx.channel(), msg.get());
             break;
          case GetWithVersionRequest:
+            writeResponse(msg, ctx.channel(), msg.get());
             break;
          case GetWithMetadataRequest:
+            writeResponse(msg, ctx.channel(), msg.getKeyMetadata());
             break;
          case RemoveRequest:
+            writeResponse(msg, ctx.channel(), msg.remove());
             break;
          case RemoveIfUnmodifiedRequest:
+            writeResponse(msg, ctx.channel(), msg.removeIfUnmodified());
             break;
          case PingRequest:
+            writeResponse(msg, ctx.channel(), new Response(h.version(), h.messageId(), h.cacheName(),
+                    h.clientIntel(), OperationResponse.PingResponse(), OperationStatus.Success(), h.topologyId()));
             break;
          case StatsRequest:
+            writeResponse(msg, ctx.channel(), msg.decoder().createStatsResponse(msg, transport));
             break;
          case ClearRequest:
-            break;
-         case QuitRequest:
+            writeResponse(msg, ctx.channel(), msg.clear());
             break;
          case SizeRequest:
+            writeResponse(msg, ctx.channel(), new SizeResponse(h.version(), h.messageId(), h.cacheName(),
+                    h.clientIntel(), h.topologyId(), msg.cache().size()));
             break;
          case AuthMechListRequest:
+            writeResponse(msg, ctx.channel(), new AuthMechListResponse(h.version(), h.messageId(), h.cacheName(),
+                    h.clientIntel(), config().authentication().allowedMechs(), h.topologyId()));
             break;
          case AuthRequest:
             break;
