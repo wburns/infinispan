@@ -103,9 +103,6 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
          buffer.markReaderIndex()
       }
 
-      header.version = version
-      header.messageId = messageId
-
       part2.isDefined
    }
 
@@ -343,12 +340,14 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
             for {
                segments <- readMaybeOptRangedBytes(buffer)
                factory <- if (Constants.isVersionPre24(h.version)) {
-                              readMaybeString(buffer).map(name => Some(name, List[Bytes]()))
+                              readMaybeOptString(buffer).map(optName => {
+                                 optName.map(name => if (name.length > 0 ) Some(name, List[Bytes]()) else Some(None))
+                              })
                            } else {
                               readMaybeNamedFactory(buffer)
                            }
                batchSize <- readMaybeVInt(buffer)
-               metadata <- if (Constants.isVersionPre24(h.version)) Some(false) else readMaybeByte(buffer).map(m => Some(m != 0))
+               metadata <- if (Constants.isVersionPre24(h.version)) Some(false) else readMaybeByte(buffer).map(m => m != 0)
             } yield {
                hrCtx.operationDecodeContext = (segments, factory, batchSize, metadata)
                buffer.markReaderIndex()
@@ -365,13 +364,11 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
    }
 
    private def readMaybeNamedFactory(buffer: ByteBuf): Option[NamedFactory] = {
-      readMaybeString(buffer).map(name => {
-         if (!name.isEmpty) {
-            readOptionalParams(buffer).map(p => {
-               Some(Some((name, p)))
-            }).getOrElse(None)
-         } else Some(None)
-      }).getOrElse(None)
+      readMaybeOptString(buffer).map(optName => {
+         optName.flatMap(name => {
+            if (name.isEmpty) None else readOptionalParams(buffer).map(p => (name, p))
+         })
+      })
    }
 
    private def readOptionalParams(buffer: ByteBuf): Option[List[Bytes]] = {

@@ -6,7 +6,7 @@ import java.util.Arrays
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 
-import io.netty.channel.ChannelFuture
+import io.netty.channel.{Channel, ChannelInitializer, ChannelFuture}
 import org.infinispan.commons.api.BasicCacheContainer
 import org.infinispan.commons.equivalence.ByteArrayEquivalence
 import org.infinispan.commons.util.Util
@@ -17,10 +17,12 @@ import org.infinispan.notifications.Listener
 import org.infinispan.notifications.cachelistener.annotation.CacheEntryRemoved
 import org.infinispan.notifications.cachelistener.event.{CacheEntryRemovedEvent, Event}
 import org.infinispan.remoting.transport.Address
+import org.infinispan.server.core.transport.TimeoutEnabledChannelInitializer
 import org.infinispan.server.hotrod.OperationStatus._
 import org.infinispan.server.hotrod._
 import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder
 import org.infinispan.server.hotrod.logging.Log
+import org.infinispan.server.hotrod.transport.{SingleByteFrameDecoderChannelInitializer, HotRodChannelInitializer}
 import org.infinispan.statetransfer.StateTransferManager
 import org.infinispan.test.TestingUtil
 import org.testng.Assert.{assertNull, assertTrue, _}
@@ -90,6 +92,17 @@ object HotRodTestingUtil extends Log {
             val cfg = super.createTopologyCacheConfig(distSyncTimeout)
             cfg.transaction().syncCommitPhase(false).syncRollbackPhase(false)
             cfg
+         }
+
+         override def getInitializer: ChannelInitializer[Channel] = {
+            // Pass by name since we have circular dependency
+            def getTransport() = {
+               transport
+            }
+            if (configuration.idleTimeout > 0)
+               new HotRodChannelInitializer(this, getTransport(), getEncoder) with TimeoutEnabledChannelInitializer /*with SingleByteFrameDecoderChannelInitializer*/
+            else // Idle timeout logic is disabled with -1 or 0 values
+               new HotRodChannelInitializer(this, getTransport(), getEncoder) /*with SingleByteFrameDecoderChannelInitializer*/
          }
       }
       builder.host(host).port(port)

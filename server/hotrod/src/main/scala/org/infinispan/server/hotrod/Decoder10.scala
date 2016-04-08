@@ -83,9 +83,6 @@ object Decoder10 extends AbstractVersionedDecoder with ServerConstants with Log 
          buffer.markReaderIndex()
       }
 
-      header.version = version
-      header.messageId = messageId
-
       part2.isDefined
    }
 

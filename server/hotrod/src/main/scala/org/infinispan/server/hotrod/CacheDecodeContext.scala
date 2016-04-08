@@ -47,6 +47,7 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
    var operationDecodeContext: Any = _
 
    def resetParams(): Unit = {
+      decoder = null
       header = null
       params = null
       key = null

@@ -74,7 +74,7 @@ object ExtendedByteBuf {
    }
 
    def readMaybeLong(bf: ByteBuf): Option[Long] = {
-      if (bf.readableBytes() < 8) None else Some(bf.readLong())
+      if (bf.readableBytes() < 8) { bf.resetReaderIndex(); None } else Some(bf.readLong())
    }
 
    /**
@@ -168,8 +168,12 @@ object ExtendedByteBuf {
      }
   }
 
+  def readMaybeSignedInt(bf: ByteBuf): Option[Int] = {
+    readMaybeVInt(bf).map(i => SignedNumeric.decode(i))
+  }
+
    def readMaybeOptRangedBytes(bf: ByteBuf): Option[Option[Array[Byte]]] = {
-      val l = readMaybeVInt(bf)
+      val l = readMaybeSignedInt(bf)
       if (l.isDefined) {
          val length = l.get
          if (length < 0) Some(None) else readMaybeRangedBytes(bf, length).map(b => Some(b))
@@ -185,6 +189,15 @@ object ExtendedByteBuf {
       val bytes = readMaybeRangedBytes(bf)
       bytes.map(b => if (b.isEmpty) "" else new String(b, CharsetUtil.UTF_8))
    }
+
+  def readMaybeOptString(bf: ByteBuf): Option[Option[String]] = {
+    val l = readMaybeSignedInt(bf)
+    if (l.isDefined) {
+      val length = l.get
+      if (length < 0) Some(None) else readMaybeRangedBytes(bf, length).map(b =>
+        Some(if (b.isEmpty) "" else new String(b, CharsetUtil.UTF_8)))
+    } else None
+  }
 
    def writeUnsignedShort(i: Int, bf: ByteBuf) = bf.writeShort(i)
    def writeUnsignedInt(i: Int, bf: ByteBuf) = VInt.write(bf, i)

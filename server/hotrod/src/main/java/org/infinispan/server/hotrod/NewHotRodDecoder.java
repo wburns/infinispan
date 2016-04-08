@@ -207,35 +207,39 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
     * @throws Exception
     */
    boolean readHeader(ByteBuf buffer) throws Exception {
-      if (buffer.readableBytes() < 1) {
-         return false;
-      }
-      short magic = buffer.readUnsignedByte();
-      if (magic != Constants$.MODULE$.MAGIC_REQ()) {
-         if (decodeCtx.getError() == null) {
-            Exception excp = new InvalidMagicIdException("Error reading magic byte or message id: " + magic);
-            decodeCtx.setError(excp);
-            throw excp;
-         } else {
-            log.tracef("Error happened previously, ignoring %d byte until we find the magic number again", magic);
+      AbstractVersionedDecoder decoder = decodeCtx.decoder();
+      HotRodHeader header = decodeCtx.header();
+      if (decoder == null) {
+         if (buffer.readableBytes() < 1) {
             return false;
          }
-      } else {
-         decodeCtx.setError(null);
-      }
+         short magic = buffer.readUnsignedByte();
+         if (magic != Constants$.MODULE$.MAGIC_REQ()) {
+            if (decodeCtx.getError() == null) {
+               Exception excp = new InvalidMagicIdException("Error reading magic byte or message id: " + magic);
+               decodeCtx.setError(excp);
+               throw excp;
+            } else {
+               log.tracef("Error happened previously, ignoring %d byte until we find the magic number again", magic);
+               return false;
+            }
+         } else {
+            decodeCtx.setError(null);
+         }
 
-      OptionalLong optLong = UnsignedNumeric.readOptionalUnsignedLong(buffer);
-      if (!optLong.isPresent()) {
-         return false;
-      }
-      long messageId = optLong.getAsLong();
-      if (buffer.readableBytes() < 1) {
-         return false;
-      }
-      byte version = (byte) buffer.readUnsignedByte();
+         OptionalLong optLong = UnsignedNumeric.readOptionalUnsignedLong(buffer);
+         if (!optLong.isPresent()) {
+            return false;
+         }
+         long messageId = optLong.getAsLong();
+         header.messageId_$eq(messageId);
+         if (buffer.readableBytes() < 1) {
+            buffer.resetReaderIndex();
+            return false;
+         }
+         byte version = (byte) buffer.readUnsignedByte();
+         header.version_$eq(version);
 
-      try {
-         AbstractVersionedDecoder decoder;
          if (Constants$.MODULE$.isVersion2x(version)) {
             decoder = Decoder2x$.MODULE$;
          } else if (Constants$.MODULE$.isVersion1x(version)) {
@@ -243,12 +247,16 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
          } else {
             throw new UnknownVersionException("Unknown version:" + version, version, messageId);
          }
-         HotRodHeader header = decodeCtx.getHeader();
-         if (!decoder.readHeader(buffer, version, messageId, header, requireAuthentication
+         decodeCtx.setDecoder(decoder);
+         // This way we won't have to reread the decoder related material
+         buffer.markReaderIndex();
+      }
+
+      try {
+         if (!decoder.readHeader(buffer, header.version(), header.messageId(), header, requireAuthentication
                  && subject == NewServerConstants.ANONYMOUS)) {
             return false;
          }
-         decodeCtx.setDecoder(decoder);
          if (decodeCtx.isTrace()) {
             log.tracef("Decoded header %s", header);
          }
@@ -258,7 +266,7 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
          throw e;
       } catch (Exception e) {
          decodeCtx.setError(e);
-         throw new RequestParsingException("Unable to parse header", version, messageId, e);
+         throw new RequestParsingException("Unable to parse header", header.version(), header.messageId(), e);
       }
    }
 

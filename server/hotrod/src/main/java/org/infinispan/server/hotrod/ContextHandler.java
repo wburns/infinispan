@@ -229,6 +229,7 @@ public class ContextHandler extends SimpleChannelInboundHandler<CacheDecodeConte
             } else {
                optionBitSet = None$.empty();
             }
+            Option<Tuple2<String, scala.collection.immutable.List<byte[]>>> factoryName = iterationStart._2();
             String iterationId = server.iterationManager().start(msg.cache().getName(), optionBitSet,
                     iterationStart._2(), iterationStart._3(), iterationStart._4());
             writeResponse(msg, ctx.channel(), new IterationStartResponse(h.version(), h.messageId(), h.cacheName(),
@@ -243,7 +244,6 @@ public class ContextHandler extends SimpleChannelInboundHandler<CacheDecodeConte
          case IterationEndRequest:
             iterationId = (String) msg.operationDecodeContext();
             boolean removed = server.iterationManager().close(msg.cache().getName(), iterationId);
-               writeResponse(msg, ctx.channel(), msg.decoder().createSuccessResponse(h, null));
             writeResponse(msg, ctx.channel(), new Response(h.version(), h.messageId(), h.cacheName(), h.clientIntel(),
                     OperationResponse.IterationEndResponse(),
                     removed ? OperationStatus.Success() : OperationStatus.InvalidIteration(), h.topologyId()));
