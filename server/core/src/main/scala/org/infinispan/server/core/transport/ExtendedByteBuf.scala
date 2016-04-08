@@ -156,6 +156,22 @@ object ExtendedByteBuf {
       }
    }
 
+  def readMaybeRangedBytes(bf: ByteBuf, length: Int): Option[Array[Byte]] = {
+     if (bf.readableBytes() < length) None else {
+       val bytes = new Array[Byte](length)
+       bf.readBytes(bytes)
+       Some(bytes)
+     }
+  }
+
+   def readMaybeOptRangedBytes(bf: ByteBuf): Option[Option[Array[Byte]]] = {
+      val l = readMaybeVInt(bf)
+      if (l.isDefined) {
+         val length = l.get
+         if (length < 0) Some(None) else readMaybeRangedBytes(bf, length).map(b => Some(b))
+      } else None
+   }
+
    /**
     * Reads a string if possible.  If not present the reader index is reset to the last mark.
     * @param bf

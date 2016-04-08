@@ -2,7 +2,7 @@ package org.infinispan.server.hotrod
 
 import java.io.IOException
 import java.security.PrivilegedActionException
-import java.util.{HashMap, HashSet, Map}
+import java.util.{HashMap, HashSet, Map, BitSet => JavaBitSet}
 
 import io.netty.buffer.ByteBuf
 import org.infinispan.IllegalLifecycleStateException
@@ -341,7 +341,7 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
             })
          case NewHotRodOperation.IterationStartRequest =>
             for {
-               segments <- readMaybeRangedBytes(buffer)
+               segments <- readMaybeOptRangedBytes(buffer)
                factory <- if (Constants.isVersionPre24(h.version)) {
                               readMaybeString(buffer).map(name => Some(name, List[Bytes]()))
                            } else {
@@ -609,7 +609,7 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
 
 class ExecRequestContext(val name: String, val paramSize: Int, val params: Map[String, Bytes]) { }
 
-class ClientListenerRequestContext(val bytes: Bytes, val includeCurrentState: Boolean) {
+class ClientListenerRequestContext(val listenerId: Bytes, val includeCurrentState: Boolean) {
    var filterFactoryInfo: NamedFactory = _
    var converterFactoryInfo: NamedFactory = _
    var useRawData: Boolean = _
