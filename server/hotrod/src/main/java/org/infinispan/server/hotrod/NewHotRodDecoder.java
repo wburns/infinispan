@@ -106,22 +106,22 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
                // processing
                case DECODE_HEADER:
                   if (!decodeHeader(in, out)) {
-                     return null;
+                     break;
                   }
                   state(HotRodDecoderState.DECODE_KEY, in);
                case DECODE_KEY:
                   if (!decodeKey(in, out)) {
-                     return null;
+                     break;
                   }
                   state(HotRodDecoderState.DECODE_PARAMETERS, in);
                case DECODE_PARAMETERS:
                   if (!decodeParameters(in, out)) {
-                     return null;
+                     break;
                   }
                   state(HotRodDecoderState.DECODE_VALUE, in);
                case DECODE_VALUE:
                   if (!decodeValue(in, out)) {
-                     return null;
+                     break;
                   }
                   state(HotRodDecoderState.DECODE_HEADER, in);
                   break;
@@ -136,6 +136,16 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
                case DECODE_VALUE_CUSTOM:
                   readCustomValue(in, out);
                   break;
+            }
+            int remainingBytes;
+            if (!out.isEmpty() && (remainingBytes = in.readableBytes()) > 0) {
+               // Clear out the request and wind bytes up to last so next caller isn't corrupted
+               out.clear();
+               in.readerIndex(in.writerIndex());
+               HotRodHeader header = decodeCtx.header();
+               throw new RequestParsingException("There are too many bytes for op " + header.op() +
+                       " for version " + header.version() + " - had " + remainingBytes + " left over",
+                       header.version(), header.messageId());
             }
             return null;
          };
@@ -203,11 +213,15 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
       short magic = buffer.readUnsignedByte();
       if (magic != Constants$.MODULE$.MAGIC_REQ()) {
          if (decodeCtx.getError() == null) {
-            throw new InvalidMagicIdException("Error reading magic byte or message id: " + magic);
+            Exception excp = new InvalidMagicIdException("Error reading magic byte or message id: " + magic);
+            decodeCtx.setError(excp);
+            throw excp;
          } else {
             log.tracef("Error happened previously, ignoring %d byte until we find the magic number again", magic);
             return false;
          }
+      } else {
+         decodeCtx.setError(null);
       }
 
       OptionalLong optLong = UnsignedNumeric.readOptionalUnsignedLong(buffer);
@@ -258,34 +272,28 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
 
    boolean decodeKey(ByteBuf in, List<Object> out) {
       NewHotRodOperation op = decodeCtx.getHeader().op();
-      boolean shouldContinue;
       // If we want a single key read that - else we do try for custom read
       if (op.requiresKey()) {
          Option<byte[]> bytes = ExtendedByteBuf.readMaybeRangedBytes(in);
          // If the bytes don't exist then we need to reread
          if (bytes.isDefined()) {
             decodeCtx.key_$eq(bytes.get());
-            shouldContinue = true;
          } else {
-            shouldContinue = false;
-         }
-      } else {
-         switch (op.getDecoderRequirements()) {
-            case KEY_CUSTOM:
-               state(HotRodDecoderState.DECODE_KEY_CUSTOM, in);
-               readCustomKey(in, out);
-               shouldContinue = false;
-               break;
-            case KEY:
-               out.add(decodeCtx);
-               resetRequested = true;
-               shouldContinue = false;
-               break;
-            default:
-               shouldContinue = true;
+            return false;
          }
       }
-      return shouldContinue;
+      switch (op.getDecoderRequirements()) {
+         case KEY_CUSTOM:
+            state(HotRodDecoderState.DECODE_KEY_CUSTOM, in);
+            readCustomKey(in, out);
+            return false;
+         case KEY:
+            out.add(decodeCtx);
+            resetRequested = true;
+            return false;
+         default:
+            return true;
+      }
    }
 
    private void readCustomKey(ByteBuf in, List<Object> out) {
@@ -342,5 +350,12 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
       if (!out.isEmpty()) {
          resetRequested = true;
       }
+   }
+
+   @Override
+   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+      super.exceptionCaught(ctx, cause);
+      decodeCtx.exceptionCaught(ctx, cause);
+      resetRequested = true;
    }
 }

@@ -21,7 +21,7 @@ abstract class NettyChannelInitializer(server: ProtocolServer, transport: => Net
                                        encoder: ChannelOutboundHandler) extends ChannelInitializer[Channel] {
    override def initChannel(ch: Channel): Unit = {
       val pipeline = ch.pipeline
-      pipeline.addLast("netty-logging", new LoggingHandler(LogLevel.ERROR))
+//      pipeline.addLast("netty-logging", new LoggingHandler(LogLevel.ERROR))
       pipeline.addLast("stats", new StatsChannelHandler(transport))
       val ssl = server.getConfiguration.ssl
       if (ssl.enabled())

@@ -42,14 +42,6 @@ public class HotRodLoggingHandler extends ChannelInboundHandlerAdapter {
       NewHotRodOperation op = cacheDecodeContext.header().op();
       // Cache name
       String cacheName = cacheDecodeContext.header().cacheName();
-      // Status
-      Throwable t = cacheDecodeContext.error();
-      String status;
-      if (t != null) {
-         status = t.getClass().getSimpleName();
-      } else {
-         status = "OK";
-      }
       // Length
       Integer bytesWritten = ctx.channel().attr(StatsChannelHandler.bytesRead).get();
       // Duration
@@ -60,7 +52,13 @@ public class HotRodLoggingHandler extends ChannelInboundHandlerAdapter {
          ms = -1L;
       }
 
-      log.fatalf("%s [%s] \"%s %s\" %s %s %s ms", remoteAddress, ldt, op, cacheName, status, bytesWritten, ms);
+      log.fatalf("%s [%s] \"%s %s\" OK %s %s ms", remoteAddress, ldt, op, cacheName, bytesWritten, ms);
       super.channelRead(ctx, msg);
+   }
+
+   @Override
+   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+      super.exceptionCaught(ctx, cause);
+      // TODO: need to log exception here
    }
 }

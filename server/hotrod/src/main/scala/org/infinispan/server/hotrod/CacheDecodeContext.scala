@@ -53,7 +53,6 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
       rawValue = null
       putAllMap = null
       getAllSet = null
-      error = null
       operationDecodeContext = null
    }
 
@@ -105,7 +104,7 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
       }
    }
 
-    def exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable)(postCall: => Unit) {
+    def exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable): Unit = {
       val ch = ctx.channel
       // Log it just in case the channel is closed or similar
       debug(cause, "Exception caught")
@@ -120,8 +119,6 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
             }
          }
       }
-      // After writing back an error, reset params and revert to initial state
-       postCall
    }
 
    def replace: Response = {
@@ -146,9 +143,11 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
          // Talking to the wrong cache are really request parsing errors
          // and hence should be treated as client errors
          if (cacheName.startsWith(HotRodServerConfiguration.TOPOLOGY_CACHE_NAME_PREFIX)) {
-            throw new RequestParsingException(
+            val excp = new RequestParsingException(
                "Remote requests are not allowed to topology cache. Do no send remote requests to cache '%s'".format(cacheName),
                header.version, header.messageId)
+            error = excp
+            throw excp
          }
 
          if (!cacheName.isEmpty && !(cacheManager.getCacheNames contains cacheName)) {

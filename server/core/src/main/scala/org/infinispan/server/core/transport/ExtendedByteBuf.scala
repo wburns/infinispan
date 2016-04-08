@@ -73,6 +73,10 @@ object ExtendedByteBuf {
       }
    }
 
+   def readMaybeLong(bf: ByteBuf): Option[Long] = {
+      if (bf.readableBytes() < 8) None else Some(bf.readLong())
+   }
+
    /**
     * Reads a variable long if possible.  If not present the reader index is reset to the last mark.
     * @param bf

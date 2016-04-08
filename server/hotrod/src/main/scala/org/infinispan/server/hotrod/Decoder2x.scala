@@ -109,30 +109,26 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
       part2.isDefined
    }
 
-   // TODO: this needs to use Option
    override def readParameters(header: HotRodHeader, buffer: ByteBuf): Option[RequestParameters] = {
       header.op match {
          case NewHotRodOperation.RemoveRequest => Some(null)
          case NewHotRodOperation.RemoveIfUnmodifiedRequest =>
-            Some(new RequestParameters(-1, new ExpirationParam(-1, TimeUnitValue.SECONDS), new ExpirationParam(-1, TimeUnitValue.SECONDS), buffer.readLong))
+            readMaybeLong(buffer).map(v =>
+               new RequestParameters(-1, new ExpirationParam(-1, TimeUnitValue.SECONDS), new ExpirationParam(-1, TimeUnitValue.SECONDS), v))
          case NewHotRodOperation.ReplaceIfUnmodifiedRequest =>
-            val expirationParams = readLifespanMaxIdle(buffer, hasFlag(header, ProtocolFlag.DefaultLifespan), hasFlag(header, ProtocolFlag.DefaultMaxIdle), header.version)
-            val version = buffer.readLong
-            val valueLength = readUnsignedInt(buffer)
-            Some(new RequestParameters(valueLength, expirationParams._1, expirationParams._2, version))
-         case NewHotRodOperation.PutAllRequest =>
-            // Since we have custom code handling for valueLength to allocate an array
-            // always we have to pass back false and set the checkpoint manually...
-            val expirationParams = readLifespanMaxIdle(buffer, hasFlag(header, ProtocolFlag.DefaultLifespan), hasFlag(header, ProtocolFlag.DefaultMaxIdle), header.version)
-            val valueLength = readUnsignedInt(buffer)
-            Some(new RequestParameters(valueLength, expirationParams._1, expirationParams._2, -1))
+            for {
+               expirationParams <- readLifespanMaxIdle(buffer, hasFlag(header, ProtocolFlag.DefaultLifespan), hasFlag(header, ProtocolFlag.DefaultMaxIdle), header.version)
+               version <- readMaybeLong(buffer)
+               valueLength <- readMaybeVInt(buffer)
+            } yield new RequestParameters(valueLength, expirationParams._1, expirationParams._2, version)
          case NewHotRodOperation.GetAllRequest =>
-            val count = readUnsignedInt(buffer)
-            Some(new RequestParameters(count, new ExpirationParam(-1, TimeUnitValue.SECONDS), new ExpirationParam(-1, TimeUnitValue.SECONDS), -1))
+            readMaybeVInt(buffer).map(i =>
+               new RequestParameters(i, new ExpirationParam(-1, TimeUnitValue.SECONDS), new ExpirationParam(-1, TimeUnitValue.SECONDS), -1))
          case _ =>
-            val expirationParams = readLifespanMaxIdle(buffer, hasFlag(header, ProtocolFlag.DefaultLifespan), hasFlag(header, ProtocolFlag.DefaultMaxIdle), header.version)
-            val valueLength = readUnsignedInt(buffer)
-            Some(new RequestParameters(valueLength, expirationParams._1, expirationParams._2, -1))
+            for {
+               expirationParams <- readLifespanMaxIdle(buffer, hasFlag(header, ProtocolFlag.DefaultLifespan), hasFlag(header, ProtocolFlag.DefaultMaxIdle), header.version)
+               valueLength <- readMaybeVInt(buffer)
+            } yield new RequestParameters(valueLength, expirationParams._1, expirationParams._2, -1)
       }
    }
 
@@ -140,30 +136,34 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
       (h.flag & f.id) == f.id
    }
 
-   // TODO: need to make this use Option
-   private def readLifespanMaxIdle(buffer: ByteBuf, usingDefaultLifespan: Boolean, usingDefaultMaxIdle: Boolean, version: Byte): (ExpirationParam, ExpirationParam) = {
-      def readDuration(useDefault: Boolean) = {
-         val duration = readUnsignedInt(buffer)
-         if (duration <= 0) {
-            if (useDefault) EXPIRATION_DEFAULT else EXPIRATION_NONE
-         } else duration
+   private def readLifespanMaxIdle(buffer: ByteBuf, usingDefaultLifespan: Boolean, usingDefaultMaxIdle: Boolean, version: Byte): Option[(ExpirationParam, ExpirationParam)] = {
+      def readDuration(useDefault: Boolean): Option[Int] = {
+         readMaybeVInt(buffer).map(duration => {
+            if (duration <= 0) {
+               if (useDefault) EXPIRATION_DEFAULT else EXPIRATION_NONE
+            } else duration
+         })
       }
-      def readDurationIfNeeded(timeUnitValue: TimeUnitValue) = {
-         if (timeUnitValue.isDefault) EXPIRATION_DEFAULT.toLong
+      def readDurationIfNeeded(timeUnitValue: TimeUnitValue): Option[Long] = {
+         if (timeUnitValue.isDefault) Some(EXPIRATION_DEFAULT)
          else {
-            if (timeUnitValue.isInfinite) EXPIRATION_NONE.toLong else readUnsignedLong(buffer)
+            if (timeUnitValue.isInfinite) Some(EXPIRATION_NONE) else readMaybeVLong(buffer)
          }
       }
       version match {
          case ver if Constants.isVersionPre22(ver) =>
-            val lifespan = readDuration(usingDefaultLifespan)
-            val maxIdle = readDuration(usingDefaultMaxIdle)
-            (new ExpirationParam(lifespan, TimeUnitValue.SECONDS), new ExpirationParam(maxIdle, TimeUnitValue.SECONDS))
+            for {
+               lifespan <- readDuration(usingDefaultLifespan)
+               maxIdle <- readDuration(usingDefaultMaxIdle)
+            } yield (new ExpirationParam(lifespan, TimeUnitValue.SECONDS), new ExpirationParam(maxIdle, TimeUnitValue.SECONDS))
          case _ => // from 2.2 onwards
-            val timeUnits = TimeUnitValue.decodePair(buffer.readByte())
-            val lifespanDuration = readDurationIfNeeded(timeUnits._1)
-            val maxIdleDuration = readDurationIfNeeded(timeUnits._2)
-            (new ExpirationParam(lifespanDuration, timeUnits._1), new ExpirationParam(maxIdleDuration, timeUnits._2))
+            readMaybeByte(buffer).map(t => {
+               val timeUnits = TimeUnitValue.decodePair(t)
+               for {
+                  lifespanDuration <- readDurationIfNeeded(timeUnits._1)
+                  maxIdleDuration <- readDurationIfNeeded(timeUnits._2)
+               } yield (new ExpirationParam(lifespanDuration, timeUnits._1), new ExpirationParam(maxIdleDuration, timeUnits._2))
+            }).getOrElse(None)
       }
    }
 

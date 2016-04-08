@@ -93,14 +93,14 @@ object Decoder10 extends AbstractVersionedDecoder with ServerConstants with Log 
       header.op match {
          case NewHotRodOperation.RemoveRequest => Some(null)
          case NewHotRodOperation.RemoveIfUnmodifiedRequest =>
-            readMaybeVLong(buffer).map(l => {
+            readMaybeLong(buffer).map(l => {
                new RequestParameters(-1, new ExpirationParam(-1, TimeUnitValue.SECONDS), new ExpirationParam(-1, TimeUnitValue.SECONDS), l)
             })
          case NewHotRodOperation.ReplaceIfUnmodifiedRequest =>
             for {
                lifespan <- readLifespanOrMaxIdle(buffer, hasFlag(header, ProtocolFlag.DefaultLifespan))
                maxIdle <- readLifespanOrMaxIdle(buffer, hasFlag(header, ProtocolFlag.DefaultMaxIdle))
-               version <- readMaybeVLong(buffer)
+               version <- readMaybeLong(buffer)
                valueLength <- readMaybeVInt(buffer)
             } yield {
                new RequestParameters(valueLength, new ExpirationParam(lifespan, TimeUnitValue.SECONDS), new ExpirationParam(maxIdle, TimeUnitValue.SECONDS), version)
