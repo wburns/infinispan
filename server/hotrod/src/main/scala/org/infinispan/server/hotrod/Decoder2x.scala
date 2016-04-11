@@ -341,10 +341,13 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
                segments <- readMaybeOptRangedBytes(buffer)
                factory <- if (Constants.isVersionPre24(h.version)) {
                               readMaybeOptString(buffer).map(optName => {
-                                 optName.map(name => if (name.length > 0 ) Some(name, List[Bytes]()) else Some(None))
+                                 optName.map(name => (name, List.empty)).getOrElse(None)
                               })
                            } else {
-                              readMaybeNamedFactory(buffer)
+                              // Need to use flatMap to let readOptionalParams None propagate
+                              readMaybeOptString(buffer).flatMap(maybeOptName => {
+                                 maybeOptName.flatMap(name => readOptionalParams(buffer).map(p => Some(name, p))).getOrElse(Some(None))
+                              })
                            }
                batchSize <- readMaybeVInt(buffer)
                metadata <- if (Constants.isVersionPre24(h.version)) Some(false) else readMaybeByte(buffer).map(m => m != 0)
@@ -364,10 +367,10 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
    }
 
    private def readMaybeNamedFactory(buffer: ByteBuf): Option[NamedFactory] = {
-      readMaybeOptString(buffer).map(optName => {
-         optName.flatMap(name => {
-            if (name.isEmpty) None else readOptionalParams(buffer).map(p => (name, p))
-         })
+      readMaybeString(buffer).flatMap(name => {
+         if (!name.isEmpty) {
+            readOptionalParams(buffer).map(param => Some(name, param))
+         } else Some(None)
       })
    }
 
