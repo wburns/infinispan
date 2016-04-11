@@ -1,64 +1,37 @@
 package org.infinispan.server.hotrod;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.SimpleChannelInboundHandler;
-import io.netty.handler.ssl.SslHandler;
-import io.netty.util.CharsetUtil;
 import org.infinispan.commons.logging.LogFactory;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
-import org.infinispan.marshall.core.JBossMarshaller;
-import org.infinispan.server.core.Operation;
-import org.infinispan.server.core.security.AuthorizingCallbackHandler;
-import org.infinispan.server.core.security.InetAddressPrincipal;
-import org.infinispan.server.core.security.ServerAuthenticationProvider;
-import org.infinispan.server.core.security.simple.SimpleUserPrincipal;
 import org.infinispan.server.core.transport.NettyTransport;
-import org.infinispan.server.core.transport.SaslQopHandler;
-import org.infinispan.server.hotrod.configuration.AuthenticationConfiguration;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfiguration;
 import org.infinispan.server.hotrod.iteration.IterableIterationResult;
 import org.infinispan.server.hotrod.logging.JavaLog;
 import org.infinispan.tasks.TaskContext;
 import org.infinispan.tasks.TaskManager;
-import scala.None;
 import scala.None$;
 import scala.Option;
 import scala.Tuple2;
 import scala.Tuple4;
 
-import javax.net.ssl.SSLPeerUnverifiedException;
-import javax.security.auth.Subject;
-import javax.security.sasl.Sasl;
-import javax.security.sasl.SaslServer;
-import javax.security.sasl.SaslServerFactory;
-import java.net.InetSocketAddress;
-import java.security.Principal;
-import java.security.PrivilegedAction;
-import java.security.PrivilegedExceptionAction;
-import java.util.ArrayList;
 import java.util.BitSet;
-import java.util.List;
 import java.util.Map;
+
+import static org.infinispan.server.hotrod.ResponseWriting.writeResponse;
 
 /**
  * // TODO: Document this
  *
  * @author wburns
- * @since 4.0
+ * @since 9.0
  */
 public class ContextHandler extends SimpleChannelInboundHandler<CacheDecodeContext> {
    private final static JavaLog log = LogFactory.getLog(ContextHandler.class, JavaLog.class);
 
    private final HotRodServer server;
    private final NettyTransport transport;
-
-   private SaslServer saslServer;
-   private AuthorizingCallbackHandler callbackHandler;
-   private Subject subject;
 
    public ContextHandler(HotRodServer server, NettyTransport transport) {
       this.server = server;
@@ -117,61 +90,8 @@ public class ContextHandler extends SimpleChannelInboundHandler<CacheDecodeConte
             writeResponse(msg, ctx.channel(), new SizeResponse(h.version(), h.messageId(), h.cacheName(),
                     h.clientIntel(), h.topologyId(), msg.cache().size()));
             break;
-         case AuthMechListRequest:
-            writeResponse(msg, ctx.channel(), new AuthMechListResponse(h.version(), h.messageId(), h.cacheName(),
-                    h.clientIntel(), config().authentication().allowedMechs(), h.topologyId()));
-            break;
-         case AuthRequest:
-            if (!config().authentication().enabled()) {
-               msg.getDecoder().createErrorResponse(h, log.invalidOperation());
-            } else {
-               // Retrieve the authorization context
-               Tuple2<String, byte[]> opContext = (Tuple2<String, byte[]>) msg.operationDecodeContext();
-               if (saslServer == null) {
-                  AuthenticationConfiguration authConf = config().authentication();
-
-                  ServerAuthenticationProvider sap = authConf.serverAuthenticationProvider();
-                  String mech = opContext._1();
-                  callbackHandler = sap.getCallbackHandler(mech, authConf.mechProperties());
-                  SaslServerFactory ssf = server.getSaslServerFactory(opContext._1());
-                  if (authConf.serverSubject() != null) {
-                     Subject.doAs(authConf.serverSubject(), (PrivilegedExceptionAction<SaslServer>) () ->
-                                ssf.createSaslServer(mech, "hotrod", authConf.serverName(),
-                                        authConf.mechProperties(), callbackHandler));
-                  } else {
-                     saslServer = ssf.createSaslServer(mech, "hotrod", authConf.serverName(),
-                             authConf.mechProperties(), callbackHandler);
-                  }
-               }
-               byte[] serverChallenge = saslServer.evaluateResponse(opContext._2());
-               writeResponse(msg, ctx.channel(), new AuthResponse(h.version(), h.messageId(), h.cacheName(),
-                       h.clientIntel(), serverChallenge, h.topologyId()));
-               if (saslServer.isComplete()) {
-                  List<Principal> extraPrincipals = new ArrayList<>();
-                  String id = normalizeAuthorizationId(saslServer.getAuthorizationID());
-                  extraPrincipals.add(new SimpleUserPrincipal(id));
-                  extraPrincipals.add(new InetAddressPrincipal(((InetSocketAddress) ctx.channel().remoteAddress()).getAddress()));
-                  SslHandler sslHandler = (SslHandler) ctx.pipeline().get("ssl");
-                  try {
-                     if (sslHandler != null) extraPrincipals.add(sslHandler.engine().getSession().getPeerPrincipal());
-                  } catch (SSLPeerUnverifiedException e) {
-                     // Ignore any SSLPeerUnverifiedExceptions
-                  }
-                  subject = callbackHandler.getSubjectUserInfo(extraPrincipals).getSubject();
-                  String qop = (String) saslServer.getNegotiatedProperty(Sasl.QOP);
-                  if (qop != null && (qop.equalsIgnoreCase("auth-int") || qop.equalsIgnoreCase("auth-conf"))) {
-                     SaslQopHandler qopHandler = new SaslQopHandler(saslServer);
-                     ctx.pipeline().addBefore("decoder", "saslQop", qopHandler);
-                  } else {
-                     saslServer.dispose();
-                     callbackHandler = null;
-                     saslServer = null;
-                  }
-               }
-            }
-            break;
          case ExecRequest:
-            ExecRequestContext execContext = (ExecRequestContext)msg.operationDecodeContext();
+            ExecRequestContext execContext = (ExecRequestContext) msg.operationDecodeContext();
             TaskManager taskManager = SecurityActions.getCacheGlobalComponentRegistry(msg.cache()).getComponent(TaskManager.class);
             Marshaller marshaller;
             if (server.getMarshaller() != null) {
@@ -258,35 +178,22 @@ public class ContextHandler extends SimpleChannelInboundHandler<CacheDecodeConte
                     h.clientIntel(), h.topologyId(), map));
             break;
          default:
-            throw new IllegalArgumentException("Missing case " + msg.header().op());
+            throw new IllegalArgumentException("Unsupported operation invoked: " + msg.header().op());
       }
    }
 
-   String normalizeAuthorizationId(String id) {
-      int realm = id.indexOf('@');
-      if (realm >= 0) return id.substring(0, realm); else return id;
+   @Override
+   public void channelActive(ChannelHandlerContext ctx) throws Exception {
+      super.channelActive(ctx);
+      log.tracef("Channel %s became active", ctx.channel());
+      server.getClientListenerRegistry().findAndWriteEvents(ctx.channel());
    }
 
-   private void writeResponse(CacheDecodeContext ctx, Channel ch, Object response) {
-      if (response != null) {
-         if (ctx.isTrace()) {
-            log.tracef("Write response %s", response);
-         }
-         if (response instanceof Response) {
-            ch.writeAndFlush(response);
-         } else if (response instanceof ByteBuf[]) {
-            for (ByteBuf buf : (ByteBuf[]) response) {
-               ch.write(buf);
-            }
-            ch.flush();
-         } else if (response instanceof byte[]) {
-            ch.writeAndFlush(Unpooled.wrappedBuffer((byte[]) response));
-         } else if (response instanceof CharSequence) {
-            ch.writeAndFlush(Unpooled.copiedBuffer((CharSequence) response, CharsetUtil.UTF_8));
-         } else {
-            ch.writeAndFlush(response);
-         }
-      }
+   @Override
+   public void channelWritabilityChanged(ChannelHandlerContext ctx) throws Exception {
+      super.channelWritabilityChanged(ctx);
+      log.tracef("Channel %s writability changed", ctx.channel());
+      server.getClientListenerRegistry().findAndWriteEvents(ctx.channel());
    }
 
    @Override

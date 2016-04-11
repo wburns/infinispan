@@ -57,37 +57,17 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
       operationDecodeContext = null
    }
 
-   def createErrorResponse(t: Throwable): AnyRef = {
-      t match {
-         case d: DecoderException => d.getCause match {
-            case h: HotRodException => h.response
-            case _ => createErrorResponseBeforeReadingRequest(t)
-         }
-         case h: HotRodException => h.response
-         case c: ClosedChannelException => null
-         case _ => createErrorResponseBeforeReadingRequest(t)
-      }
-   }
-
-   private def createErrorResponseBeforeReadingRequest(t: Throwable): ErrorResponse = {
-      logErrorBeforeReadingRequest(t)
-      new ErrorResponse(0, 0, "", 1, ServerError, 0, t.toString)
-   }
-
-    def createServerException(e: Exception, b: ByteBuf): (HotRodException, Boolean) = {
+    def createExceptionResponse(e: Throwable): (ErrorResponse) = {
       e match {
          case i: InvalidMagicIdException =>
             logExceptionReported(i)
-            (new HotRodException(new ErrorResponse(
-               0, 0, "", 1, InvalidMagicOrMsgId, 0, i.toString), e), true)
+            new ErrorResponse(0, 0, "", 1, InvalidMagicOrMsgId, 0, i.toString)
          case e: HotRodUnknownOperationException =>
             logExceptionReported(e)
-            (new HotRodException(new ErrorResponse(
-               e.version, e.messageId, "", 1, UnknownOperation, 0, e.toString), e), true)
+            new ErrorResponse(e.version, e.messageId, "", 1, UnknownOperation, 0, e.toString)
          case u: UnknownVersionException =>
             logExceptionReported(u)
-            (new HotRodException(new ErrorResponse(
-               u.version, u.messageId, "", 1, UnknownVersion, 0, u.toString), e), true)
+            new ErrorResponse(u.version, u.messageId, "", 1, UnknownVersion, 0, u.toString)
          case r: RequestParsingException =>
             logExceptionReported(r)
             val msg =
@@ -95,30 +75,15 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
                   r.toString
                else
                   "%s: %s".format(r.getMessage, r.getCause.toString)
-            (new HotRodException(new ErrorResponse(
-               r.version, r.messageId, "", 1, ParseError, 0, msg), e), true)
+            new ErrorResponse(r.version, r.messageId, "", 1, ParseError, 0, msg)
          case i: IllegalStateException =>
             // Some internal server code could throw this, so make sure it's logged
             logExceptionReported(i)
-            (new HotRodException(decoder.createErrorResponse(header, i), e), false)
-         case t: Throwable => (new HotRodException(decoder.createErrorResponse(header, t), e), false)
-      }
-   }
-
-    def exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable): Unit = {
-      val ch = ctx.channel
-      // Log it just in case the channel is closed or similar
-      debug(cause, "Exception caught")
-      if (!cause.isInstanceOf[IOException]) {
-         val errorResponse = createErrorResponse(cause)
-         if (errorResponse != null) {
-            errorResponse match {
-               case a: Bytes => ch.writeAndFlush(wrappedBuffer(a))
-               case cs: CharSequence => ch.writeAndFlush(Unpooled.copiedBuffer(cs, CharsetUtil.UTF_8))
-               case null => // ignore
-               case _ => ch.writeAndFlush(errorResponse)
-            }
-         }
+            decoder.createErrorResponse(header, i)
+         case t: Throwable if decoder != null => decoder.createErrorResponse(header, t)
+         case t: Throwable =>
+            logErrorBeforeReadingRequest(t)
+            new ErrorResponse(0, 0, "", 1, ServerError, 1, t.toString)
       }
    }
 
@@ -144,19 +109,15 @@ class CacheDecodeContext(server: HotRodServer) extends ServerConstants with Log 
          // Talking to the wrong cache are really request parsing errors
          // and hence should be treated as client errors
          if (cacheName.startsWith(HotRodServerConfiguration.TOPOLOGY_CACHE_NAME_PREFIX)) {
-            val excp = new RequestParsingException(
+            throw new RequestParsingException(
                "Remote requests are not allowed to topology cache. Do no send remote requests to cache '%s'".format(cacheName),
                header.version, header.messageId)
-            error = excp
-            throw excp
          }
 
          if (!cacheName.isEmpty && !(cacheManager.getCacheNames contains cacheName)) {
-            val excp = new CacheNotFoundException(
+            throw new CacheNotFoundException(
                "Cache with name '%s' not found amongst the configured caches".format(cacheName),
                header.version, header.messageId);
-            error = excp // Mark it as error so that the rest of request is ignored
-            throw excp
          }
          cache = server.getCacheInstance(cacheName, cacheManager, skipCacheCheck = true)
       }

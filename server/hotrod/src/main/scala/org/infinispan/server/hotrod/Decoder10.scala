@@ -29,9 +29,7 @@ object Decoder10 extends AbstractVersionedDecoder with ServerConstants with Log 
    type SuitableHeader = HotRodHeader
    private val isTrace = isTraceEnabled
 
-   override def readHeader(buffer: ByteBuf, version: Byte, messageId: Long, header: HotRodHeader, requireAuth: Boolean): Boolean = {
-      if (requireAuth)
-         throw new SecurityException("HotRod 1.x does not support authentication")
+   override def readHeader(buffer: ByteBuf, version: Byte, messageId: Long, header: HotRodHeader): Boolean = {
       if (header.op == null) {
          val part1 = for {
             streamOp <- readMaybeByte(buffer)

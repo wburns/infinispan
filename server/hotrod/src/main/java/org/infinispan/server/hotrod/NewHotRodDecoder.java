@@ -5,31 +5,23 @@ import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.codec.ByteToMessageDecoder;
 import org.infinispan.commons.logging.LogFactory;
 import org.infinispan.manager.EmbeddedCacheManager;
-import org.infinispan.security.Security;
-import org.infinispan.server.core.NewServerConstants;
 import org.infinispan.server.core.UnsignedNumeric;
 import org.infinispan.server.core.logging.JavaLog;
 import org.infinispan.server.core.transport.ExtendedByteBuf;
 import org.infinispan.server.core.transport.NettyTransport;
-import org.infinispan.server.hotrod.configuration.AuthenticationConfiguration;
-import org.infinispan.server.hotrod.configuration.HotRodServerConfiguration;
 import scala.Option;
 import scala.Tuple2;
 
-import javax.security.auth.Subject;
-import javax.security.sasl.Sasl;
 import java.security.PrivilegedActionException;
-import java.security.PrivilegedExceptionAction;
 import java.util.List;
 import java.util.OptionalLong;
-import java.util.concurrent.Callable;
 import java.util.function.Predicate;
 
 /**
  * // TODO: Document this
  *
  * @author wburns
- * @since 4.0
+ * @since 9.0
  */
 public class NewHotRodDecoder extends ByteToMessageDecoder {
    private final static JavaLog log = LogFactory.getLog(NewHotRodDecoder.class, JavaLog.class);
@@ -38,13 +30,7 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
    private final NettyTransport transport;
    private final Predicate<? super String> ignoreCache;
 
-   private final AuthenticationConfiguration authenticationConfig;
-   private final boolean secure;
-   private final boolean requireAuthentication;
-
-   private final CacheDecodeContext decodeCtx;
-
-   private Subject subject = NewServerConstants.ANONYMOUS;
+   final CacheDecodeContext decodeCtx;
 
    private HotRodDecoderState state = HotRodDecoderState.DECODE_HEADER;
 
@@ -55,11 +41,6 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
       this.cacheManager = cacheManager;
       this.transport = transport;
       this.ignoreCache = ignoreCache;
-
-      authenticationConfig = ((HotRodServerConfiguration) server.getConfiguration()).authentication();
-      secure = authenticationConfig.enabled();
-      requireAuthentication = secure && authenticationConfig.mechProperties().containsKey(Sasl.POLICY_NOANONYMOUS)
-              && authenticationConfig.mechProperties().get(Sasl.POLICY_NOANONYMOUS).equals("true");
 
       this.decodeCtx = new CacheDecodeContext(server);
    }
@@ -100,72 +81,57 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
          // Mark the index to the beginning, just in case
          in.markReaderIndex();
 
-         Callable<Void> callable = () -> {
-            switch (state) {
-               // These are all fall through cases which means they call to the one below if they needed additional
-               // processing
-               case DECODE_HEADER:
-                  if (!decodeHeader(in, out)) {
-                     break;
-                  }
-                  state(HotRodDecoderState.DECODE_KEY, in);
-               case DECODE_KEY:
-                  if (!decodeKey(in, out)) {
-                     break;
-                  }
-                  state(HotRodDecoderState.DECODE_PARAMETERS, in);
-               case DECODE_PARAMETERS:
-                  if (!decodeParameters(in, out)) {
-                     break;
-                  }
-                  state(HotRodDecoderState.DECODE_VALUE, in);
-               case DECODE_VALUE:
-                  if (!decodeValue(in, out)) {
-                     break;
-                  }
-                  state(HotRodDecoderState.DECODE_HEADER, in);
+         switch (state) {
+            // These are all fall through cases which means they call to the one below if they needed additional
+            // processing
+            case DECODE_HEADER:
+               if (!decodeHeader(in, out)) {
                   break;
+               }
+               state(HotRodDecoderState.DECODE_KEY, in);
+            case DECODE_KEY:
+               if (!decodeKey(in, out)) {
+                  break;
+               }
+               state(HotRodDecoderState.DECODE_PARAMETERS, in);
+            case DECODE_PARAMETERS:
+               if (!decodeParameters(in, out)) {
+                  break;
+               }
+               state(HotRodDecoderState.DECODE_VALUE, in);
+            case DECODE_VALUE:
+               if (!decodeValue(in, out)) {
+                  break;
+               }
+               state(HotRodDecoderState.DECODE_HEADER, in);
+               break;
 
-               // These are terminal cases, meaning they only perform this operation and break
-               case DECODE_HEADER_CUSTOM:
-                  readCustomHeader(in, out);
-                  break;
-               case DECODE_KEY_CUSTOM:
-                  readCustomKey(in, out);
-                  break;
-               case DECODE_VALUE_CUSTOM:
-                  readCustomValue(in, out);
-                  break;
-            }
-            int remainingBytes;
-            if (!out.isEmpty() && (remainingBytes = in.readableBytes()) > 0) {
-               // Clear out the request and wind bytes up to last so next caller isn't corrupted
-               out.clear();
-               in.readerIndex(in.writerIndex());
-               HotRodHeader header = decodeCtx.header();
-               throw new RequestParsingException("There are too many bytes for op " + header.op() +
-                       " for version " + header.version() + " - had " + remainingBytes + " left over",
-                       header.version(), header.messageId());
-            }
-            return null;
-         };
-         if (secure) {
-            Security.doAs(subject, (PrivilegedExceptionAction<Object>) callable::call);
-         } else {
-            callable.call();
+            // These are terminal cases, meaning they only perform this operation and break
+            case DECODE_HEADER_CUSTOM:
+               readCustomHeader(in, out);
+               break;
+            case DECODE_KEY_CUSTOM:
+               readCustomKey(in, out);
+               break;
+            case DECODE_VALUE_CUSTOM:
+               readCustomValue(in, out);
+               break;
          }
-
-      } catch (PrivilegedActionException | SecurityException e) {
-         Tuple2<HotRodException, Object> tuple = decodeCtx.createServerException(e, in);
-         ctx.pipeline().fireExceptionCaught(tuple._1()).close();
-      } catch (Exception e) {
-         Tuple2<HotRodException, Object> tuple = decodeCtx.createServerException(e, in);
-         HotRodException serverException = tuple._1();
-         if (tuple._2() == Boolean.TRUE) {
-            ctx.pipeline().fireExceptionCaught(serverException);
-         } else {
-            throw serverException;
+         int remainingBytes;
+         if (!out.isEmpty() && (remainingBytes = in.readableBytes()) > 0) {
+            // Clear out the request and wind bytes up to last so next caller isn't corrupted
+            out.clear();
+            in.readerIndex(in.writerIndex());
+            HotRodHeader header = decodeCtx.header();
+            throw new RequestParsingException("There are too many bytes for op " + header.op() +
+                    " for version " + header.version() + " - had " + remainingBytes + " left over",
+                    header.version(), header.messageId());
          }
+      } catch (Throwable t) {
+         decodeCtx.setError(t);
+         resetRequested = true;
+         // Faster than throwing exception
+         ctx.pipeline().fireExceptionCaught(new HotRodException(decodeCtx.createExceptionResponse(t), t));
       }
    }
 
@@ -178,9 +144,7 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
       HotRodHeader header = decodeCtx.getHeader();
       // Check if this cache can be accessed or not
       if (ignoreCache.test(header.cacheName())) {
-         CacheUnavailableException excp = new CacheUnavailableException();
-         decodeCtx.setError(excp);
-         throw excp;
+         throw new CacheUnavailableException();
       }
       decodeCtx.obtainCache(cacheManager);
       NewHotRodOperation op = header.op();
@@ -216,9 +180,7 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
          short magic = buffer.readUnsignedByte();
          if (magic != Constants$.MODULE$.MAGIC_REQ()) {
             if (decodeCtx.getError() == null) {
-               Exception excp = new InvalidMagicIdException("Error reading magic byte or message id: " + magic);
-               decodeCtx.setError(excp);
-               throw excp;
+               throw new InvalidMagicIdException("Error reading magic byte or message id: " + magic);
             } else {
                log.tracef("Error happened previously, ignoring %d byte until we find the magic number again", magic);
                return false;
@@ -253,8 +215,7 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
       }
 
       try {
-         if (!decoder.readHeader(buffer, header.version(), header.messageId(), header, requireAuthentication
-                 && subject == NewServerConstants.ANONYMOUS)) {
+         if (!decoder.readHeader(buffer, header.version(), header.messageId(), header)) {
             return false;
          }
          if (decodeCtx.isTrace()) {
@@ -262,10 +223,8 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
          }
          return true;
       } catch (HotRodUnknownOperationException | SecurityException e) {
-         decodeCtx.setError(e);
          throw e;
       } catch (Exception e) {
-         decodeCtx.setError(e);
          throw new RequestParsingException("Unable to parse header", header.version(), header.messageId(), e);
       }
    }
@@ -358,12 +317,5 @@ public class NewHotRodDecoder extends ByteToMessageDecoder {
       if (!out.isEmpty()) {
          resetRequested = true;
       }
-   }
-
-   @Override
-   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
-      super.exceptionCaught(ctx, cause);
-      decodeCtx.exceptionCaught(ctx, cause);
-      resetRequested = true;
    }
 }

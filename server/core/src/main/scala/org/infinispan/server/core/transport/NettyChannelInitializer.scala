@@ -5,6 +5,7 @@ import javax.net.ssl.SSLEngine
 import io.netty.channel.{Channel, ChannelInitializer, ChannelOutboundHandler}
 import io.netty.handler.logging.{LogLevel, LoggingHandler}
 import io.netty.handler.ssl.SslHandler
+import io.netty.util.concurrent.EventExecutorGroup
 import org.infinispan.commons.util.SslContextFactory
 import org.infinispan.server.core.ProtocolServer
 import org.infinispan.server.core.configuration.SslConfiguration
@@ -18,7 +19,8 @@ import org.infinispan.server.core.configuration.SslConfiguration
  * @since 4.1
  */
 abstract class NettyChannelInitializer(server: ProtocolServer, transport: => NettyTransport,
-                                       encoder: ChannelOutboundHandler) extends ChannelInitializer[Channel] {
+                                       encoder: ChannelOutboundHandler)
+      extends ChannelInitializer[Channel] {
    override def initChannel(ch: Channel): Unit = {
       val pipeline = ch.pipeline
 //      pipeline.addLast("netty-logging", new LoggingHandler(LogLevel.ERROR))

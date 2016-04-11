@@ -2,26 +2,6 @@ package org.infinispan.server.hotrod
 
 import java.io.{IOException, StreamCorruptedException}
 import java.lang.StringBuilder
-import java.security.PrivilegedExceptionAction
-import javax.security.auth.Subject
-import javax.security.sasl.SaslServer
-import io.netty.buffer.{ByteBuf, Unpooled}
-import io.netty.channel._
-import io.netty.handler.codec.ReplayingDecoder
-import io.netty.util.CharsetUtil
-import org.infinispan.manager.EmbeddedCacheManager
-import org.infinispan.security.Security
-import HotRodDecoderState._
-import org.infinispan.server.core.Operation._
-import org.infinispan.server.core._
-import org.infinispan.server.core.logging.Log
-import org.infinispan.server.core.security.AuthorizingCallbackHandler
-import org.infinispan.server.core.transport.ExtendedByteBuf._
-import org.infinispan.server.core.transport._
-import javax.security.sasl.Sasl
-import java.security.PrivilegedActionException
-
-import scala.annotation.switch
 
 class UnknownVersionException(reason: String, val version: Byte, val messageId: Long)
 extends StreamCorruptedException(reason)

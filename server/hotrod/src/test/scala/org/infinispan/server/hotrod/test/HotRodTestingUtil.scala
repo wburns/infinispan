@@ -7,6 +7,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
 
 import io.netty.channel.{Channel, ChannelInitializer, ChannelFuture}
+import io.netty.util.concurrent.{DefaultThreadFactory, DefaultEventExecutorGroup}
 import org.infinispan.commons.api.BasicCacheContainer
 import org.infinispan.commons.equivalence.ByteArrayEquivalence
 import org.infinispan.commons.util.Util
@@ -100,9 +101,11 @@ object HotRodTestingUtil extends Log {
                transport
             }
             if (configuration.idleTimeout > 0)
-               new HotRodChannelInitializer(this, getTransport(), getEncoder) with TimeoutEnabledChannelInitializer /*with SingleByteFrameDecoderChannelInitializer*/
+               new HotRodChannelInitializer(this, getTransport(), getEncoder, "test")
+                 with TimeoutEnabledChannelInitializer with SingleByteFrameDecoderChannelInitializer
             else // Idle timeout logic is disabled with -1 or 0 values
-               new HotRodChannelInitializer(this, getTransport(), getEncoder) /*with SingleByteFrameDecoderChannelInitializer*/
+               new HotRodChannelInitializer(this, getTransport(), getEncoder, "test")
+                 with SingleByteFrameDecoderChannelInitializer
          }
       }
       builder.host(host).port(port)

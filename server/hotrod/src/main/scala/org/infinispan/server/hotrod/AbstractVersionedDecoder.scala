@@ -24,7 +24,7 @@ abstract class AbstractVersionedDecoder {
     * whether the entire header was read or not.
     */
    @throws(classOf[Exception])
-   def readHeader(buffer: ByteBuf, version: Byte, messageId: Long, header: HotRodHeader, requireAuth: Boolean): Boolean
+   def readHeader(buffer: ByteBuf, version: Byte, messageId: Long, header: HotRodHeader): Boolean
 
    /**
     * Read the parameters of the operation, if present.

@@ -3,6 +3,7 @@ package org.infinispan.server.hotrod
 import java.util.function.Predicate
 
 import io.netty.channel.{Channel, ChannelInitializer}
+import io.netty.util.concurrent.{DefaultThreadFactory, DefaultEventExecutorGroup}
 import logging.Log
 import org.infinispan
 import org.infinispan.AdvancedCache
@@ -126,9 +127,10 @@ class HotRodServer extends AbstractProtocolServer("HotRod") with Log {
          transport
       }
       if (configuration.idleTimeout > 0)
-         new HotRodChannelInitializer(this, getTransport(), getEncoder) with TimeoutEnabledChannelInitializer
+         new HotRodChannelInitializer(this, getTransport(), getEncoder, getQualifiedName)
+           with TimeoutEnabledChannelInitializer
       else // Idle timeout logic is disabled with -1 or 0 values
-         new HotRodChannelInitializer(this, getTransport(), getEncoder)
+         new HotRodChannelInitializer(this, getTransport(), getEncoder, getQualifiedName)
    }
 
    private def loadFilterConverterFactories[T](c: Class[T])(action: (String, T) => Any) = ServiceFinder.load(c).foreach { factory =>

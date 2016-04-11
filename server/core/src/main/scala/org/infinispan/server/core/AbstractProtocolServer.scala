@@ -54,7 +54,7 @@ abstract class AbstractProtocolServer(protocolName: String) extends ProtocolServ
 
    def startTransport() {
       val address = new InetSocketAddress(configuration.host, configuration.port)
-      transport = new NettyTransport(this, getInitializer, address, configuration, getQualifiedName(), cacheManager)
+      transport = new NettyTransport(this, getInitializer, address, configuration, getQualifiedName, cacheManager)
 
       // Register transport MBean regardless
       registerTransportMBean()
@@ -65,7 +65,7 @@ abstract class AbstractProtocolServer(protocolName: String) extends ProtocolServ
    protected def registerTransportMBean() {
       val globalCfg = cacheManager.getCacheManagerConfiguration
       mbeanServer = JmxUtil.lookupMBeanServer(globalCfg)
-      val groupName = "type=Server,name=%s".format(getQualifiedName())
+      val groupName = "type=Server,name=%s".format(getQualifiedName)
       val jmxDomain = JmxUtil.buildJmxDomain(globalCfg, mbeanServer, groupName)
 
       // Pick up metadata from the component metadata repository
@@ -86,7 +86,7 @@ abstract class AbstractProtocolServer(protocolName: String) extends ProtocolServ
       }
    }
 
-   private def getQualifiedName(): String = {
+   protected def getQualifiedName(): String = {
       protocolName + (if (configuration.name.length > 0) "-" else "") + configuration.name
    }
 

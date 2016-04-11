@@ -146,22 +146,27 @@ object ExtendedByteBuf {
     */
    def readMaybeRangedBytes(bf: ByteBuf): Option[Array[Byte]] = {
       val length = readMaybeVInt(bf)
-      if (length.isDefined && bf.readableBytes() >= length.get) {
-         if (length.get > 0) {
-            val array = new Array[Byte](length.get)
-            bf.readBytes(array)
-            Some(array)
+      if (length.isDefined) {
+         if (bf.readableBytes() >= length.get) {
+           if (length.get > 0) {
+             val array = new Array[Byte](length.get)
+             bf.readBytes(array)
+             Some(array)
+           } else {
+             Some(Array[Byte]())
+           }
          } else {
-            Some(Array[Byte]())
+           bf.resetReaderIndex()
+           None
          }
-      } else {
-         bf.resetReaderIndex()
-         None
-      }
+      } else None
    }
 
   def readMaybeRangedBytes(bf: ByteBuf, length: Int): Option[Array[Byte]] = {
-     if (bf.readableBytes() < length) None else {
+     if (bf.readableBytes() < length) {
+       bf.resetReaderIndex()
+       None
+     } else {
        val bytes = new Array[Byte](length)
        bf.readBytes(bytes)
        Some(bytes)

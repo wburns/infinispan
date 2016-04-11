@@ -38,7 +38,7 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
    type SuitableHeader = HotRodHeader
    private val isTrace = isTraceEnabled
 
-   override def readHeader(buffer: ByteBuf, version: Byte, messageId: Long, header: HotRodHeader, requireAuth: Boolean): Boolean = {
+   override def readHeader(buffer: ByteBuf, version: Byte, messageId: Long, header: HotRodHeader): Boolean = {
       if (header.op == null) {
          val part1 = for {
             streamOp <- readMaybeByte(buffer)
@@ -76,9 +76,6 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
                   "Unknown operation: " + streamOp, version, messageId)
             }
             if (isTrace) trace("Operation code: %d has been matched to %s", streamOp, header.op)
-            if (requireAuth && header.op.requiresAuthentication()) {
-               throw log.unauthorizedOperation
-            }
 
             header.cacheName = cacheName
 
@@ -267,7 +264,8 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
                   } else true
                } else false
             }
-            if (addEntry(execCtx.params)) {
+            // Now if we have no params or if we were able to add them all continue with the context
+            if (execCtx.paramSize == 0 || addEntry(execCtx.params)) {
                out.add(hrCtx)
             }
          case _ =>
@@ -346,7 +344,13 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
                            } else {
                               // Need to use flatMap to let readOptionalParams None propagate
                               readMaybeOptString(buffer).flatMap(maybeOptName => {
-                                 maybeOptName.flatMap(name => readOptionalParams(buffer).map(p => Some(name, p))).getOrElse(Some(None))
+                                 if (maybeOptName.isDefined)
+                                    // Need double Some since we are using getOrElse since we want to distinguish the None
+                                    // from the readOptionalParams
+                                    maybeOptName.flatMap(name => readOptionalParams(buffer).map(p => Some(name, p)))
+                                 else
+                                    // Optional string means we don't read params but we want to return Some still
+                                    Some(None)
                               })
                            }
                batchSize <- readMaybeVInt(buffer)
