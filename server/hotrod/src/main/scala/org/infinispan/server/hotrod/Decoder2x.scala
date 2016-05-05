@@ -39,68 +39,7 @@ object Decoder2x extends AbstractVersionedDecoder with ServerConstants with Log 
    private val isTrace = isTraceEnabled
 
    override def readHeader(buffer: ByteBuf, version: Byte, messageId: Long, header: HotRodHeader): Boolean = {
-      if (header.op == null) {
-         val part1 = for {
-            streamOp <- readMaybeByte(buffer)
-            cacheName <- readMaybeString(buffer)
-         } yield {
-            header.op = (streamOp: @switch) match {
-               case 0x01 => HotRodOperation.PutRequest
-               case 0x03 => HotRodOperation.GetRequest
-               case 0x05 => HotRodOperation.PutIfAbsentRequest
-               case 0x07 => HotRodOperation.ReplaceRequest
-               case 0x09 => HotRodOperation.ReplaceIfUnmodifiedRequest
-               case 0x0B => HotRodOperation.RemoveRequest
-               case 0x0D => HotRodOperation.RemoveIfUnmodifiedRequest
-               case 0x0F => HotRodOperation.ContainsKeyRequest
-               case 0x11 => HotRodOperation.GetWithVersionRequest
-               case 0x13 => HotRodOperation.ClearRequest
-               case 0x15 => HotRodOperation.StatsRequest
-               case 0x17 => HotRodOperation.PingRequest
-               case 0x19 => HotRodOperation.BulkGetRequest
-               case 0x1B => HotRodOperation.GetWithMetadataRequest
-               case 0x1D => HotRodOperation.BulkGetKeysRequest
-               case 0x1F => HotRodOperation.QueryRequest
-               case 0x21 => HotRodOperation.AuthMechListRequest
-               case 0x23 => HotRodOperation.AuthRequest
-               case 0x25 => HotRodOperation.AddClientListenerRequest
-               case 0x27 => HotRodOperation.RemoveClientListenerRequest
-               case 0x29 => HotRodOperation.SizeRequest
-               case 0x2B => HotRodOperation.ExecRequest
-               case 0x2D => HotRodOperation.PutAllRequest
-               case 0x2F => HotRodOperation.GetAllRequest
-               case 0x31 => HotRodOperation.IterationStartRequest
-               case 0x33 => HotRodOperation.IterationNextRequest
-               case 0x35 => HotRodOperation.IterationEndRequest
-               case _ => throw new HotRodUnknownOperationException(
-                  "Unknown operation: " + streamOp, version, messageId)
-            }
-            if (isTrace) trace("Operation code: %d has been matched to %s", streamOp, header.op)
-
-            header.cacheName = cacheName
-
-            // Mark that we read up to here
-            buffer.markReaderIndex()
-         }
-         if (part1.isEmpty) {
-            return false
-         }
-      }
-
-      val part2 = for {
-         flag <- readMaybeVInt(buffer)
-         clientIntelligence <- readMaybeByte(buffer)
-         topologyId <- readMaybeVInt(buffer)
-      } yield {
-         header.flag = flag
-         header.clientIntel = clientIntelligence
-         header.topologyId = topologyId
-
-         // Mark that we read up to here
-         buffer.markReaderIndex()
-      }
-
-      part2.isDefined
+      return Decoder2xJava.readHeader(buffer, version, messageId, header);
    }
 
    override def readParameters(header: HotRodHeader, buffer: ByteBuf): Option[RequestParameters] = {

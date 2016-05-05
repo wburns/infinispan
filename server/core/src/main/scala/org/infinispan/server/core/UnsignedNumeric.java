@@ -27,27 +27,27 @@ public class UnsignedNumeric {
    }
 
    /**
-    * Same as {@link #readUnsignedInt(ByteBuf)} except that it returns an <code>OptionalInt</code> that can be used
-    * when the byte buf is not used in blocking mode.  If an empty value is returned the reader index will be reset.
+    * Same as {@link #readUnsignedInt(ByteBuf)} except that it returns an int that can be used
+    * when the byte buf is not used in blocking mode.  If a -1 is returned the reader index will be reset.
     * @param in the byte buf to read from
-    * @return an optional showing whether or not the int could be read
+    * @return anb int value showing whether or not it could be read - if the value is -1 there were not enough bytes
     */
-   public static OptionalInt readOptionalUnsignedInt(ByteBuf in) {
+   public static int readOptionalUnsignedInt(ByteBuf in) {
       if (in.readableBytes() < 1) {
          in.resetReaderIndex();
-         return OptionalInt.empty();
+         return -1;
       }
       byte b = in.readByte();
       int i = b & 0x7F;
       for (int shift = 7; (b & 0x80) != 0; shift += 7) {
          if (in.readableBytes() < 1) {
             in.resetReaderIndex();
-            return OptionalInt.empty();
+            return -1;
          }
          b = in.readByte();
          i |= (b & 0x7FL) << shift;
       }
-      return OptionalInt.of(i);
+      return i;
    }
 
    /**
@@ -65,27 +65,27 @@ public class UnsignedNumeric {
    }
 
    /**
-    * Same as {@link #readUnsignedLong(ByteBuf)} (ByteBuf)} except that it returns an <code>OptionalLong</code> that
-    * can be used when the byte buf is not used in blocking mode.  If an empty value is returned the reader index will
+    * Same as {@link #readUnsignedLong(ByteBuf)} except that it returns a long that
+    * can be used when the byte buf is not used in blocking mode.  If a -1 is returned the reader index will
     * be reset.
     * @param in the byte buf to read from
-    * @return an optional showing whether or not the long could be read
+    * @return a long value showing whether or not it could be read - if the value is -1 there were not enough bytes
     */
-   public static OptionalLong readOptionalUnsignedLong(ByteBuf in) {
+   public static long readOptionalUnsignedLong(ByteBuf in) {
       if (in.readableBytes() < 1) {
          in.resetReaderIndex();
-         return OptionalLong.empty();
+         return -1;
       }
       byte b = in.readByte();
       long i = b & 0x7F;
       for (int shift = 7; (b & 0x80) != 0; shift += 7) {
          if (in.readableBytes() < 1) {
             in.resetReaderIndex();
-            return OptionalLong.empty();
+            return -1;
          }
          b = in.readByte();
          i |= (b & 0x7FL) << shift;
       }
-      return OptionalLong.of(i);
+      return i;
    }
 }

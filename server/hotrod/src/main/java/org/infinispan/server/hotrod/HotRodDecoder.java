@@ -8,6 +8,7 @@ import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.server.core.UnsignedNumeric;
 import org.infinispan.server.core.logging.JavaLog;
 import org.infinispan.server.core.transport.ExtendedByteBuf;
+import org.infinispan.server.core.transport.ExtendedByteBufJava;
 import org.infinispan.server.core.transport.NettyTransport;
 import scala.Option;
 
@@ -181,11 +182,10 @@ public class HotRodDecoder extends ByteToMessageDecoder {
             decodeCtx.setError(null);
          }
 
-         OptionalLong optLong = UnsignedNumeric.readOptionalUnsignedLong(buffer);
-         if (!optLong.isPresent()) {
+         long messageId = UnsignedNumeric.readOptionalUnsignedLong(buffer);
+         if (messageId == -1) {
             return false;
          }
-         long messageId = optLong.getAsLong();
          header.messageId_$eq(messageId);
          if (buffer.readableBytes() < 1) {
             buffer.resetReaderIndex();
@@ -202,7 +202,7 @@ public class HotRodDecoder extends ByteToMessageDecoder {
             throw new UnknownVersionException("Unknown version:" + version, version, messageId);
          }
          decodeCtx.setDecoder(decoder);
-         // This way we won't have to reread the decoder related material
+         // This way we won't have to reread the decoder related material again
          buffer.markReaderIndex();
       }
 
@@ -233,10 +233,10 @@ public class HotRodDecoder extends ByteToMessageDecoder {
       HotRodOperation op = decodeCtx.getHeader().op();
       // If we want a single key read that - else we do try for custom read
       if (op.requiresKey()) {
-         Option<byte[]> bytes = ExtendedByteBuf.readMaybeRangedBytes(in);
+         byte[] bytes = ExtendedByteBufJava.readMaybeRangedBytes(in);
          // If the bytes don't exist then we need to reread
-         if (bytes.isDefined()) {
-            decodeCtx.key_$eq(bytes.get());
+         if (bytes != null) {
+            decodeCtx.key_$eq(bytes);
          } else {
             return false;
          }
