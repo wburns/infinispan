@@ -249,7 +249,7 @@ public class DistributedLongCacheStream extends AbstractCacheStream<Long, LongSt
          performIntermediateRemoteOperation((LongStream s) -> {
             s.forEachOrdered(action);
             return null;
-         });
+         }, true);
       } else {
          forEach(action);
       }
@@ -413,7 +413,9 @@ public class DistributedLongCacheStream extends AbstractCacheStream<Long, LongSt
    @Override
    public OptionalLong findFirst() {
       if (intermediateType.shouldUseIntermediate(sorted, distinct)) {
-         return performIntermediateRemoteOperation((LongStream s) -> s.findFirst());
+         // We add a synthetic limit to reduce remote response size
+         limit(1);
+         return performIntermediateRemoteOperation((LongStream s) -> s.findFirst(), true);
       } else {
          return findAny();
       }
@@ -439,7 +441,7 @@ public class DistributedLongCacheStream extends AbstractCacheStream<Long, LongSt
    @Override
    public PrimitiveIterator.OfLong iterator() {
       if (intermediateType.shouldUseIntermediate(sorted, distinct)) {
-         LongStream stream = performIntermediateRemoteOperation(Function.identity());
+         LongStream stream = performIntermediateRemoteOperation(Function.identity(), true);
          return stream.iterator();
       } else {
          return remoteIterator();

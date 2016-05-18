@@ -13,6 +13,8 @@ import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.partitionhandling.impl.PartitionHandlingManager;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
+import org.infinispan.stream.impl.intops.LimitableOperation;
+import org.infinispan.stream.impl.intops.LimitingOperation;
 import org.infinispan.stream.impl.termop.SegmentRetryingOperation;
 import org.infinispan.stream.impl.termop.SingleRunOperation;
 import org.infinispan.stream.impl.termop.object.FlatMapIteratorOperation;
@@ -35,6 +37,9 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.BaseStream;
 import java.util.stream.Collectors;
+import java.util.stream.DoubleStream;
+import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -47,7 +52,7 @@ import java.util.stream.StreamSupport;
 public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, S2 extends S> implements BaseStream<T, S> {
    protected final Log log = LogFactory.getLog(getClass());
 
-   protected final Queue<IntermediateOperation> intermediateOperations;
+   protected final Deque<IntermediateOperation> intermediateOperations;
    protected Queue<IntermediateOperation> localIntermediateOperations;
    protected final Address localAddress;
    protected final DistributionManager dm;
@@ -242,7 +247,7 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, S2 exte
            Predicate<? super R> earlyTerminatePredicate, boolean ignoreSorting) {
       // These operations are not affected by sorting, only by distinct
       if (intermediateType.shouldUseIntermediate(!ignoreSorting && sorted, distinct)) {
-         return performIntermediateRemoteOperation(function);
+         return performIntermediateRemoteOperation(function, false);
       } else {
          ResultsAccumulator<R> remoteResults = new ResultsAccumulator<>(accumulator);
          if (rehashAware) {
@@ -779,56 +784,149 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, S2 exte
       }
    }
 
-   <R> R performIntermediateRemoteOperation(Function<? super S2, ? extends R> function) {
+   <R> R performIntermediateRemoteOperation(Function<? super S2, ? extends R> function, boolean verifyLimitThreshold) {
       switch (intermediateType) {
          case OBJ:
-            return performObjIntermediateRemoteOperation(function);
+            return performObjIntermediateRemoteOperation(function, verifyLimitThreshold);
          case INT:
-            return performIntegerIntermediateRemoteOperation(function);
+            return performIntegerIntermediateRemoteOperation(function, verifyLimitThreshold);
          case DOUBLE:
-            return performDoubleIntermediateRemoteOperation(function);
+            return performDoubleIntermediateRemoteOperation(function, verifyLimitThreshold);
          case LONG:
-            return performLongIntermediateRemoteOperation(function);
+            return performLongIntermediateRemoteOperation(function, verifyLimitThreshold);
          default:
             throw new IllegalStateException("No intermediate state set");
       }
    }
 
-   <R> R performIntegerIntermediateRemoteOperation(Function<? super S2, ? extends R> function) {
-      // TODO: once we don't have to box for primitive iterators we can remove this copy
-      Queue<IntermediateOperation> copyOperations = new ArrayDeque<>(localIntermediateOperations);
-      PrimitiveIterator.OfInt iterator = new DistributedIntCacheStream(this).remoteIterator();
-      SingleRunOperation<R, T, S, S2> op = new SingleRunOperation<>(copyOperations,
-              () -> StreamSupport.intStream(Spliterators.spliteratorUnknownSize(
-                      iterator, Spliterator.CONCURRENT), parallel), function);
+   <R> R performIntegerIntermediateRemoteOperation(Function<? super S2, ? extends R> function, boolean verifyLimitThreshold) {
+      handleLimitOperation(verifyLimitThreshold);
+      Supplier<IntStream> streamSupplier;
+      if (verifyLimitThreshold) {
+         PrimitiveIterator.OfInt iterator = new DistributedIntCacheStream(this).remoteIterator();
+         streamSupplier = () -> StreamSupport.intStream(Spliterators.spliteratorUnknownSize(
+                 iterator, Spliterator.CONCURRENT), parallel);
+      } else {
+         // Our operation will have to pull all data locally so there is no need to use iterator and it allows
+         // for limit to be any size and not just limited by batch size
+         DistributedIntCacheStream dics = new DistributedIntCacheStream(this);
+         // Make sure we don't do another intermediate operation
+         dics.intermediateType = IntermediateType.NONE;
+         streamSupplier = () -> {
+            IntStream stream = Arrays.stream(dics.toArray());
+            return parallel ? stream.parallel() : stream.sequential();
+         };
+      }
+      SingleRunOperation<R, T, S, S2> op = new SingleRunOperation<>(localIntermediateOperations, streamSupplier,
+              function);
       return op.performOperation();
    }
 
-   <R> R performDoubleIntermediateRemoteOperation(Function<? super S2, ? extends R> function) {
-      // TODO: once we don't have to box for primitive iterators we can remove this copy
-      Queue<IntermediateOperation> copyOperations = new ArrayDeque<>(localIntermediateOperations);
-      PrimitiveIterator.OfDouble iterator = new DistributedDoubleCacheStream(this).remoteIterator();
-      SingleRunOperation<R, T, S, S2> op = new SingleRunOperation<>(copyOperations,
-              () -> StreamSupport.doubleStream(Spliterators.spliteratorUnknownSize(
-                      iterator, Spliterator.CONCURRENT), parallel), function);
+   <R> R performDoubleIntermediateRemoteOperation(Function<? super S2, ? extends R> function, boolean verifyLimitThreshold) {
+      handleLimitOperation(verifyLimitThreshold);
+      Supplier<DoubleStream> streamSupplier;
+      if (verifyLimitThreshold) {
+         PrimitiveIterator.OfDouble iterator = new DistributedDoubleCacheStream(this).remoteIterator();
+         streamSupplier = () -> StreamSupport.doubleStream(Spliterators.spliteratorUnknownSize(
+                 iterator, Spliterator.CONCURRENT), parallel);
+      } else {
+         // Our operation will have to pull all data locally so there is no need to use iterator and it allows
+         // for limit to be any size and not just limited by batch size
+         DistributedDoubleCacheStream dics = new DistributedDoubleCacheStream(this);
+         // Make sure we don't do another intermediate operation
+         dics.intermediateType = IntermediateType.NONE;
+         streamSupplier = () -> {
+            DoubleStream stream = Arrays.stream(dics.toArray());
+            return parallel ? stream.parallel() : stream.sequential();
+         };
+      }
+      SingleRunOperation<R, T, S, S2> op = new SingleRunOperation<>(localIntermediateOperations, streamSupplier,
+              function);
       return op.performOperation();
    }
 
-   <R> R performLongIntermediateRemoteOperation(Function<? super S2, ? extends R> function) {
-      // TODO: once we don't have to box for primitive iterators we can remove this copy
-      Queue<IntermediateOperation> copyOperations = new ArrayDeque<>(localIntermediateOperations);
-      PrimitiveIterator.OfLong iterator = new DistributedLongCacheStream(this).remoteIterator();
-      SingleRunOperation<R, T, S, S2> op = new SingleRunOperation<>(copyOperations,
-              () -> StreamSupport.longStream(Spliterators.spliteratorUnknownSize(
-                      iterator, Spliterator.CONCURRENT), parallel), function);
+   <R> R performLongIntermediateRemoteOperation(Function<? super S2, ? extends R> function, boolean verifyLimitThreshold) {
+      handleLimitOperation(verifyLimitThreshold);
+      Supplier<LongStream> streamSupplier;
+      if (verifyLimitThreshold) {
+         PrimitiveIterator.OfLong iterator = new DistributedLongCacheStream(this).remoteIterator();
+         streamSupplier = () -> StreamSupport.longStream(Spliterators.spliteratorUnknownSize(
+                 iterator, Spliterator.CONCURRENT), parallel);
+      } else {
+         // Our operation will have to pull all data locally so there is no need to use iterator and it allows
+         // for limit to be any size and not just limited by batch size
+         DistributedLongCacheStream dics = new DistributedLongCacheStream(this);
+         // Make sure we don't do another intermediate operation
+         dics.intermediateType = IntermediateType.NONE;
+         streamSupplier = () -> {
+            LongStream stream = Arrays.stream(dics.toArray());
+            return parallel ? stream.parallel() : stream.sequential();
+         };
+      }
+      SingleRunOperation<R, T, S, S2> op = new SingleRunOperation<>(localIntermediateOperations, streamSupplier,
+              function);
       return op.performOperation();
    }
 
-   <R> R performObjIntermediateRemoteOperation(Function<? super S2, ? extends R> function) {
-      Iterator<Object> iterator = new DistributedCacheStream<>(this).remoteIterator();
-      SingleRunOperation<R, T, S, S2> op = new SingleRunOperation<>(localIntermediateOperations,
-              () -> StreamSupport.stream(Spliterators.spliteratorUnknownSize(
-                      iterator, Spliterator.CONCURRENT), parallel), function);
+   <R> R performObjIntermediateRemoteOperation(Function<? super S2, ? extends R> function, boolean verifyLimitThreshold) {
+      handleLimitOperation(verifyLimitThreshold);
+      Supplier<Stream<?>> streamSupplier;
+      // If limit threshold needed verification we can safely use iterator
+      if (verifyLimitThreshold) {
+         Iterator<Object> iterator = new DistributedCacheStream<>(this).remoteIterator();
+         streamSupplier = () -> StreamSupport.stream(Spliterators.spliteratorUnknownSize(
+                 iterator, Spliterator.CONCURRENT), parallel);
+      } else {
+         // Our operation will have to pull all data locally so there is no need to use iterator and it allows
+         // for limit to be any size and not just limited by batch size
+         DistributedCacheStream dcs = new DistributedCacheStream<>(this);
+         // Make sure we don't do another intermediate operation
+         dcs.intermediateType = IntermediateType.NONE;
+         // TODO: need to make stream parallel if required
+         streamSupplier = () -> {
+            Stream<?> stream = Arrays.stream(dcs.toArray(Object[]::new));
+            return parallel ? stream.parallel() : stream.sequential();
+         };
+      }
+
+      SingleRunOperation<R, T, S, S2> op = new SingleRunOperation<>(localIntermediateOperations, streamSupplier,
+              function);
       return op.performOperation();
+   }
+
+   private void handleLimitOperation(boolean verifyLimitThreshold) {
+      // We check to make see if we have all limitable operations followed by limit operation
+      if (localIntermediateOperations.size() > 1) {
+         List<IntermediateOperation> opsToLimit = null;
+         for (IntermediateOperation intOp : localIntermediateOperations) {
+            if (intOp instanceof LimitableOperation) {
+               if (opsToLimit == null) {
+                  // 3 should really be the most we ever have - distinct | sorted | limit
+                  opsToLimit = new ArrayList<>(3);
+               }
+               opsToLimit.add(intOp);
+            } else if (intOp instanceof LimitingOperation) {
+               // If we had previous operations then we should limit those now
+               // Also if we have to verify limit threshold only apply limit if it is lower than batch size
+               if (opsToLimit != null && (!verifyLimitThreshold || ((LimitingOperation) intOp).getLimit() <= distributedBatchSize)) {
+                  int offset = 0;
+                  IntermediateOperation opToLimit = opsToLimit.get(offset++);
+                  // It is possible the operation is already going to be done remote, don't add it again
+                  if (intermediateOperations.peekLast() != opToLimit) {
+                     intermediateOperations.add(opToLimit);
+                  }
+                  int size = opsToLimit.size();
+                  while (offset < size) {
+                     intermediateOperations.add(opsToLimit.get(offset++));
+                  }
+                  intermediateOperations.add(intOp);
+               }
+               break;
+            } else {
+               // Any other type is not supported
+               break;
+            }
+         }
+      }
    }
 }

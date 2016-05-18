@@ -139,7 +139,7 @@ public class IntermediateOperationExternalizer implements AdvancedExternalizer<I
 
    @Override
    public Set<Class<? extends IntermediateOperation>> getTypeClasses() {
-      return Util.<Class<? extends IntermediateOperation>>asSet(DistinctOperation.class, FilterOperation.class,
+      return Util.asSet(DistinctOperation.class, FilterOperation.class,
               FlatMapOperation.class, FlatMapToDoubleOperation.class, FlatMapToIntOperation.class,
               FlatMapToLongOperation.class, LimitOperation.class, MapOperation.class, MapToDoubleOperation.class,
               MapToIntOperation.class, MapToLongOperation.class, PeekOperation.class,
@@ -156,7 +156,7 @@ public class IntermediateOperationExternalizer implements AdvancedExternalizer<I
               MapToObjIntOperation.class, PeekIntOperation.class, SortedIntOperation.class,
 
               AsDoubleLongOperation.class, BoxedLongOperation.class, DistinctOperation.class, FilterLongOperation.class,
-              FlatMapLongOperation.class, LimitOperation.class, MapLongOperation.class, MapToDoubleLongOperation.class,
+              FlatMapLongOperation.class, LimitLongOperation.class, MapLongOperation.class, MapToDoubleLongOperation.class,
               MapToIntLongOperation.class, MapToObjLongOperation.class, PeekLongOperation.class,
               SortedLongOperation.class
       );

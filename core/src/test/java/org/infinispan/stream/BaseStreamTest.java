@@ -661,6 +661,31 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
       }
    }
 
+   public void testObjSortedDistinctLimitCollect() {
+      Cache<Integer, String> cache = getCache(0);
+      int range = 10;
+      // First populate the cache with a bunch of values
+      IntStream.range(0, range).boxed().forEach(i -> cache.put(i, i + "-value"));
+      // Add some additional outside the range but keep the value the same
+      IntStream.range(0, range).boxed().forEach(i -> cache.put(i + range, i + "-value"));
+
+      assertEquals(range * 2, cache.size());
+      CacheCollection<String> entrySet = cache.values();
+
+      for (int i = 1; i < range; ++i) {
+         // Always apply sorted before distinct since since then distinct will only apply to the limit + duplicates
+         // The inverse can cause additional processing
+         List<String> iterator = createStream(entrySet).sorted().distinct().limit(i).collect(Collectors.toList());
+         AtomicInteger atomicInteger = new AtomicInteger();
+         iterator.forEach(e -> {
+            int key = Integer.parseInt(e.substring(0, 1));
+            assertEquals(atomicInteger.getAndIncrement(), key);
+            assertEquals(cache.get(key), e);
+         });
+         assertEquals(i, atomicInteger.get());
+      }
+   }
+
    // IntStream tests
 
    static final SerializableToIntFunction<Map.Entry<Integer, String>> toInt = Map.Entry::getKey;
@@ -1121,6 +1146,27 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
       }
    }
 
+   public void testIntSortedDistinctLimit() {
+      Cache<Integer, String> cache = getCache(0);
+      int range = 10;
+      // First populate the cache with a bunch of values
+      IntStream.range(0, range).forEach(i -> cache.put(i, i + "-value"));
+      IntStream.range(0, range).forEach(i -> cache.put(i + range, i + "-value"));
+
+      assertEquals(range * 2, cache.size());
+
+      CacheSet<Map.Entry<Integer, String>> entrySet = cache.entrySet();
+
+      for (int i = 1; i < range; i++) {
+         IntSummaryStatistics stats = createStream(entrySet).mapToInt(toInt)
+                 .sorted().limit(i).distinct().summaryStatistics();
+         assertEquals(i, stats.getCount());
+         assertEquals(0, stats.getMin());
+         assertEquals(i - 1, stats.getMax());
+         assertEquals(IntStream.range(0, i).sum(), stats.getSum());
+      }
+   }
+
 
    // LongStream tests
 
@@ -1568,6 +1614,27 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
       int range = 10;
       // First populate the cache with a bunch of values
       LongStream.range(0, range).forEach(i -> cache.put(i, i + "-value"));
+      CacheSet<Map.Entry<Long, String>> entrySet = cache.entrySet();
+
+      for (int i = 1; i < range; i++) {
+         LongSummaryStatistics stats = createStream(entrySet).mapToLong(toLong)
+                 .sorted().limit(i).summaryStatistics();
+         assertEquals(i, stats.getCount());
+         assertEquals(0, stats.getMin());
+         assertEquals(i - 1, stats.getMax());
+         assertEquals(IntStream.range(0, i).sum(), stats.getSum());
+      }
+   }
+
+   public void testLongSortedDistinctLimit() {
+      Cache<Long, String> cache = getCache(0);
+      int range = 10;
+      // First populate the cache with a bunch of values
+      LongStream.range(0, range).forEach(i -> cache.put(i, i + "-value"));
+      LongStream.range(0, range).forEach(i -> cache.put(i + range, i + "-value"));
+
+      assertEquals(range * 2, cache.size());
+
       CacheSet<Map.Entry<Long, String>> entrySet = cache.entrySet();
 
       for (int i = 1; i < range; i++) {
@@ -2050,6 +2117,27 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
       for (int i = 1; i < range; i++) {
          DoubleSummaryStatistics stats = createStream(entrySet).mapToDouble(toDouble)
                  .sorted().limit(i).summaryStatistics();
+         assertEquals(i, stats.getCount());
+         assertEquals(0d, stats.getMin());
+         assertEquals((double) i - 1, stats.getMax());
+         assertEquals((double) IntStream.range(0, i).sum(), stats.getSum());
+      }
+   }
+
+   public void testDoubleSortedDistinctLimit() {
+      Cache<Double, String> cache = getCache(0);
+      int range = 10;
+      // First populate the cache with a bunch of values
+      IntStream.range(0, range).mapToDouble(value -> value).forEach(i -> cache.put(i, i + "-value"));
+      IntStream.range(0, range).mapToDouble(value -> value).forEach(i -> cache.put(i + range, i + "-value"));
+
+      assertEquals(range * 2, cache.size());
+
+      CacheSet<Map.Entry<Double, String>> entrySet = cache.entrySet();
+
+      for (int i = 1; i < range; i++) {
+         DoubleSummaryStatistics stats = createStream(entrySet).mapToDouble(toDouble)
+                 .sorted().distinct().limit(i).summaryStatistics();
          assertEquals(i, stats.getCount());
          assertEquals(0d, stats.getMin());
          assertEquals((double) i - 1, stats.getMax());

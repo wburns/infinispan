@@ -294,7 +294,7 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
 
    @Override
    public R reduce(R identity, BinaryOperator<R> accumulator) {
-      return performOperation(TerminalFunctions.reduceFunction(identity, accumulator), true, accumulator, null);
+      return performOperation(TerminalFunctions.reduceFunction(identity, accumulator), true, accumulator, null, false);
    }
 
    @Override
@@ -507,6 +507,8 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
    @Override
    public Optional<R> findFirst() {
       if (intermediateType.shouldUseIntermediate(sorted, distinct)) {
+         // We add a synthetic limit to reduce remote response size
+         limit(1);
          Iterator<R> iterator = iterator();
          SingleRunOperation<Optional<R>, R, Stream<R>, Stream<R>> op = new SingleRunOperation<>(localIntermediateOperations,
                  () -> StreamSupport.stream(Spliterators.spliteratorUnknownSize(
@@ -536,7 +538,7 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
    @Override
    public Iterator<R> iterator() {
       if (intermediateType.shouldUseIntermediate(sorted, distinct)) {
-         return performIntermediateRemoteOperation((Stream<R> s) -> s.iterator());
+         return performIntermediateRemoteOperation((Stream<R> s) -> s.iterator(), true);
       } else {
          return remoteIterator();
       }

@@ -1,13 +1,14 @@
 package org.infinispan.stream.impl.intops.primitive.l;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
+import org.infinispan.stream.impl.intops.LimitableOperation;
 
 import java.util.stream.LongStream;
 
 /**
  * Performs distinct operation on a {@link LongStream}
  */
-public class DistinctLongOperation implements IntermediateOperation<Long, LongStream, Long, LongStream> {
+public class DistinctLongOperation implements IntermediateOperation<Long, LongStream, Long, LongStream>, LimitableOperation {
    private static final DistinctLongOperation OPERATION = new DistinctLongOperation();
    private DistinctLongOperation() { }
 

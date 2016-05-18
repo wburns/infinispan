@@ -1,6 +1,7 @@
 package org.infinispan.stream.impl.intops.object;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
+import org.infinispan.stream.impl.intops.LimitableOperation;
 
 import java.util.stream.Stream;
 
@@ -8,7 +9,7 @@ import java.util.stream.Stream;
  * Performs distinct operation on a regular {@link Stream}
  * @param <S> the type in the stream
  */
-public class DistinctOperation<S> implements IntermediateOperation<S, Stream<S>, S, Stream<S>> {
+public class DistinctOperation<S> implements IntermediateOperation<S, Stream<S>, S, Stream<S>>, LimitableOperation {
    private static final DistinctOperation<?> OPERATION = new DistinctOperation<>();
    private DistinctOperation() { }
 

@@ -241,7 +241,7 @@ public class DistributedDoubleCacheStream extends AbstractCacheStream<Double, Do
          performIntermediateRemoteOperation((DoubleStream s) -> {
             s.forEachOrdered(action);
             return null;
-         });
+         }, true);
       } else {
          forEach(action);
       }
@@ -405,7 +405,9 @@ public class DistributedDoubleCacheStream extends AbstractCacheStream<Double, Do
    @Override
    public OptionalDouble findFirst() {
       if (intermediateType.shouldUseIntermediate(sorted, distinct)) {
-         return performIntermediateRemoteOperation((DoubleStream s) -> s.findFirst());
+         // We add a synthetic limit to reduce remote response size
+         limit(1);
+         return performIntermediateRemoteOperation((DoubleStream s) -> s.findFirst(), true);
       } else {
          return findAny();
       }
@@ -431,7 +433,7 @@ public class DistributedDoubleCacheStream extends AbstractCacheStream<Double, Do
    @Override
    public PrimitiveIterator.OfDouble iterator() {
       if (intermediateType.shouldUseIntermediate(sorted, distinct)) {
-         DoubleStream stream = performIntermediateRemoteOperation(Function.identity());
+         DoubleStream stream = performIntermediateRemoteOperation(Function.identity(), true);
          return stream.iterator();
       } else {
          return remoteIterator();

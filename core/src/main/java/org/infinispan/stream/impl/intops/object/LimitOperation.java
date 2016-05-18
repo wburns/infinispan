@@ -1,13 +1,14 @@
 package org.infinispan.stream.impl.intops.object;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
+import org.infinispan.stream.impl.intops.LimitingOperation;
 
 import java.util.stream.Stream;
 
 /**
  * Performs limit operation on a regular {@link Stream}
  */
-public class LimitOperation<S> implements IntermediateOperation<S, Stream<S>, S, Stream<S>> {
+public class LimitOperation<S> implements IntermediateOperation<S, Stream<S>, S, Stream<S>>, LimitingOperation {
    private final long limit;
 
    public LimitOperation(long limit) {

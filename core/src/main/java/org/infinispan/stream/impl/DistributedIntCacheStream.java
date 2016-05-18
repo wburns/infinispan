@@ -257,7 +257,7 @@ public class DistributedIntCacheStream extends AbstractCacheStream<Integer, IntS
          performIntermediateRemoteOperation((IntStream s) -> {
             s.forEachOrdered(action);
             return null;
-         });
+         }, true);
       } else {
          forEach(action);
       }
@@ -421,7 +421,9 @@ public class DistributedIntCacheStream extends AbstractCacheStream<Integer, IntS
    @Override
    public OptionalInt findFirst() {
       if (intermediateType.shouldUseIntermediate(sorted, distinct)) {
-         return performIntermediateRemoteOperation((IntStream s) -> s.findFirst());
+         // We add a synthetic limit to reduce remote response size
+         limit(1);
+         return performIntermediateRemoteOperation((IntStream s) -> s.findFirst(), true);
       } else {
          return findAny();
       }
@@ -447,7 +449,7 @@ public class DistributedIntCacheStream extends AbstractCacheStream<Integer, IntS
    @Override
    public PrimitiveIterator.OfInt iterator() {
       if (intermediateType.shouldUseIntermediate(sorted, distinct)) {
-         IntStream stream = performIntermediateRemoteOperation(Function.identity());
+         IntStream stream = performIntermediateRemoteOperation(Function.identity(), true);
          return stream.iterator();
       } else {
          return remoteIterator();

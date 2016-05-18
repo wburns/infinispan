@@ -1,13 +1,14 @@
 package org.infinispan.stream.impl.intops.primitive.i;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
+import org.infinispan.stream.impl.intops.LimitableOperation;
 
 import java.util.stream.IntStream;
 
 /**
  * Performs sorted operation on a {@link IntStream}
  */
-public class SortedIntOperation implements IntermediateOperation<Integer, IntStream, Integer, IntStream> {
+public class SortedIntOperation implements IntermediateOperation<Integer, IntStream, Integer, IntStream>, LimitableOperation {
    private static final SortedIntOperation OPERATION = new SortedIntOperation();
    private SortedIntOperation() { }
 
