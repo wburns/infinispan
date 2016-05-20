@@ -262,6 +262,17 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
    }
 
    @Override
+   public CacheStream<R> sortedLimit(Comparator<? super R> comparator, short limit) {
+      SortedLimitOperation op = new SortedLimitOperation<>(limit, comparator);
+      // If this is first operation requiring local retrieval, add both to remote and local
+      if (intermediateOperations == null) {
+         addIntermediateOperation(op);
+         markSorted(IntermediateType.OBJ);
+      }
+      return addIntermediateOperation(op);
+   }
+
+   @Override
    public CacheStream<R> sorted(SerializableComparator<? super R> comparator) {
       return sorted((Comparator<? super R>) comparator);
    }

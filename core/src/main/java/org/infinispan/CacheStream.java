@@ -275,6 +275,8 @@ public interface CacheStream<R> extends Stream<R> {
    @Override
    CacheStream<R> sorted();
 
+//   CacheStream<R> sortedLimit(int limit);
+
    /**
     * {@inheritDoc}
     * <p>This operation is performed entirely on the local node irrespective of the backing cache.  This
@@ -287,6 +289,16 @@ public interface CacheStream<R> extends Stream<R> {
     */
    @Override
    CacheStream<R> sorted(Comparator<? super R> comparator);
+
+   /**
+    * Performs a <code>sorted(comparator).limit(limit)</code> operation, but operates more efficiently if limit*2 is less
+    * than the number of entries in the cache.  Processing is limited to, where N is # of entries on a given node,
+    * Nlog(limit * 2) instead of Nlog(N).  If limit*2 is greater than N then processing will approximately the same.
+    * @param comparator The comparator to sort the entries by
+    * @param limit The amount of entries to limit it to.
+    * @return
+    */
+   CacheStream<R> sortedLimit(Comparator<? super R> comparator, short limit);
 
    /**
     * Same as {@link CacheStream#sorted(Comparator)} except that the Comparator must

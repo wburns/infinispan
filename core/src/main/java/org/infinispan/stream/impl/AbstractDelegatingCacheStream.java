@@ -231,6 +231,11 @@ public class AbstractDelegatingCacheStream<R> implements CacheStream<R> {
    }
 
    @Override
+   public CacheStream<R> sortedLimit(Comparator<? super R> comparator, short limit) {
+      return null;
+   }
+
+   @Override
    public CacheStream<R> sorted(SerializableComparator<? super R> comparator) {
       underlyingStream = castStream(underlyingStream).sorted(comparator);
       return this;

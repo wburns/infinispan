@@ -15,6 +15,7 @@ import org.infinispan.remoting.transport.Address;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 import org.infinispan.stream.impl.intops.LimitableOperation;
 import org.infinispan.stream.impl.intops.LimitingOperation;
+import org.infinispan.stream.impl.intops.object.SortedLimitOperation;
 import org.infinispan.stream.impl.termop.SegmentRetryingOperation;
 import org.infinispan.stream.impl.termop.SingleRunOperation;
 import org.infinispan.stream.impl.termop.object.FlatMapIteratorOperation;
@@ -871,8 +872,9 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, S2 exte
    <R> R performObjIntermediateRemoteOperation(Function<? super S2, ? extends R> function, boolean verifyLimitThreshold) {
       handleLimitOperation(verifyLimitThreshold);
       Supplier<Stream<?>> streamSupplier;
-      // If limit threshold needed verification we can safely use iterator
-      if (verifyLimitThreshold) {
+      // If limit threshold needed verification we can safely use iterator, unless it is a sorted limit operation
+      // in which case we don't need iterator
+      if (verifyLimitThreshold && !(intermediateOperations.peekLast() instanceof SortedLimitOperation)) {
          Iterator<Object> iterator = new DistributedCacheStream<>(this).remoteIterator();
          streamSupplier = () -> StreamSupport.stream(Spliterators.spliteratorUnknownSize(
                  iterator, Spliterator.CONCURRENT), parallel);
@@ -882,7 +884,6 @@ public abstract class AbstractCacheStream<T, S extends BaseStream<T, S>, S2 exte
          DistributedCacheStream dcs = new DistributedCacheStream<>(this);
          // Make sure we don't do another intermediate operation
          dcs.intermediateType = IntermediateType.NONE;
-         // TODO: need to make stream parallel if required
          streamSupplier = () -> {
             Stream<?> stream = Arrays.stream(dcs.toArray(Object[]::new));
             return parallel ? stream.parallel() : stream.sequential();

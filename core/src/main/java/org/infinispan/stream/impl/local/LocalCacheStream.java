@@ -210,6 +210,11 @@ public class LocalCacheStream<R> extends AbstractLocalCacheStream<R, Stream<R>, 
    }
 
    @Override
+   public CacheStream<R> sortedLimit(Comparator<? super R> comparator, short limit) {
+      return null;
+   }
+
+   @Override
    public CacheStream<R> sorted(SerializableComparator<? super R> comparator) {
       return sorted((Comparator<? super R>) comparator);
    }
