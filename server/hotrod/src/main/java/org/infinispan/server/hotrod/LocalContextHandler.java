@@ -2,27 +2,12 @@ package org.infinispan.server.hotrod;
 
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.channel.ChannelInboundHandlerAdapter;
-import io.netty.channel.SimpleChannelInboundHandler;
-import org.infinispan.commons.logging.LogFactory;
-import org.infinispan.commons.marshall.Marshaller;
-import org.infinispan.commons.marshall.jboss.GenericJBossMarshaller;
-import org.infinispan.distribution.DistributionManager;
 import org.infinispan.security.Security;
 import org.infinispan.server.core.transport.NettyTransport;
-import org.infinispan.server.hotrod.iteration.IterableIterationResult;
-import org.infinispan.server.hotrod.logging.JavaLog;
-import org.infinispan.server.hotrod.util.BulkUtil;
-import org.infinispan.tasks.TaskContext;
-import org.infinispan.tasks.TaskManager;
-import scala.None$;
-import scala.Option;
-import scala.Tuple2;
-import scala.Tuple4;
 
 import javax.security.auth.Subject;
 import java.security.PrivilegedExceptionAction;
-import java.util.BitSet;
-import java.util.Map;
+import java.util.concurrent.ExecutionException;
 
 import static org.infinispan.server.hotrod.ResponseWriting.writeResponse;
 
@@ -34,10 +19,12 @@ import static org.infinispan.server.hotrod.ResponseWriting.writeResponse;
  * @since 9.0
  */
 public class LocalContextHandler extends ChannelInboundHandlerAdapter {
-   private final NettyTransport transport;
+   private final ClientListenerRegistry registry;
+   private final CommonHandler handler;
 
-   public LocalContextHandler(NettyTransport transport) {
-      this.transport = transport;
+   public LocalContextHandler(HotRodServer server, CommonHandler handler) {
+      this.registry = server.getClientListenerRegistry();
+      this.handler = handler;
    }
 
    @Override
@@ -46,9 +33,9 @@ public class LocalContextHandler extends ChannelInboundHandlerAdapter {
          CacheDecodeContext cdc = (CacheDecodeContext) msg;
          Subject subject = ((CacheDecodeContext) msg).getSubject();
          if (subject == null)
-            realChannelRead(ctx, msg, cdc);
+            realChannelRead(ctx, cdc);
          else Security.doAs(subject, (PrivilegedExceptionAction<Void>) () -> {
-            realChannelRead(ctx, msg, cdc);
+            realChannelRead(ctx, cdc);
             return null;
          });
       } else {
@@ -56,29 +43,30 @@ public class LocalContextHandler extends ChannelInboundHandlerAdapter {
       }
    }
 
-   private void realChannelRead(ChannelHandlerContext ctx, Object msg, CacheDecodeContext cdc) throws Exception {
-      HotRodHeader h = cdc.header();
-      switch (h.op()) {
-         case ContainsKeyRequest:
-            writeResponse(cdc, ctx.channel(), cdc.containsKey());
-            break;
-         case GetRequest:
-         case GetWithVersionRequest:
-            writeResponse(cdc, ctx.channel(), cdc.get());
-            break;
-         case GetWithMetadataRequest:
-            writeResponse(cdc, ctx.channel(), cdc.getKeyMetadata());
-            break;
-         case PingRequest:
-            writeResponse(cdc, ctx.channel(), new Response(h.version(), h.messageId(), h.cacheName(),
-                    h.clientIntel(), OperationResponse.PingResponse(), OperationStatus.Success(), h.topologyId()));
-            break;
-         case StatsRequest:
-            writeResponse(cdc, ctx.channel(), cdc.decoder().createStatsResponse(cdc, transport));
-            break;
-         default:
-            super.channelRead(ctx, msg);
+   private void realChannelRead(ChannelHandlerContext ctx, CacheDecodeContext cdc) throws Exception {
+      // If we have no listener we can invoke most operations in this thread without checking
+      if (registry.listenerCount() == 0) {
+         if (!handler.handle(ctx, cdc)) {
+            // If the operation couldn't be handled it might HAVE to be done in another thread
+            super.channelRead(ctx, cdc);
+         }
+      } else {
+         HotRodHeader h = cdc.header();
+         switch (h.op()) {
+            // The following operations are always on this thread as they don't block
+            case ContainsKeyRequest:
+            case GetRequest:
+            case GetWithVersionRequest:
+            case GetWithMetadataRequest:
+            case PingRequest:
+            case StatsRequest:
+               if (!handler.handle(ctx, cdc)) {
+                  throw handler.operationNotSupported(cdc.header().op());
+               }
+               break;
+            default:
+               super.channelRead(ctx, cdc);
+         }
       }
    }
-
 }

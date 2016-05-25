@@ -24,9 +24,10 @@ class HotRodChannelInitializer(val server: HotRodServer, transport: => NettyTran
       if (authHandler != null) {
          ch.pipeline().addLast("authentication-1", authHandler)
       }
-      ch.pipeline.addLast("local-handler", new LocalContextHandler(transport))
+      def commonHandler = new CommonHandler(server, transport)
+      ch.pipeline.addLast("local-handler", new LocalContextHandler(server, commonHandler))
 
-      ch.pipeline.addLast("handler", new ContextHandler(server, transport, executor))
+      ch.pipeline.addLast("handler", new ContextHandler(server, commonHandler, executor))
       ch.pipeline.addLast("exception", new HotRodExceptionHandler)
 
       // Logging handlers

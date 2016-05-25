@@ -179,6 +179,8 @@ class ClientListenerRegistry(configuration: HotRodServerConfiguration) extends L
       else binaryParams
    }
 
+   def listenerCount: Int = eventSenders.size
+
    def removeClientListener(listenerId: Array[Byte], cache: Cache): Boolean = {
       val sender = eventSenders.get(listenerId)
       if (sender != null) {
