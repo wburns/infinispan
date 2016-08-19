@@ -2,16 +2,16 @@ package org.infinispan.server.hotrod.event
 
 import java.lang.reflect.Method
 import java.util
-import java.util.{Collections, List, Optional}
+import java.util.{Collections, Optional}
 
 import org.infinispan.manager.EmbeddedCacheManager
 import org.infinispan.metadata.Metadata
 import org.infinispan.notifications.cachelistener.event.Event
+import org.infinispan.notifications.cachelistener.filter._
 import org.infinispan.server.hotrod.test.HotRodTestingUtil._
 import org.infinispan.server.hotrod.{Bytes, HotRodServer, HotRodSingleNodeTest}
-import org.testng.annotations.Test
-import org.infinispan.notifications.cachelistener.filter._
 import org.infinispan.util.KeyValuePair
+import org.testng.annotations.Test
 
 /**
  * @author Galder Zamarreño

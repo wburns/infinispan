@@ -4,21 +4,21 @@ import java.lang.reflect.Method
 import java.util
 import java.util.{Collections, Optional}
 
-import org.infinispan.configuration.cache.{CacheMode, ConfigurationBuilder}
+import org.infinispan.configuration.cache.ConfigurationBuilder
 import org.infinispan.manager.EmbeddedCacheManager
 import org.infinispan.metadata.Metadata
+import org.infinispan.notifications.cachelistener.event.Event
+import org.infinispan.notifications.cachelistener.filter._
 import org.infinispan.server.hotrod.OperationStatus._
 import org.infinispan.server.hotrod._
 import org.infinispan.server.hotrod.test.HotRodTestingUtil._
 import org.infinispan.server.hotrod.test._
 import org.infinispan.test.AbstractCacheTest._
 import org.infinispan.test.TestingUtil
+import org.infinispan.util.KeyValuePair
 import org.testng.annotations.Test
 
 import scala.collection.mutable.ListBuffer
-import org.infinispan.notifications.cachelistener.event.Event
-import org.infinispan.notifications.cachelistener.filter.{CacheEventConverter, CacheEventConverterFactory, CacheEventFilter, CacheEventFilterFactory, EventType}
-import org.infinispan.util.KeyValuePair
 
 /**
  * @author Galder Zamarreño
@@ -54,7 +54,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       val client2 = clients.tail.head
       val client3 = clients.tail.tail.head
       val listener1 = new EventLogListener
-      withClientListener(client1, listener1, false, Optional.empty(), Optional.empty(), true) { () =>
+      withClientListener(client1, listener1, Optional.empty(), Optional.empty(), false, true, () => {
          val key = k(m)
          client2.put(key, 0, 0, v(m))
          listener1.expectOnlyCreatedEvent(key)(anyCache())
@@ -62,21 +62,21 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
          listener1.expectOnlyModifiedEvent(key)(anyCache())
          client2.remove(key)
          listener1.expectOnlyRemovedEvent(key)(anyCache())
-      }
+      });
    }
 
    def testNoEventsAfterRemovingListener(m: Method) {
       val client1 = clients.head
       val listener1 = new EventLogListener
       val key = k(m)
-      withClientListener(client1, listener1, false, Optional.empty(), Optional.empty(), true) { () =>
+      withClientListener(client1, listener1, Optional.empty(), Optional.empty(), false, true, () => {
          client1.put(key, 0, 0, v(m))
          listener1.expectOnlyCreatedEvent(key)(anyCache())
          client1.put(key, 0, 0, v(m, "v2-"))
          listener1.expectOnlyModifiedEvent(key)(anyCache())
          client1.remove(key)
          listener1.expectOnlyRemovedEvent(key)(anyCache())
-      }
+      });
       client1.put(key, 0, 0, v(m))
       listener1.expectNoEvents()
       client1.remove(key)
@@ -130,7 +130,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       val client3 = clients.tail.tail.head
       val listener1 = new EventLogListener
       val listener2 = new EventLogListener
-      withClientListener(client1, listener1, false, Optional.empty(), Optional.empty(), true) { () =>
+      withClientListener(client1, listener1, Optional.empty(), Optional.empty(), false, true, () => {
          val key = k(m)
          client2.put(key, 0, 0, v(m))
          listener1.expectOnlyCreatedEvent(key)(anyCache())
@@ -139,7 +139,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
          val newServer = startClusteredServer(servers.last.getPort + 50)
          try {
             val client2 = new HotRodClient("127.0.0.1", newServer.getPort, cacheName, 60, protocolVersion)
-            withClientListener(client2, listener2, false, Optional.empty(), Optional.empty(), true) { () =>
+            withClientListener(client2, listener2, Optional.empty(), Optional.empty(), false, true, () => {
                val newKey = k(m, "k2-")
                client3.put(newKey, 0, 0, v(m))
                listener1.expectOnlyCreatedEvent(newKey)(anyCache())
@@ -150,7 +150,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
                client2.remove(newKey)
                listener1.expectOnlyRemovedEvent(newKey)(anyCache())
                listener2.expectOnlyRemovedEvent(newKey)(anyCache())
-            }
+            });
          } finally {
             stopClusteredServer(newServer)
             TestingUtil.waitForRehashToComplete(
@@ -166,7 +166,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
          client2.remove(key)
          listener1.expectOnlyRemovedEvent(key)(anyCache())
          listener2.expectNoEvents()
-      }
+      });
    }
 
    def testFilteringInCluster(m: Method) {
@@ -268,7 +268,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       client2.put(k2, 0, 0, v2)
       client3.put(k3, 0, 0, v3)
       val listener1 = new EventLogListener
-      withClientListener(client1, listener1, true, Optional.empty(), Optional.empty(), true) { () =>
+      withClientListener(client1, listener1, Optional.empty(), Optional.empty(), true, true, () => {
          val keys = List(k1, k2, k3)
          listener1.expectUnorderedEvents(keys, Event.Type.CACHE_ENTRY_CREATED)(anyCache())
          client1.remove(k1)
@@ -277,7 +277,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
          listener1.expectOnlyRemovedEvent(k2)(anyCache())
          client3.remove(k3)
          listener1.expectOnlyRemovedEvent(k3)(anyCache())
-      }
+      });
    }
 
    def testNoEventReplayAfterAddingListenerInCluster(m: Method) {
@@ -291,7 +291,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       client2.put(k2, 0, 0, v2)
       client3.put(k3, 0, 0, v3)
       val listener1 = new EventLogListener
-      withClientListener(client1, listener1, false, Optional.empty(), Optional.empty(), true) { () =>
+      withClientListener(client1, listener1, Optional.empty(), Optional.empty(), false, true, () => {
          listener1.expectNoEvents()
          client1.remove(k1)
          listener1.expectOnlyRemovedEvent(k1)(anyCache())
@@ -299,7 +299,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
          listener1.expectOnlyRemovedEvent(k2)(anyCache())
          client3.remove(k3)
          listener1.expectOnlyRemovedEvent(k3)(anyCache())
-      }
+      });
    }
 
    private def anyCache(): Cache =

@@ -1,6 +1,7 @@
 package org.infinispan.server.hotrod.event
 
 import java.lang.reflect.Method
+
 import org.infinispan.notifications.cachelistener.event.Event
 import org.infinispan.server.hotrod.HotRodSingleNodeTest
 import org.infinispan.server.hotrod.test.HotRodTestingUtil._
