@@ -53,7 +53,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       val client1 = clients.head
       val client2 = clients.tail.head
       val client3 = clients.tail.tail.head
-      val listener1 = new EventLogListener
+      val listener1 = new EventLogListener(cache)
       withClientListener(client1, listener1, Optional.empty(), Optional.empty(), false, true, () => {
          val key = k(m)
          client2.put(key, 0, 0, v(m))
@@ -67,7 +67,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
 
    def testNoEventsAfterRemovingListener(m: Method) {
       val client1 = clients.head
-      val listener1 = new EventLogListener
+      val listener1 = new EventLogListener(cache)
       val key = k(m)
       withClientListener(client1, listener1, Optional.empty(), Optional.empty(), false, true, () => {
          client1.put(key, 0, 0, v(m))
@@ -86,7 +86,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
    def testNoEventsAfterRemovingListenerInDifferentNode(m: Method) {
       val client1 = clients.head
       val client2 = clients.tail.head
-      val listener1 = new EventLogListener
+      val listener1 = new EventLogListener(cache)
       val key = k(m)
       assertStatus(client1.addClientListener(listener1, false, Optional.empty(), Optional.empty(), true), Success)
       try {
@@ -112,7 +112,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
    def testClientDisconnectListenerCleanup(m: Method) {
       val client1 = clients.head
       val newClient = new HotRodClient("127.0.0.1", servers.tail.head.getPort, cacheName, 60, protocolVersion)
-      val listener = new EventLogListener
+      val listener = new EventLogListener(cache)
       assertStatus(newClient.addClientListener(listener, false, Optional.empty(), Optional.empty(), true), Success)
       val key = k(m)
       client1.put(key, 0, 0, v(m))
@@ -128,8 +128,8 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       val client1 = clients.head
       val client2 = clients.tail.head
       val client3 = clients.tail.tail.head
-      val listener1 = new EventLogListener
-      val listener2 = new EventLogListener
+      val listener1 = new EventLogListener(cache)
+      val listener2 = new EventLogListener(cache)
       withClientListener(client1, listener1, Optional.empty(), Optional.empty(), false, true, () => {
          val key = k(m)
          client2.put(key, 0, 0, v(m))
@@ -172,7 +172,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
    def testFilteringInCluster(m: Method) {
       val client1 = clients(0)
       val client2 = clients(1)
-      val listener1 = new EventLogListener
+      val listener1 = new EventLogListener(cache)
       val filterFactory = Optional.of(new KeyValuePair[String, util.List[Bytes]]("accepted-key-filter-factory", Collections.emptyList()))
       val key1 = k(m, "k1-")
       withClusterClientListener(client1, listener1, filterFactory, Optional.empty(), Some(key1)) { () =>
@@ -190,7 +190,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
    def testParameterBasedFilteringInCluster(m: Method) {
       val client1 = clients(0)
       val client2 = clients(1)
-      val listener1 = new EventLogListener
+      val listener1 = new EventLogListener(cache)
       val dynamicAcceptedKey = Array[Byte](4, 5, 6)
       val filterFactory = Optional.of(new KeyValuePair[String, util.List[Bytes]]("accepted-key-filter-factory", Collections.singletonList(dynamicAcceptedKey)))
       withClusterClientListener(client1, listener1, filterFactory, Optional.empty()) { () =>
@@ -211,7 +211,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
    def testConversionInCluster(m: Method) {
       val client1 = clients(0)
       val client2 = clients(1)
-      val listener1 = new EventLogListener
+      val listener1 = new EventLogListener(cache)
       val converterFactory = Optional.of(new KeyValuePair[String, util.List[Bytes]]("accepted-keyvalue-converter-factory", Collections.emptyList()))
       val key1 = k(m, "k1-")
       withClusterClientListener(client1, listener1, Optional.empty(), converterFactory, Some(key1)) { () =>
@@ -235,7 +235,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
    def testParameterBasedConversionInCluster(m: Method) {
       val client1 = clients(0)
       val client2 = clients(1)
-      val listener1 = new EventLogListener
+      val listener1 = new EventLogListener(cache)
       val convertedKey = Array[Byte](4, 5, 6)
       val convertedKeyLength = convertedKey.length.toByte
       val converteFactory = Optional.of(new KeyValuePair[String, util.List[Bytes]]("accepted-keyvalue-converter-factory", Collections.singletonList(Array[Byte](4, 5, 6))))
@@ -267,7 +267,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       client1.put(k1, 0, 0, v1)
       client2.put(k2, 0, 0, v2)
       client3.put(k3, 0, 0, v3)
-      val listener1 = new EventLogListener
+      val listener1 = new EventLogListener(cache)
       withClientListener(client1, listener1, Optional.empty(), Optional.empty(), true, true, () => {
          val keys = List(k1, k2, k3)
          listener1.expectUnorderedEvents(keys, Event.Type.CACHE_ENTRY_CREATED)(anyCache())
@@ -290,7 +290,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       client1.put(k1, 0, 0, v1)
       client2.put(k2, 0, 0, v2)
       client3.put(k3, 0, 0, v3)
-      val listener1 = new EventLogListener
+      val listener1 = new EventLogListener(cache)
       withClientListener(client1, listener1, Optional.empty(), Optional.empty(), false, true, () => {
          listener1.expectNoEvents()
          client1.remove(k1)

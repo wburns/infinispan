@@ -1,6 +1,7 @@
 package org.infinispan.server.hotrod.event;
 
 import org.infinispan.AdvancedCache;
+import org.infinispan.Cache;
 import org.infinispan.commons.CacheException;
 import org.infinispan.container.versioning.NumericVersion;
 import org.infinispan.notifications.cachelistener.event.Event;
@@ -26,10 +27,15 @@ import static org.testng.AssertJUnit.assertNotNull;
  * @author Galder Zamarreño
  */
 class EventLogListener extends TestClientListener {
-   private BlockingQueue<TestKeyWithVersionEvent> createdEvents = new ArrayBlockingQueue<>(128);
-   private BlockingQueue<TestKeyWithVersionEvent> modifiedEvents = new ArrayBlockingQueue<>(128);
-   private BlockingQueue<TestKeyEvent> removedEvents = new ArrayBlockingQueue<>(128);
-   private BlockingQueue<TestCustomEvent> customEvents = new ArrayBlockingQueue<>(128);
+   private final BlockingQueue<TestKeyWithVersionEvent> createdEvents = new ArrayBlockingQueue<>(128);
+   private final BlockingQueue<TestKeyWithVersionEvent> modifiedEvents = new ArrayBlockingQueue<>(128);
+   private final BlockingQueue<TestKeyEvent> removedEvents = new ArrayBlockingQueue<>(128);
+   private final BlockingQueue<TestCustomEvent> customEvents = new ArrayBlockingQueue<>(128);
+   private final Cache cache;
+
+   EventLogListener(Cache cache) {
+      this.cache = cache;
+   }
 
    @Override
    public int queueSize(Event.Type eventType) {

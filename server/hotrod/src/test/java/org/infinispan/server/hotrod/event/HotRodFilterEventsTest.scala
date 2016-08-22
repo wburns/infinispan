@@ -27,7 +27,7 @@ class HotRodFilterEventsTest extends HotRodSingleNodeTest {
    }
 
    def testFilteredEvents(m: Method) {
-      implicit val eventListener = new EventLogListener
+      implicit val eventListener = new EventLogListener(cache)
       val acceptedKey = Array[Byte](1, 2, 3)
       withClientListener(filterFactory = Optional.of(new KeyValuePair[String, util.List[Bytes]]("static-filter-factory", Collections.emptyList()))) { () =>
          eventListener.expectNoEvents()
@@ -48,7 +48,7 @@ class HotRodFilterEventsTest extends HotRodSingleNodeTest {
    }
 
    def testParameterBasedFiltering(m: Method) {
-      implicit val eventListener = new EventLogListener
+      implicit val eventListener = new EventLogListener(cache)
       val acceptedKey = Array[Byte](4, 5, 6)
       withClientListener(filterFactory = Optional.of(new KeyValuePair[String, util.List[Bytes]]("dynamic-filter-factory", Collections.singletonList(Array[Byte](4, 5, 6))))) { () =>
          eventListener.expectNoEvents()
@@ -67,7 +67,7 @@ class HotRodFilterEventsTest extends HotRodSingleNodeTest {
    }
 
    def testFilteredEventsReplay(m: Method) {
-      implicit val eventListener = new EventLogListener
+      implicit val eventListener = new EventLogListener(cache)
       val staticAcceptedKey = Array[Byte](1, 2, 3)
       val dynamicAcceptedKey = Array[Byte](7, 8, 9)
       val key = k(m)
@@ -83,7 +83,7 @@ class HotRodFilterEventsTest extends HotRodSingleNodeTest {
    }
 
    def testFilteredEventsNoReplay(m: Method) {
-      implicit val eventListener = new EventLogListener
+      implicit val eventListener = new EventLogListener(cache)
       val staticAcceptedKey = Array[Byte](1, 2, 3)
       val dynamicAcceptedKey = Array[Byte](7, 8, 9)
       val key = k(m)

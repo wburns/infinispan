@@ -33,7 +33,7 @@ class HotRodCustomEventsTest extends HotRodSingleNodeTest {
    }
 
    public void testCustomEvents(Method m) {
-      EventLogListener eventListener = new EventLogListener();
+      EventLogListener eventListener = new EventLogListener(cache);
       withClientListener(client(), eventListener, Optional.empty(),
               Optional.of(new KeyValuePair<>("static-converter-factory", Collections.emptyList())), () -> {
          eventListener.expectNoEvents();
@@ -61,7 +61,7 @@ class HotRodCustomEventsTest extends HotRodSingleNodeTest {
    }
 
    public void testParameterBasedConversion(Method m) {
-      EventLogListener eventListener = new EventLogListener();
+      EventLogListener eventListener = new EventLogListener(cache);
       byte[] customConvertKey = new byte[] {4, 5, 6};
       withClientListener(client(), eventListener, Optional.empty(), Optional.of(new KeyValuePair<>("dynamic-converter-factory", Collections.singletonList(new byte[] {4, 5, 6}))), () -> {
          eventListener.expectNoEvents();
@@ -89,7 +89,7 @@ class HotRodCustomEventsTest extends HotRodSingleNodeTest {
    }
 
    public void testConvertedEventsNoReplay(Method m) {
-      EventLogListener eventListener = new EventLogListener();
+      EventLogListener eventListener = new EventLogListener(cache);
       byte[] key = new byte[] {1};
       byte[] value = new byte[] {2};
       client().put(key, 0, 0, value);
@@ -98,7 +98,7 @@ class HotRodCustomEventsTest extends HotRodSingleNodeTest {
    }
 
    public void testConvertedEventsReplay(Method m) {
-      EventLogListener eventListener = new EventLogListener();
+      EventLogListener eventListener = new EventLogListener(cache);
       byte[] key = new byte[] {1};
       byte keyLength = (byte) key.length;
       byte[] value = new byte[] {2};
