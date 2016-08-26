@@ -1,53 +1,60 @@
-package org.infinispan.server.hotrod.event
+package org.infinispan.server.hotrod.event;
 
-import java.lang.reflect.Method
-import java.util
-import java.util.{Collections, Optional}
+import java.lang.reflect.Method;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Optional;
 
-import org.infinispan.configuration.cache.ConfigurationBuilder
-import org.infinispan.manager.EmbeddedCacheManager
-import org.infinispan.metadata.Metadata
-import org.infinispan.notifications.cachelistener.event.Event
-import org.infinispan.notifications.cachelistener.filter._
-import org.infinispan.server.hotrod.OperationStatus._
-import org.infinispan.server.hotrod._
-import org.infinispan.server.hotrod.test.HotRodTestingUtil._
-import org.infinispan.server.hotrod.test._
-import org.infinispan.test.AbstractCacheTest._
-import org.infinispan.test.TestingUtil
-import org.infinispan.util.KeyValuePair
-import org.testng.annotations.Test
-
-import scala.collection.mutable.ListBuffer
+import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.metadata.Metadata;
+import org.infinispan.notifications.cachelistener.event.Event;
+import org.infinispan.notifications.cachelistener.filter.*;
+import static org.infinispan.server.hotrod.OperationStatus.*;
+import org.infinispan.server.hotrod.*;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.*;
+import org.infinispan.server.hotrod.test.*;
+import org.infinispan.test.AbstractCacheTest.*;
+import org.infinispan.test.TestingUtil;
+import org.infinispan.util.KeyValuePair;
+import org.testng.annotations.Test;
 
 /**
  * @author Galder Zamarreño
  */
-@Test(groups = Array("functional"))
+@Test(groups = "functional")
 abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
 
-   import AbstractHotRodClusterEventsTest._
+   private final List<AcceptedKeyFilterFactory> filters = new ArrayList<>();
+   private final List<AcceptedKeyValueConverterFactory> converters = new ArrayList<>();
 
-   private[this] val filters = ListBuffer[AcceptedKeyFilterFactory]()
-   private[this] val converters = ListBuffer[AcceptedKeyValueConverterFactory]()
-
-   override protected def cacheName: String = "remote-clustered-events"
-
-   override protected def nodeCount: Int = 3
-
-   override protected def createCacheConfig: ConfigurationBuilder =
-      hotRodCacheConfiguration(getDefaultClusteredCacheConfig(cacheMode, false))
-
-   override protected def startTestHotRodServer(cacheManager: EmbeddedCacheManager, port: Int) = {
-      val server = HotRodTestingUtil.startHotRodServer(cacheManager, port)
-      filters += new AcceptedKeyFilterFactory()
-      server.addCacheEventFilterFactory("accepted-key-filter-factory", filters.head)
-      converters += new AcceptedKeyValueConverterFactory()
-      server.addCacheEventConverterFactory("accepted-keyvalue-converter-factory", converters.head)
-      server
+   @Override
+   public String cacheName() {
+      return "remote-clustered-events";
    }
 
-   def testEventForwarding(m: Method) {
+   @Override
+   public int nodeCount() {
+      return 3;
+   }
+
+   @Override
+   public ConfigurationBuilder createCacheConfig() {
+      return hotRodCacheConfiguration(getDefaultClusteredCacheConfig(cacheMode, false));
+   }
+
+   @Override
+   public HotRodServer startTestHotRodServer(EmbeddedCacheManager cacheManager, int port) {
+      HotRodServer server = HotRodTestingUtil.startHotRodServer(cacheManager, port);
+      filters.add(new AcceptedKeyFilterFactory());
+      server.addCacheEventFilterFactory("accepted-key-filter-factory", filters.get(0));
+      converters.add(new AcceptedKeyValueConverterFactory());
+      server.addCacheEventConverterFactory("accepted-keyvalue-converter-factory", converters.get(0));
+      return server;
+   }
+
+   public void testEventForwarding(Method m) {
       // Registering listener in one node and executing operations against
       // different nodes should still result in events received
       val client1 = clients.head
@@ -65,7 +72,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       });
    }
 
-   def testNoEventsAfterRemovingListener(m: Method) {
+   def testNoEventsAfterRemovingListener(Method m) {
       val client1 = clients.head
       val listener1 = new EventLogListener(cache)
       val key = k(m)
@@ -83,7 +90,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       listener1.expectNoEvents()
    }
 
-   def testNoEventsAfterRemovingListenerInDifferentNode(m: Method) {
+   def testNoEventsAfterRemovingListenerInDifferentNode(Method m) {
       val client1 = clients.head
       val client2 = clients.tail.head
       val listener1 = new EventLogListener(cache)
@@ -109,7 +116,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       }
    }
 
-   def testClientDisconnectListenerCleanup(m: Method) {
+   def testClientDisconnectListenerCleanup(Method m) {
       val client1 = clients.head
       val newClient = new HotRodClient("127.0.0.1", servers.tail.head.getPort, cacheName, 60, protocolVersion)
       val listener = new EventLogListener(cache)
@@ -124,7 +131,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       client1.remove(k(m, "k2-"))
    }
 
-   def testFailoverSendsEventsForNewContent(m: Method) {
+   def testFailoverSendsEventsForNewContent(Method m) {
       val client1 = clients.head
       val client2 = clients.tail.head
       val client3 = clients.tail.tail.head
@@ -169,7 +176,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       });
    }
 
-   def testFilteringInCluster(m: Method) {
+   def testFilteringInCluster(Method m) {
       val client1 = clients(0)
       val client2 = clients(1)
       val listener1 = new EventLogListener(cache)
@@ -187,7 +194,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       }
    }
 
-   def testParameterBasedFilteringInCluster(m: Method) {
+   def testParameterBasedFilteringInCluster(Method m) {
       val client1 = clients(0)
       val client2 = clients(1)
       val listener1 = new EventLogListener(cache)
@@ -208,7 +215,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       }
    }
 
-   def testConversionInCluster(m: Method) {
+   def testConversionInCluster(Method m) {
       val client1 = clients(0)
       val client2 = clients(1)
       val listener1 = new EventLogListener(cache)
@@ -232,7 +239,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       }
    }
 
-   def testParameterBasedConversionInCluster(m: Method) {
+   def testParameterBasedConversionInCluster(Method m) {
       val client1 = clients(0)
       val client2 = clients(1)
       val listener1 = new EventLogListener(cache)
@@ -257,7 +264,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       }
    }
 
-   def testEventReplayAfterAddingListenerInCluster(m: Method) {
+   def testEventReplayAfterAddingListenerInCluster(Method m) {
       val client1 = clients.head
       val client2 = clients.tail.head
       val client3 = clients.tail.tail.head
@@ -280,7 +287,7 @@ abstract class AbstractHotRodClusterEventsTest extends HotRodMultiNodeTest {
       });
    }
 
-   def testNoEventReplayAfterAddingListenerInCluster(m: Method) {
+   def testNoEventReplayAfterAddingListenerInCluster(Method m) {
       val client1 = clients.head
       val client2 = clients.tail.head
       val client3 = clients.tail.tail.head

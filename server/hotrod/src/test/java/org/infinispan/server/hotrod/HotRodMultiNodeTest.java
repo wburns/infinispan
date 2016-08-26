@@ -1,14 +1,17 @@
-package org.infinispan.server.hotrod
+package org.infinispan.server.hotrod;
 
-import test.HotRodClient
-import test.HotRodTestingUtil._
-import org.infinispan.manager.EmbeddedCacheManager
-import org.infinispan.test.{TestingUtil, MultipleCacheManagersTest}
-import org.infinispan.server.core.test.ServerTestingUtil._
-import org.testng.annotations.{BeforeClass, AfterMethod, AfterClass, Test}
-import org.infinispan.configuration.cache.ConfigurationBuilder
-import org.infinispan.test.fwk.TestCacheManagerFactory
-import scala.collection.JavaConversions._
+import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.manager.EmbeddedCacheManager;
+import static org.infinispan.server.core.test.ServerTestingUtil.*;
+import org.infinispan.server.hotrod.test.HotRodClient;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.*;
+import org.infinispan.test.fwk.TestCacheManagerFactory;
+import org.infinispan.test.MultipleCacheManagersTest;
+import org.infinispan.test.TestingUtil;
+import org.testng.annotations.AfterClass;
+import org.testng.annotations.AfterMethod;
+import org.testng.annotations.BeforeClass;
+import org.testng.annotations.Test;
 
 /**
  * Base test class for multi node or clustered Hot Rod tests.

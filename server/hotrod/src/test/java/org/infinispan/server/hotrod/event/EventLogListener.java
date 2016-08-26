@@ -31,9 +31,9 @@ class EventLogListener extends TestClientListener {
    private final BlockingQueue<TestKeyWithVersionEvent> modifiedEvents = new ArrayBlockingQueue<>(128);
    private final BlockingQueue<TestKeyEvent> removedEvents = new ArrayBlockingQueue<>(128);
    private final BlockingQueue<TestCustomEvent> customEvents = new ArrayBlockingQueue<>(128);
-   private final Cache cache;
+   private final AdvancedCache cache;
 
-   EventLogListener(Cache cache) {
+   EventLogListener(AdvancedCache cache) {
       this.cache = cache;
    }
 
