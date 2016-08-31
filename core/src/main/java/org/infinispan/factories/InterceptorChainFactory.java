@@ -46,6 +46,7 @@ import org.infinispan.interceptors.impl.NotificationInterceptor;
 import org.infinispan.interceptors.impl.TransactionalStoreInterceptor;
 import org.infinispan.interceptors.impl.TxInterceptor;
 import org.infinispan.interceptors.impl.VersionedEntryWrappingInterceptor;
+import org.infinispan.interceptors.impl.WrappedByteArrayInterceptor;
 import org.infinispan.interceptors.locking.NonTransactionalLockingInterceptor;
 import org.infinispan.interceptors.locking.OptimisticLockingInterceptor;
 import org.infinispan.interceptors.locking.PessimisticLockingInterceptor;
@@ -184,11 +185,21 @@ public class InterceptorChainFactory extends AbstractNamedCacheComponentFactory 
       if (transactionMode.isTransactional())
          interceptorChain.appendInterceptor(createInterceptor(new TxInterceptor(), TxInterceptor.class), false);
 
+      boolean wrapByteArray;
       if (isUsingMarshalledValues(configuration)) {
+         wrapByteArray = !configuration.storeAsBinary().storeKeysAsBinary() ||
+               !configuration.storeAsBinary().storeValuesAsBinary();
          AsyncInterceptor interceptor =
                createInterceptor(new MarshalledValueInterceptor(), MarshalledValueInterceptor.class);
 
          interceptorChain.appendInterceptor(interceptor, false);
+      } else {
+         wrapByteArray = true;
+      }
+
+      if (wrapByteArray) {
+         interceptorChain.appendInterceptor(createInterceptor(new WrappedByteArrayInterceptor(), WrappedByteArrayInterceptor.class), false);
+
       }
 
       if (configuration.transaction().useEagerLocking()) {

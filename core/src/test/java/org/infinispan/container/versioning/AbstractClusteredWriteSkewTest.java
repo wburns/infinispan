@@ -1,8 +1,12 @@
 package org.infinispan.container.versioning;
 
 import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertNull;
 import static org.testng.AssertJUnit.assertTrue;
 import static org.testng.AssertJUnit.fail;
+
+import java.util.Iterator;
+import java.util.Map;
 
 import javax.transaction.HeuristicRollbackException;
 import javax.transaction.RollbackException;
@@ -15,6 +19,7 @@ import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.cache.VersioningScheme;
 import org.infinispan.container.DataContainer;
+import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.distribution.MagicKey;
 import org.infinispan.persistence.dummy.DummyInMemoryStoreConfigurationBuilder;
@@ -300,23 +305,19 @@ public abstract class AbstractClusteredWriteSkewTest extends MultipleCacheManage
          primaryOwner.put(key, "v2");
       }
 
-      boolean evicted = false;
-      int i = 0;
-      DataContainer dataContainer = TestingUtil.extractComponent(primaryOwner, DataContainer.class);
-      while (i < MAX_ENTRIES * 2) {
-         MagicKey tempKey = new MagicKey("other-key-" + i, primaryOwner);
-         primaryOwner.put(tempKey, "value");
-         // LIRS requires the key to be read again to force it to be hot, or else each write
-         // will evict the most previous
-         primaryOwner.get(tempKey);
-         if (dataContainer.peek(key) == null) {
-            //the key was evicted and it is only in persistence.
-            evicted = true;
-            break;
-         }
-         ++i;
+      // Need to reuse same keys since magic key has an incrementing number to make them unique
+      MagicKey[] otherKeys = new MagicKey[MAX_ENTRIES];
+      for (int i = 0; i < MAX_ENTRIES; ++i) {
+         otherKeys[i] = new MagicKey("other-key-" + i, primaryOwner);
       }
-      assertTrue("The key was not evicted after " + MAX_ENTRIES + " inserts", evicted);
+
+      DataContainer dataContainer = TestingUtil.extractComponent(primaryOwner, DataContainer.class);
+      for (int j = 0; j < 10; ++j) {
+         for (MagicKey tempKey : otherKeys) {
+            primaryOwner.put(tempKey, "value");
+         }
+      }
+      assertNull("The key was not evicted after " + MAX_ENTRIES + " inserts", dataContainer.get(key));
 
       log.debugf("It is going to try to commit the suspended transaction");
       try {
@@ -348,6 +349,18 @@ public abstract class AbstractClusteredWriteSkewTest extends MultipleCacheManage
       for (Cache cache : caches(PASSIVATION_CACHE)) {
          assertEquals("wrong final value for " + address(cache) + ".", finalValue, cache.get(key));
       }
+   }
+
+   private static <K, V> boolean iteratorContainsKey(Iterable<InternalCacheEntry<K, V>> iterable, Object key) {
+      System.out.println("Iteration");
+      boolean contained = false;
+      for (InternalCacheEntry<K, V> i : iterable) {
+         System.out.println("Found :" + i);
+         if (i.getKey().equals(key)) {
+            contained = true;
+         }
+      }
+      return contained;
    }
 
    private ConfigurationBuilder defaultConfigurationBuilder() {

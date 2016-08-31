@@ -103,13 +103,6 @@ public abstract class AbstractClusterListenerUtilTest extends MultipleCacheManag
       TestingUtil.replaceComponent(manager(2), TimeService.class, ts2, true);
    }
 
-   @AfterMethod
-   public void resetTimeServices() {
-      ts0.advance(-ts0.wallClockTime());
-      ts1.advance(-ts1.wallClockTime());
-      ts2.advance(-ts2.wallClockTime());
-   }
-
    @Listener(clustered = true)
    protected class ClusterListener {
       List<CacheEntryEvent> events = Collections.synchronizedList(new ArrayList<CacheEntryEvent>());
