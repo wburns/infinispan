@@ -52,7 +52,11 @@ public class KeyStreamSupplier<K, V> implements AbstractLocalCacheStream.StreamS
          }
          BitSet bitSet = new BitSet(hash.getNumSegments());
          segmentsToFilter.forEach(bitSet::set);
-         stream = stream.filter(k -> bitSet.get(hash.getSegment(k)));
+         stream = stream.filter(k -> {
+            int segment = hash.getSegment(k);
+            System.out.println("segment " + segment + " for key2 " + k);
+            return bitSet.get(segment);
+         });
       }
       return stream;
    }

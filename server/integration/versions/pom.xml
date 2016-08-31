@@ -27,6 +27,7 @@
       <version.ant-contrib>1.0b3</version.ant-contrib>
       <version.apache.ds>2.0.0-M16</version.apache.ds>
       <version.com.github.relaxng.relaxngDatatype>2011.1</version.com.github.relaxng.relaxngDatatype>
+      <version.com.github.ben-manes.caffeine>2.3.3</version.com.github.ben-manes.caffeine>
       <version.com.thoughtworks.paranamer>2.3</version.com.thoughtworks.paranamer>
       <version.commons.logging>1.1.1</version.commons.logging>
       <version.net.jcip.annotations>1.0</version.net.jcip.annotations>
@@ -188,6 +189,12 @@
             <groupId>com.github.relaxng</groupId>
             <artifactId>relaxngDatatype</artifactId>
             <version>${version.com.github.relaxng.relaxngDatatype}</version>
+         </dependency>
+
+         <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>${version.com.github.ben-manes.caffeine}</version>
          </dependency>
 
          <dependency>

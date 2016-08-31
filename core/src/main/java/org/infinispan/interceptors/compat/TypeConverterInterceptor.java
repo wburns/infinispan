@@ -5,6 +5,7 @@ import java.io.ObjectInputStream;
 import java.util.Collection;
 import java.util.Set;
 
+import org.infinispan.commands.LocalFlagAffectedCommand;
 import org.infinispan.commons.CacheException;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.util.ServiceFinder;
@@ -48,7 +49,8 @@ public class TypeConverterInterceptor<K, V> extends BaseTypeConverterInterceptor
       return converter;
    }
 
-   protected TypeConverter<Object, Object, Object, Object> determineTypeConverter(Set<Flag> flags) {
+   protected TypeConverter<Object, Object, Object, Object> determineTypeConverter(LocalFlagAffectedCommand command) {
+      Set<Flag> flags = command.getFlags();
       if (flags != null) {
          if (flags.contains(Flag.OPERATION_HOTROD))
             return hotRodConverter;

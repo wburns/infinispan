@@ -616,7 +616,8 @@ public class CacheLoaderFunctionalTest extends AbstractInfinispanTest {
       preloadingCache.getAdvancedCache().getTransactionManager().commit();
 
       DataContainer c = preloadingCache.getAdvancedCache().getDataContainer();
-      assertEquals("Wrong number of entries in data container", expectedEntriesInContainer, c.size());
+      int size = c.size();
+      assertEquals("Wrong number of entries in data container", expectedEntriesInContainer, size);
 
       for (int i = 1; i < 5; i++) {
          final String key = "k" + i;
