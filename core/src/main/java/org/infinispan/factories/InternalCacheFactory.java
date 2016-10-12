@@ -9,7 +9,7 @@ import org.infinispan.cache.impl.StatsCollectingCache;
 import org.infinispan.cache.impl.TypeConverterDelegatingAdvancedCache;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.marshall.Marshaller;
-import org.infinispan.compat.PassThroughTypeConverter;
+import org.infinispan.commons.marshall.StreamingMarshaller;
 import org.infinispan.compat.TypeConverter;
 import org.infinispan.configuration.cache.CompatibilityModeConfiguration;
 import org.infinispan.configuration.cache.Configuration;
@@ -19,7 +19,8 @@ import org.infinispan.eviction.PassivationManager;
 import org.infinispan.eviction.impl.ActivationManagerStub;
 import org.infinispan.eviction.impl.PassivationManagerStub;
 import org.infinispan.expiration.ExpirationManager;
-import org.infinispan.interceptors.impl.WrappedByteArrayInterceptor;
+import org.infinispan.interceptors.impl.MarshallerConverter;
+import org.infinispan.interceptors.impl.WrappedByteArrayConverter;
 import org.infinispan.jmx.CacheJmxRegistration;
 import org.infinispan.manager.DefaultCacheManager;
 import org.infinispan.notifications.cachelistener.cluster.ClusterEventManager;
@@ -79,19 +80,30 @@ public class InternalCacheFactory<K, V> extends AbstractNamedCacheComponentFacto
       AdvancedCache<K, V> cache = new CacheImpl<K, V>(cacheName);
       CompatibilityModeConfiguration compatibilityModeConfiguration = configuration.compatibility();
       Marshaller marshaller;
-      TypeConverter converter = new WrappedByteArrayInterceptor.WrappedByteArrayConverter();
+      TypeConverter converter;
       if (compatibilityModeConfiguration.enabled()) {
+         converter = new WrappedByteArrayConverter();
          marshaller = compatibilityModeConfiguration.marshaller();
          cache = new CompatibilityAdvancedCache<>(cache, marshaller, converter);
-      } else {
+      } else if (configuration.storeAsBinary().enabled()) {
+         converter = new MarshallerConverter(globalComponentRegistry.getOrCreateComponent(StreamingMarshaller.class));
          marshaller = null;
          cache = new TypeConverterDelegatingAdvancedCache<>(cache, converter);
+      } else {
+         marshaller = null;
+         converter = null;
       }
+      // TODO: need to add wrap byte[] option
+      //         } else {
+//            converter = new WrappedByteArrayConverter();
+//         }
       bootstrap(cacheName, cache, configuration, globalComponentRegistry);
       if (marshaller != null) {
          componentRegistry.wireDependencies(marshaller);
       }
-      componentRegistry.registerComponent(converter, TypeConverter.class);
+      if (converter != null) {
+         componentRegistry.registerComponent(converter, TypeConverter.class);
+      }
       return cache;
    }
 

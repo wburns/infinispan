@@ -18,6 +18,7 @@ import org.infinispan.commands.write.ValueMatcher;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.hash.MurmurHash3;
 import org.infinispan.commons.io.ByteBufferImpl;
+import org.infinispan.commons.marshall.WrappedByteArray;
 import org.infinispan.commons.io.UnsignedNumeric;
 import org.infinispan.commons.marshall.AdvancedExternalizer;
 import org.infinispan.commons.marshall.Externalizer;
@@ -281,6 +282,7 @@ public class ExternalizerTable implements ObjectTable {
       addInternalExternalizer(new Immutables.ImmutableMapWrapperExternalizer());
       addInternalExternalizer(new MarshalledValue.Externalizer(globalMarshaller));
       addInternalExternalizer(new ByteBufferImpl.Externalizer());
+      addInternalExternalizer(new WrappedByteArray.Externalizer());
 
       addInternalExternalizer(new SuccessfulResponse.Externalizer());
       addInternalExternalizer(new ExceptionResponse.Externalizer());

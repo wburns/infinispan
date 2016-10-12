@@ -19,7 +19,7 @@ import org.infinispan.commons.util.DistinctFunction;
  * @author wburns
  * @since 9.0
  */
-public class SetMapper<E, R> extends CollectionMapper<E, R> {
+public class SetMapper<E, R> extends CollectionMapper<E, R> implements Set<R> {
    public SetMapper(Set<E> realCollection, Function<? super E, ? extends R> mapper) {
       super(realCollection, mapper);
       if (!(mapper instanceof DistinctFunction)) {

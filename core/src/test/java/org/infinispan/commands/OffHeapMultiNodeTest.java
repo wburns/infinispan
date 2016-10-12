@@ -13,8 +13,8 @@ import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.transaction.TransactionMode;
 import org.testng.annotations.Test;
 
-@Test(groups = "functional", testName = "commands.PutMapCommandTest")
-public class PutMapCommandTest extends MultipleCacheManagersTest {
+@Test(groups = "functional", testName = "commands.OffHeapMultiNodeTest")
+public class OffHeapMultiNodeTest extends MultipleCacheManagersTest {
    protected int numberOfKeys = 10;
 
    @Override
@@ -23,16 +23,6 @@ public class PutMapCommandTest extends MultipleCacheManagersTest {
       dcc.storeAsBinary().enable().storeValuesAsBinary(false);
       createCluster(dcc, 4);
       waitForClusterToForm();
-   }
-
-   public void testPutOnNonOwner() {  //todo [anistor] this does not test putAll !
-      MagicKey mk = new MagicKey("key", cache(0));
-      cache(3).getAdvancedCache().withFlags(Flag.SKIP_REMOTE_LOOKUP).put(mk, "value");
-
-      assert cache(0).getAdvancedCache().withFlags(Flag.SKIP_REMOTE_LOOKUP).get(mk) != null;
-      assert cache(1).getAdvancedCache().withFlags(Flag.SKIP_REMOTE_LOOKUP).get(mk) == null;
-      assert cache(2).getAdvancedCache().withFlags(Flag.SKIP_REMOTE_LOOKUP).get(mk) == null;
-      assert cache(3).getAdvancedCache().withFlags(Flag.SKIP_REMOTE_LOOKUP).get(mk) == null;
    }
 
    public void testPutMapCommand() {

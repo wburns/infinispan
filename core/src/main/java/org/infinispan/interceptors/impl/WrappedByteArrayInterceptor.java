@@ -2,7 +2,6 @@ package org.infinispan.interceptors.impl;
 
 import java.io.Serializable;
 import java.util.Spliterator;
-import java.util.concurrent.CompletableFuture;
 
 import org.infinispan.CacheSet;
 import org.infinispan.CacheStream;
@@ -11,16 +10,12 @@ import org.infinispan.commands.LocalFlagAffectedCommand;
 import org.infinispan.commands.MetadataAwareCommand;
 import org.infinispan.commands.read.EntrySetCommand;
 import org.infinispan.commands.read.KeySetCommand;
-import org.infinispan.commons.hash.Hash;
-import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.CloseableIteratorMapper;
 import org.infinispan.commons.util.CloseableSpliterator;
-import org.infinispan.commons.util.Util;
 import org.infinispan.compat.TypeConverter;
 import org.infinispan.container.InternalEntryFactory;
 import org.infinispan.container.entries.CacheEntry;
-import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.interceptors.BasicInvocationStage;
@@ -39,39 +34,6 @@ public class WrappedByteArrayInterceptor<K, V> extends BaseTypeConverterIntercep
    @Override
    protected TypeConverter<Object, Object, Object, Object> determineTypeConverter(LocalFlagAffectedCommand command) {
       return new WrappedByteArrayConverter();
-   }
-
-   public static class WrappedByteArrayConverter implements TypeConverter<Object, Object, Object, Object> {
-      @Override
-      public Object unboxKey(Object key) {
-         return key instanceof WrappedByteArray ? ((WrappedByteArray) key).getBytes() : key;
-      }
-
-      @Override
-      public Object unboxValue(Object value) {
-         return value instanceof WrappedByteArray ? ((WrappedByteArray) value).getBytes() : value;
-      }
-
-      @Override
-      public Object boxKey(Object target) {
-         return target instanceof byte[] ? new WrappedByteArray((byte[]) target) : target;
-      }
-
-      @Override
-      public Object boxValue(Object target) {
-         return target instanceof byte[] ? new WrappedByteArray((byte[]) target) : target;
-      }
-
-      @Override
-      public boolean supportsInvocation(Flag flag) {
-         // Shouldn't be used
-         return false;
-      }
-
-      @Override
-      public void setMarshaller(Marshaller marshaller) {
-         // Do nothing
-      }
    }
 
    protected void addVersionIfNeeded(MetadataAwareCommand cmd) {

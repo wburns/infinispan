@@ -6,12 +6,15 @@ import org.infinispan.commons.util.concurrent.jdk8backported.EntrySizeCalculator
 import org.infinispan.configuration.cache.EvictionConfiguration;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.DefaultDataContainer;
+import org.infinispan.container.OffHeapTranslatedDataContainer;
 import org.infinispan.container.entries.MarshalledValueEntrySizeCalculator;
 import org.infinispan.container.entries.PrimitiveEntrySizeCalculator;
 import org.infinispan.eviction.EvictionStrategy;
 import org.infinispan.eviction.EvictionType;
 import org.infinispan.factories.annotations.DefaultFactoryFor;
 import org.infinispan.marshall.core.WrappedByteArraySizeCalculator;
+
+import io.netty.buffer.PooledByteBufAllocator;
 
 /**
  * Constructs the data container
@@ -39,15 +42,23 @@ public class DataContainerFactory extends AbstractNamedCacheComponentFactory imp
 
          //handle case when < 0 value signifies unbounded container
          if(thresholdSize < 0) {
-            return (T) DefaultDataContainer.unBoundedDataContainer(
-                    level, keyEquivalence);
+            if (configuration.storeAsBinary().enabled() && !configuration.storeAsBinary().storeValuesAsBinary()) {
+               return (T) new OffHeapTranslatedDataContainer(PooledByteBufAllocator.DEFAULT,
+                     DefaultDataContainer.unBoundedDataContainer(level, keyEquivalence));
+            } else {
+               return (T) DefaultDataContainer.unBoundedDataContainer(level, keyEquivalence);
+            }
          }
 
          DefaultDataContainer dataContainer;
          switch (st) {
             case NONE:
-               return (T) DefaultDataContainer.unBoundedDataContainer(
-                     level, keyEquivalence);
+               if (configuration.storeAsBinary().enabled() && !configuration.storeAsBinary().storeValuesAsBinary()) {
+                  return (T) new OffHeapTranslatedDataContainer(PooledByteBufAllocator.DEFAULT,
+                        DefaultDataContainer.unBoundedDataContainer(level, keyEquivalence));
+               } else {
+                  return (T) DefaultDataContainer.unBoundedDataContainer(level, keyEquivalence);
+               }
             case UNORDERED:
             case LRU:
 

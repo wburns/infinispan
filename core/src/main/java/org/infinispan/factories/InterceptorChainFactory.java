@@ -188,12 +188,12 @@ public class InterceptorChainFactory extends AbstractNamedCacheComponentFactory 
          interceptorChain.appendInterceptor(createInterceptor(new TxInterceptor(), TxInterceptor.class), false);
 
 
-      if (useMarshalledValues) {
-         AsyncInterceptor interceptor =
-               createInterceptor(new MarshalledValueInterceptor(), MarshalledValueInterceptor.class);
-
-         interceptorChain.appendInterceptor(interceptor, false);
-      }
+//      if (useMarshalledValues) {
+//         AsyncInterceptor interceptor =
+//               createInterceptor(new MarshalledValueInterceptor(), MarshalledValueInterceptor.class);
+//
+//         interceptorChain.appendInterceptor(interceptor, false);
+//      }
 
       if (configuration.transaction().useEagerLocking()) {
          configuration.transaction().lockingMode(LockingMode.PESSIMISTIC);

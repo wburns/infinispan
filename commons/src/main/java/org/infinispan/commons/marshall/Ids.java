@@ -18,6 +18,7 @@ public interface Ids {
    int IMMUTABLE_LIST = 18;
    int IMMUTABLE_MAP = 19;
    int BYTE_BUFFER = 106;
+   int WBA = 107;
 
    // Functional lambdas
    int LAMBDA_CONSTANT = 158;

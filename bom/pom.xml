@@ -452,6 +452,11 @@
             <version>${version.netty}</version>
          </dependency>
          <dependency>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-buffer</artifactId>
+            <version>${version.netty}</version>
+         </dependency>
+         <dependency>
             <groupId>org.scala-lang</groupId>
             <artifactId>scala-library</artifactId>
             <version>${version.scala}</version>
