@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.function.BiConsumer;
 
 import org.infinispan.commons.marshall.WrappedByteArray;
+import org.infinispan.commons.marshall.WrappedBytes;
 import org.infinispan.commons.util.ByRef;
 import org.infinispan.commons.util.IteratorMapper;
 import org.infinispan.container.entries.InternalCacheEntry;
@@ -29,11 +30,11 @@ import io.netty.util.IllegalReferenceCountException;
  */
 public class OffHeapTranslatedDataContainer implements DataContainer<WrappedByteArray, WrappedByteArray> {
    private final ByteBufAllocator allocator;
-   private final DataContainer<Object, ByteBufWrapper> realDataContainer;
+   private final DataContainer<Object, ByteBufWrapperValue> realDataContainer;
 
    protected InternalEntryFactory entryFactory;
 
-   public OffHeapTranslatedDataContainer(ByteBufAllocator allocator, DataContainer<Object, ByteBufWrapper> realDataContainer) {
+   public OffHeapTranslatedDataContainer(ByteBufAllocator allocator, DataContainer<Object, ByteBufWrapperValue> realDataContainer) {
       this.allocator = allocator;
       this.realDataContainer = realDataContainer;
    }
@@ -44,12 +45,17 @@ public class OffHeapTranslatedDataContainer implements DataContainer<WrappedByte
       this.entryFactory = entryFactory;
    }
 
-   <T> T toOffHeap(WrappedByteArray array) {
-      byte[] bytes = array.getBytes();
-      ByteBuf buf = allocator.directBuffer(bytes.length, bytes.length);
-      buf.writeBytes(bytes);
+   InternalCacheEntry<Object, ByteBufWrapperValue> toOffHeap(WrappedBytes key, WrappedBytes value,
+                                                                        Metadata metadata) {
+      int keySize = key.getLength();
+      int valueSize = value.getLength();
+      ByteBuf buf = allocator.directBuffer(keySize + valueSize, keySize + valueSize);
+      buf.writeBytes(key.getBytes(), key.backArrayOffset(), keySize);
+      buf.writeBytes(value.getBytes(), value.backArrayOffset(), valueSize);
+      // Set the reader index to the size of the key to tell the wrapper where the key ends
+      buf.setIndex(keySize, keySize);
 
-      return (T) ByteBufWrapper.newInstance(buf, array.getHashCode());
+      return entryFactory.create(ByteBufWrapperKey.newInstance(buf, key.hashCode()), ByteBufWrapperValue.newInstance(buf), metadata);
    }
 
    static WrappedByteArray toWrapper(Object obj) {
@@ -60,24 +66,27 @@ public class OffHeapTranslatedDataContainer implements DataContainer<WrappedByte
    }
 
    InternalCacheEntry<WrappedByteArray, WrappedByteArray> fromWrappedEntry(
-         InternalCacheEntry<Object, ByteBufWrapper> entry) {
+         InternalCacheEntry<Object, ByteBufWrapperValue> entry) {
       if (entry == null) {
          return null;
       }
       // This cast should never fail
-      ByteBufWrapper key = (ByteBufWrapper) entry.getKey();
+      ByteBufWrapperKey key = (ByteBufWrapperKey) entry.getKey();
       ByteBufWrapper value = entry.getValue();
       WrappedByteArray newKey = fromWrapper(key);
-//      // Release it so it can be freed
-//      key.getBuffer().release();
       WrappedByteArray newValue = fromWrapper(value);
-//      // Release it so it can be freed
-//      value.getBuffer().release();
       return entryFactory.create(newKey, newValue, entry);
    }
 
+   /**
+    * Same as {@link OffHeapTranslatedDataContainer#fromWrappedEntry(InternalCacheEntry)} except that the key will
+    * not be unwrapped since the caller already has it
+    * @param key
+    * @param entry
+    * @return
+    */
    InternalCacheEntry<WrappedByteArray, WrappedByteArray> fromWrappedEntry(
-         Object key, InternalCacheEntry<Object, ByteBufWrapper> entry) {
+         Object key, InternalCacheEntry<Object, ByteBufWrapperValue> entry) {
       if (entry == null) {
          return null;
       }
@@ -85,16 +94,16 @@ public class OffHeapTranslatedDataContainer implements DataContainer<WrappedByte
       // This cast should never fail
       ByteBufWrapper value = entry.getValue();
       WrappedByteArray newValue = fromWrapper(value);
-      // Release it so it can be freed
-      value.release();
+      // Release the key so it can be freed
+      ((ByteBufWrapperKey) entry.getKey()).release();
       return entryFactory.create((WrappedByteArray) key, newValue, entry);
    }
 
    static WrappedByteArray fromWrapper(Object obj) {
       if (obj instanceof ByteBufWrapper) {
          ByteBufWrapper bbw = (ByteBufWrapper) obj;
-         byte[] bytes = new byte[bbw.getBuffer().readableBytes()];
-         bbw.getBuffer().getBytes(0, bytes);
+         byte[] bytes = new byte[bbw.getLength()];
+         bbw.getBuffer().getBytes(bbw.getOffset(), bytes);
          return new WrappedByteArray(bytes);
       }
       if (obj instanceof WrappedByteArray) {
@@ -107,10 +116,10 @@ public class OffHeapTranslatedDataContainer implements DataContainer<WrappedByte
    public InternalCacheEntry<WrappedByteArray, WrappedByteArray> get(Object k) {
       WrappedByteArray wba = toWrapper(k);
       while (true) {
-         InternalCacheEntry<Object, ByteBufWrapper> ice = realDataContainer.get(wba);
+         InternalCacheEntry<Object, ByteBufWrapperValue> ice = realDataContainer.get(wba);
          if (ice == null) return null;
          // We retain it temporarily to make sure we can read the value, if we cannot then have to loop back around
-         if (ice.getValue().retain() != null) {
+         if (((ByteBufWrapperKey) ice.getKey()).retain() != null) {
             return fromWrappedEntry(k, ice);
          }
       }
@@ -123,22 +132,20 @@ public class OffHeapTranslatedDataContainer implements DataContainer<WrappedByte
 
    @Override
    public void put(WrappedByteArray key, WrappedByteArray value, Metadata metadata) {
-      ByRef<InternalCacheEntry<Object, ByteBufWrapper>> ref = new ByRef<>(null);
-      realDataContainer.compute(toOffHeap(key), (k, oldEntry, factory) -> {
+      ByRef<InternalCacheEntry<Object, ByteBufWrapperValue>> ref = new ByRef<>(null);
+      InternalCacheEntry<Object, ByteBufWrapperValue> ice = toOffHeap(key, value, metadata);
+      realDataContainer.compute(ice.getKey(), (k, oldEntry, factory) -> {
          if (oldEntry != null) {
-            // If the entry was replaced the node value is just updated, so the lookup key needs to
-            // be relinquished
-            // TODO: is this an issue with Caffeine?  Seems unlikely JRE would ever change this behavior
-            ((ByteBufWrapper) k).release();
-            // Need to release after compute - note the key in the container is the same instance
-            // as the key in entry value
+            // Need to release after returning from compute.  This is to prevent a read from reading a released
             ref.set(oldEntry);
+            // TODO: we could just rely on the fact that the reader will spin trying over and over
+//            ((ByteBufWrapperKey) oldEntry.getKey()).release();
          }
-         return factory.create(k, toOffHeap(value), metadata);
+         return ice;
       });
-      InternalCacheEntry<Object, ByteBufWrapper> prev = ref.get();
+      InternalCacheEntry<Object, ByteBufWrapperValue> prev = ref.get();
       if (prev != null) {
-         prev.getValue().release();
+         ((ByteBufWrapperKey) prev.getKey()).release();
       }
    }
 
@@ -149,10 +156,9 @@ public class OffHeapTranslatedDataContainer implements DataContainer<WrappedByte
 
    @Override
    public InternalCacheEntry<WrappedByteArray, WrappedByteArray> remove(Object k) {
-      InternalCacheEntry<Object, ByteBufWrapper> entry = realDataContainer.remove(toWrapper(k));
+      InternalCacheEntry<Object, ByteBufWrapperValue> entry = realDataContainer.remove(toWrapper(k));
       InternalCacheEntry<WrappedByteArray, WrappedByteArray> returned = fromWrappedEntry(entry);
-      ((ByteBufWrapper) entry.getKey()).release();
-      entry.getValue().release();
+      ((ByteBufWrapperKey) entry.getKey()).release();
       return returned;
    }
 
@@ -167,12 +173,11 @@ public class OffHeapTranslatedDataContainer implements DataContainer<WrappedByte
 
    @Override
    public void clear() {
-      Iterator<InternalCacheEntry<Object, ByteBufWrapper>> iterator = realDataContainer.iterator();
+      Iterator<InternalCacheEntry<Object, ByteBufWrapperValue>> iterator = realDataContainer.iterator();
       // Have to release all entries first - TODO this has concurrency issue if another operation done at same time
       while (iterator.hasNext()) {
-         InternalCacheEntry<Object, ByteBufWrapper> entry = iterator.next();
-         ((ByteBufWrapper) entry.getKey()).release();
-         entry.getValue().release();
+         InternalCacheEntry<Object, ByteBufWrapperValue> entry = iterator.next();
+         ((ByteBufWrapperKey) entry.getKey()).release();
       }
       realDataContainer.clear();
    }

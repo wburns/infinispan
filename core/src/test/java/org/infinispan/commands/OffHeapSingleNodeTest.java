@@ -1,33 +1,23 @@
 package org.infinispan.commands;
 
-import static org.infinispan.test.TestingUtil.withCacheManager;
-import static org.testng.AssertJUnit.assertTrue;
+import static org.testng.AssertJUnit.assertEquals;
 
 import java.util.Arrays;
 import java.util.Map;
+import java.util.Random;
+import java.util.concurrent.TimeUnit;
 
-import org.infinispan.Cache;
-import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
-import org.infinispan.test.CacheManagerCallable;
 import org.infinispan.test.SingleCacheManagerTest;
-import org.infinispan.test.fwk.CleanupAfterMethod;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
 import org.testng.annotations.Test;
 
+import io.netty.buffer.PooledByteBufAllocator;
 
 /**
- * Test that verifies that when custom, or JDK, objects that have undesirable
- * equality checks, i.e. byte arrays, are stored in the cache, then the
- * correct results are returned with different configurations (with or
- * without key/value equivalence set up).
- *
- * @author Galder Zamarreño
- * @since 5.3
  */
 @Test(groups = "functional", testName = "api.ByteArrayCacheTest")
-@CleanupAfterMethod
 public class OffHeapSingleNodeTest extends SingleCacheManagerTest {
 
    @Override
@@ -38,34 +28,37 @@ public class OffHeapSingleNodeTest extends SingleCacheManagerTest {
       return TestCacheManagerFactory.createCacheManager(builder);
    }
 
-   public void testByteArrayValueOnlyReplace() {
-      ConfigurationBuilder builder = new ConfigurationBuilder();
-      builder.storeAsBinary().enable().storeValuesAsBinary(false).storeValuesAsBinary(false);
-      withCacheManager(new CacheManagerCallable(
-            TestCacheManagerFactory.createCacheManager(builder)) {
-         @Override
-         public void call() {
-            // Mimics Memcached/REST endpoints where only value side is byte array
-            Cache<Integer, byte[]> cache = cm.getCache();
-            final Integer key = 2;
-            final byte[] value = {1, 2, 3};
-            cache.put(key, value);
-            // Use a different instance deliberately
-            final byte[] oldValue = {1, 2, 3};
-            final byte[] newValue = {4, 5, 6};
-            assertTrue(cache.replace(key, oldValue, newValue));
+   public void testByteArrayGet() throws InterruptedException {
+      Map<byte[], byte[]> map = cache();
+
+//      int cacheSize = 2_000_000;
+//      int cacheSize = 400_001;
+      int cacheSize = 400_001;
+//      int cacheSize = 750_000;
+      for (int i = 0; i < cacheSize; ++i) {
+         byte[] key = randomBytes(KEY_SIZE);
+         byte[] prev = map.put(key, randomBytes(VALUE_SIZE));
+         if (prev != null) {
+            System.out.println("Replaced a value!");
+            System.currentTimeMillis();
          }
-      });
+      }
+      System.out.println(PooledByteBufAllocator.DEFAULT.dumpStats());
+      int mapSize = map.size();
+      assertEquals(cacheSize, mapSize);
+      System.out.println("Completed!");
+//      System.out.println("Size = " + map.entrySet().stream().mapToInt(e -> e.getKey().length + e.getValue().length).sum());
+      Thread.sleep(TimeUnit.DAYS.toMillis(1));
    }
 
-   public void testByteArrayGet() {
-      Map<byte[], byte[]> map = cache();
-      byte[] key = {1, 2, 3};
-      byte[] value = {4, 5, 6};
-      map.put(key, value);
-      byte[] lookupKey = {1, 2, 3}; // on purpose, different instance required
-      assertTrue(String.format("Expected key=%s to return value=%s",
-            Util.toStr(lookupKey), Util.toStr(value)),
-            Arrays.equals(value, map.get(lookupKey)));
+   private final static int KEY_SIZE = 20;
+   private final static int VALUE_SIZE = 4000;
+
+   public byte[] randomBytes(int size) {
+      byte[] bytes = new byte[size];
+      random.nextBytes(bytes);
+      return bytes;
    }
+
+   private final Random random = new Random();
 }

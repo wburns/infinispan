@@ -34,13 +34,19 @@ public class WrappedByteArray implements WrappedBytes, Serializable {
       return bytes;
    }
 
-   public int getHashCode() {
-      return hashCode;
+   @Override
+   public int backArrayOffset() {
+      return 0;
    }
 
    @Override
-   public boolean bytesEqual(WrappedBytes other) {
-      return other.equals(this);
+   public int getLength() {
+      return bytes.length;
+   }
+
+   @Override
+   public byte getByte(int offset) {
+      return bytes[offset];
    }
 
    @Override
@@ -49,7 +55,7 @@ public class WrappedByteArray implements WrappedBytes, Serializable {
       if (o == null) return false;
       Class<?> oClass = o.getClass();
       if (getClass() != oClass) {
-         return oClass.isAssignableFrom(WrappedBytes.class) && ((WrappedBytes) o).bytesEqual(this);
+         return oClass.isAssignableFrom(WrappedBytes.class) && equalsWrappedBytes((WrappedBytes) o);
       }
 
       WrappedByteArray that = (WrappedByteArray) o;
