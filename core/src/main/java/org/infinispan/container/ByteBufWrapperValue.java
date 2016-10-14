@@ -44,6 +44,11 @@ public class ByteBufWrapperValue extends ByteBufWrapper {
       return obj;
    }
 
+   public void deallocate() {
+      buffer = null;
+      handler.recycle(this);
+   }
+
    @Override
    public int getLength() {
       return buffer.capacity() - buffer.readerIndex();

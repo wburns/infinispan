@@ -32,8 +32,9 @@ public class OffHeapSingleNodeTest extends SingleCacheManagerTest {
       Map<byte[], byte[]> map = cache();
 
 //      int cacheSize = 2_000_000;
-//      int cacheSize = 400_001;
       int cacheSize = 400_001;
+//      int cacheSize = 800_001;
+//        int cacheSize = 1_600_001;
 //      int cacheSize = 750_000;
       for (int i = 0; i < cacheSize; ++i) {
          byte[] key = randomBytes(KEY_SIZE);
@@ -52,7 +53,7 @@ public class OffHeapSingleNodeTest extends SingleCacheManagerTest {
    }
 
    private final static int KEY_SIZE = 20;
-   private final static int VALUE_SIZE = 4000;
+   private final static int VALUE_SIZE = 120;
 
    public byte[] randomBytes(int size) {
       byte[] bytes = new byte[size];

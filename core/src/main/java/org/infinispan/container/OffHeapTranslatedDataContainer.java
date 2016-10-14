@@ -146,6 +146,7 @@ public class OffHeapTranslatedDataContainer implements DataContainer<WrappedByte
       InternalCacheEntry<Object, ByteBufWrapperValue> prev = ref.get();
       if (prev != null) {
          ((ByteBufWrapperKey) prev.getKey()).release();
+         prev.getValue().deallocate();
       }
    }
 
@@ -159,6 +160,7 @@ public class OffHeapTranslatedDataContainer implements DataContainer<WrappedByte
       InternalCacheEntry<Object, ByteBufWrapperValue> entry = realDataContainer.remove(toWrapper(k));
       InternalCacheEntry<WrappedByteArray, WrappedByteArray> returned = fromWrappedEntry(entry);
       ((ByteBufWrapperKey) entry.getKey()).release();
+      entry.getValue().deallocate();
       return returned;
    }
 
@@ -178,6 +180,7 @@ public class OffHeapTranslatedDataContainer implements DataContainer<WrappedByte
       while (iterator.hasNext()) {
          InternalCacheEntry<Object, ByteBufWrapperValue> entry = iterator.next();
          ((ByteBufWrapperKey) entry.getKey()).release();
+         entry.getValue().deallocate();
       }
       realDataContainer.clear();
    }

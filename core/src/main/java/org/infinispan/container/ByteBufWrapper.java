@@ -17,14 +17,6 @@ import io.netty.util.internal.PlatformDependent;
 abstract class ByteBufWrapper implements WrappedBytes {
    protected ByteBuf buffer;
 
-   static boolean equals(byte[] bytes, ByteBuf buf, int offset, int length) {
-      if (bytes.length != length) return false;
-      for (int i = 0; i < length; i++)
-         if (bytes[i] != buf.getByte(i + offset))
-            return false;
-      return true;
-   }
-
    public ByteBuf getBuffer() {
       return buffer;
    }

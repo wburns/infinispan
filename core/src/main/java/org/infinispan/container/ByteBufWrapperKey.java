@@ -43,14 +43,21 @@ public class ByteBufWrapperKey extends ByteBufWrapper {
    @Override
    public boolean equals(Object obj) {
       if (this == obj) return true;
-      if (obj instanceof ByteBufWrapperKey) {
-         ByteBufWrapperKey bbw = (ByteBufWrapperKey) obj;
-         if (hashCode != bbw.hashCode()) return false;
-         return equalsWrappedBytes((WrappedBytes) obj);
-      } else if (obj instanceof WrappedBytes) {
-         return equalsWrappedBytes((WrappedBytes) obj);
+      // We need to retain this ByteBuf just in case if a concurrent thread removes us while we are checking equality
+      // If retain returns null it means we were freed, so we can't be equal
+      if (retain() == null) return false;
+      try {
+         if (obj instanceof ByteBufWrapperKey) {
+            ByteBufWrapperKey bbw = (ByteBufWrapperKey) obj;
+            if (hashCode != bbw.hashCode()) return false;
+            return equalsWrappedBytes((WrappedBytes) obj);
+         } else if (obj instanceof WrappedBytes) {
+            return equalsWrappedBytes((WrappedBytes) obj);
+         }
+         return false;
+      } finally {
+         release();
       }
-      return false;
    }
 
    @Override
@@ -83,8 +90,9 @@ public class ByteBufWrapperKey extends ByteBufWrapper {
    }
 
    public void deallocate() {
-      buffer.release();
+      ByteBuf buf = buffer;
       buffer = null;
+      buf.release();
       hashCode = 0;
       handler.recycle(this);
    }
