@@ -48,12 +48,11 @@ public class OffHeapSingleNodeTest extends SingleCacheManagerTest {
       int mapSize = map.size();
       assertEquals(cacheSize, mapSize);
       System.out.println("Completed!");
-//      System.out.println("Size = " + map.entrySet().stream().mapToInt(e -> e.getKey().length + e.getValue().length).sum());
       Thread.sleep(TimeUnit.DAYS.toMillis(1));
    }
 
    private final static int KEY_SIZE = 20;
-   private final static int VALUE_SIZE = 120;
+   private final static int VALUE_SIZE = 4000;
 
    public byte[] randomBytes(int size) {
       byte[] bytes = new byte[size];

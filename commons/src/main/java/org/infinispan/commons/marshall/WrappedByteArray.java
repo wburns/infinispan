@@ -55,12 +55,22 @@ public class WrappedByteArray implements WrappedBytes, Serializable {
       if (o == null) return false;
       Class<?> oClass = o.getClass();
       if (getClass() != oClass) {
-         return oClass.isAssignableFrom(WrappedBytes.class) && equalsWrappedBytes((WrappedBytes) o);
+         return WrappedBytes.class.isAssignableFrom(oClass) && equalsWrappedBytes((WrappedBytes) o);
       }
 
       WrappedByteArray that = (WrappedByteArray) o;
 
       return Arrays.equals(bytes, that.bytes);
+   }
+
+   public boolean equalsWrappedBytes(WrappedBytes other) {
+      int length = getLength();
+      if (other.getLength() != length) return false;
+      if (other.hashCode() != hashCode()) return false;
+      for (int i = 0; i < length; ++i) {
+         if (getByte(i) != other.getByte(i)) return false;
+      }
+      return true;
    }
 
    @Override

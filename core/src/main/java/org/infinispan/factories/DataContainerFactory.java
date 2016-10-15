@@ -6,7 +6,7 @@ import org.infinispan.commons.util.concurrent.jdk8backported.EntrySizeCalculator
 import org.infinispan.configuration.cache.EvictionConfiguration;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.DefaultDataContainer;
-import org.infinispan.container.OffHeapTranslatedDataContainer;
+import org.infinispan.container.offheap.OffHeapTranslatedDataContainer;
 import org.infinispan.container.entries.MarshalledValueEntrySizeCalculator;
 import org.infinispan.container.entries.PrimitiveEntrySizeCalculator;
 import org.infinispan.eviction.EvictionStrategy;
@@ -43,8 +43,7 @@ public class DataContainerFactory extends AbstractNamedCacheComponentFactory imp
          //handle case when < 0 value signifies unbounded container
          if(thresholdSize < 0) {
             if (configuration.storeAsBinary().enabled() && !configuration.storeAsBinary().storeValuesAsBinary()) {
-               return (T) new OffHeapTranslatedDataContainer(PooledByteBufAllocator.DEFAULT,
-                     DefaultDataContainer.unBoundedDataContainer(level, keyEquivalence));
+               return (T) new OffHeapTranslatedDataContainer(PooledByteBufAllocator.DEFAULT);
             } else {
                return (T) DefaultDataContainer.unBoundedDataContainer(level, keyEquivalence);
             }
@@ -54,8 +53,7 @@ public class DataContainerFactory extends AbstractNamedCacheComponentFactory imp
          switch (st) {
             case NONE:
                if (configuration.storeAsBinary().enabled() && !configuration.storeAsBinary().storeValuesAsBinary()) {
-                  return (T) new OffHeapTranslatedDataContainer(PooledByteBufAllocator.DEFAULT,
-                        DefaultDataContainer.unBoundedDataContainer(level, keyEquivalence));
+                  return (T) new OffHeapTranslatedDataContainer(PooledByteBufAllocator.DEFAULT);
                } else {
                   return (T) DefaultDataContainer.unBoundedDataContainer(level, keyEquivalence);
                }

@@ -69,30 +69,18 @@ import net.jcip.annotations.ThreadSafe;
  * @since 4.0
  */
 @ThreadSafe
-public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
+public class DefaultDataContainer<K, V> extends AbstractDataContainer<K, V> {
 
    private static final Log log = LogFactory.getLog(DefaultDataContainer.class);
    private static final boolean trace = log.isTraceEnabled();
 
-   private final ConcurrentMap<K, InternalCacheEntry<K, V>> entries;
-   protected InternalEntryFactory entryFactory;
-   private EvictionManager evictionManager;
-   private PassivationManager passivator;
-   private ActivationManager activator;
-   private PersistenceManager pm;
-   private TimeService timeService;
-   private CacheNotifier cacheNotifier;
-   private ExpirationManager<K, V> expirationManager;
-
    public DefaultDataContainer(int concurrencyLevel) {
-      // If no comparing implementations passed, could fallback on JDK CHM
-      entries = CollectionFactory.makeConcurrentParallelMap(128, concurrencyLevel);
+      super(concurrencyLevel);
    }
 
    public DefaultDataContainer(int concurrencyLevel,
          Equivalence<? super K> keyEq) {
-      // If at least one comparing implementation give, use ComparingCHMv8
-      entries = CollectionFactory.makeConcurrentParallelMap(128, concurrencyLevel, keyEq, AnyEquivalence.getInstance());
+      super(concurrencyLevel, keyEq);
    }
 
    private static <K, V> Caffeine<K, V> caffeineBuilder() {
@@ -102,32 +90,7 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
    protected DefaultDataContainer(int concurrencyLevel, long thresholdSize,
          EvictionStrategy strategy, EvictionThreadPolicy policy,
          Equivalence<? super K> keyEquivalence, EvictionType thresholdPolicy) {
-      DefaultEvictionListener evictionListener;
-      // translate eviction policy and strategy
-      switch (policy) {
-         case PIGGYBACK:
-         case DEFAULT:
-            evictionListener = new DefaultEvictionListener();
-            break;
-         default:
-            throw new IllegalArgumentException("No such eviction thread policy " + strategy);
-      }
-
-      Caffeine<K, InternalCacheEntry<K, V>> caffeine = caffeineBuilder();
-
-      switch (thresholdPolicy) {
-         case MEMORY:
-            CacheEntrySizeCalculator<K, V> calc = new CacheEntrySizeCalculator<>(new WrappedByteArraySizeCalculator<>(
-                  new MarshalledValueEntrySizeCalculator()));
-            caffeine.weigher((k, v) -> (int) calc.calculateSize(k, v)).maximumWeight(thresholdSize);
-            break;
-         case COUNT:
-            caffeine.maximumSize(thresholdSize);
-            break;
-         default:
-            throw new UnsupportedOperationException("Policy not supported: " + thresholdPolicy);
-      }
-      entries = new CaffeineConcurrentMap<>(applyListener(caffeine, evictionListener).build());
+      super(concurrencyLevel, thresholdSize, strategy, policy, keyEquivalence, thresholdPolicy);
    }
 
    private Caffeine<K, InternalCacheEntry<K, V>> applyListener(Caffeine<K, InternalCacheEntry<K, V>> caffeine, DefaultEvictionListener listener) {
@@ -171,39 +134,7 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
                                   EvictionStrategy strategy, EvictionThreadPolicy policy,
                                   Equivalence<? super K> keyEquivalence,
                                   EntrySizeCalculator<? super K, ? super V> sizeCalculator) {
-      DefaultEvictionListener evictionListener;
-      // translate eviction policy and strategy
-      switch (policy) {
-         case PIGGYBACK:
-         case DEFAULT:
-            evictionListener = new DefaultEvictionListener();
-            break;
-         default:
-            throw new IllegalArgumentException("No such eviction thread policy " + policy);
-      }
-
-      EntrySizeCalculator<K, InternalCacheEntry<K, V>> calc = new CacheEntrySizeCalculator<>(sizeCalculator);
-
-      com.github.benmanes.caffeine.cache.Cache<K, InternalCacheEntry<K, V>> cache = applyListener(Caffeine.newBuilder()
-            .weigher((K k, InternalCacheEntry<K, V> v) -> (int) calc.calculateSize(k, v))
-            .maximumWeight(thresholdSize), evictionListener)
-            .build();
-
-      entries = new CaffeineConcurrentMap<>(cache);
-   }
-
-   @Inject
-   public void initialize(EvictionManager evictionManager, PassivationManager passivator,
-                          InternalEntryFactory entryFactory, ActivationManager activator, PersistenceManager clm,
-                          TimeService timeService, CacheNotifier cacheNotifier, ExpirationManager<K, V> expirationManager) {
-      this.evictionManager = evictionManager;
-      this.passivator = passivator;
-      this.entryFactory = entryFactory;
-      this.activator = activator;
-      this.pm = clm;
-      this.timeService = timeService;
-      this.cacheNotifier = cacheNotifier;
-      this.expirationManager = expirationManager;
+      super(concurrencyLevel, thresholdSize, strategy, policy, keyEquivalence, sizeCalculator);
    }
 
    public static <K, V> DefaultDataContainer<K, V> boundedDataContainer(int concurrencyLevel, long maxEntries,
@@ -228,29 +159,6 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
 
    public static <K, V> DefaultDataContainer<K, V> unBoundedDataContainer(int concurrencyLevel) {
       return new DefaultDataContainer<>(concurrencyLevel);
-   }
-
-   @Override
-   public InternalCacheEntry<K, V> peek(Object key) {
-      if (entries instanceof PeekableMap) {
-         return ((PeekableMap<K, InternalCacheEntry<K, V>>)entries).peek(key);
-      }
-      return entries.get(key);
-   }
-
-   @Override
-   public InternalCacheEntry<K, V> get(Object k) {
-      InternalCacheEntry<K, V> e = entries.get(k);
-      if (e != null && e.canExpire()) {
-         long currentTimeMillis = timeService.wallClockTime();
-         if (e.isExpired(currentTimeMillis)) {
-            expirationManager.handleInMemoryExpiration(e, currentTimeMillis);
-            e = null;
-         } else {
-            e.touch(currentTimeMillis);
-         }
-      }
-      return e;
    }
 
    @Override
@@ -285,16 +193,6 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
    }
 
    @Override
-   public boolean containsKey(Object k) {
-      InternalCacheEntry<K, V> ice = peek(k);
-      if (ice != null && ice.canExpire() && ice.isExpired(timeService.wallClockTime())) {
-         entries.remove(k);
-         ice = null;
-      }
-      return ice != null;
-   }
-
-   @Override
    public InternalCacheEntry<K, V> remove(Object k) {
       final InternalCacheEntry<K,V>[] reference = new InternalCacheEntry[1];
       entries.compute((K) k, (key, entry) -> {
@@ -304,51 +202,6 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
       });
       InternalCacheEntry<K, V> e = reference[0];
       return e == null || (e.canExpire() && e.isExpired(timeService.wallClockTime())) ? null : e;
-   }
-
-   private Policy.Eviction<K, V> eviction() {
-      if (entries instanceof CaffeineConcurrentMap) {
-         com.github.benmanes.caffeine.cache.Cache<K, V> cache = ((CaffeineConcurrentMap) entries).getCache();
-         Optional<Policy.Eviction<K, V>> eviction = cache.policy().eviction();
-         if (eviction.isPresent()) {
-            return eviction.get();
-         }
-      }
-      throw new UnsupportedOperationException();
-   }
-
-   @Override
-   public long capacity() {
-      Policy.Eviction<K, V> evict = eviction();
-      return evict.getMaximum();
-   }
-
-   @Override
-   public void resize(long newSize) {
-      Policy.Eviction<K, V> evict = eviction();
-      evict.setMaximum(newSize);
-   }
-
-   @Override
-   public int size() {
-      int size = 0;
-      // We have to loop through to make sure to remove expired entries
-      for (Iterator<InternalCacheEntry<K, V>> iter = iterator(); iter.hasNext(); ) {
-         iter.next();
-         if (++size == Integer.MAX_VALUE) return Integer.MAX_VALUE;
-      }
-      return size;
-   }
-
-   @Override
-   public int sizeIncludingExpired() {
-      return entries.size();
-   }
-
-   @Override
-   public void clear() {
-      log.tracef("Clearing data container");
-      entries.clear();
    }
 
    @Override
@@ -364,12 +217,6 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
    @Override
    public Set<InternalCacheEntry<K, V>> entrySet() {
       return new EntrySet();
-   }
-
-   @Override
-   public void purgeExpired() {
-      // Just calls to expiration manager to handle this
-      expirationManager.processExpiration();
    }
 
    @Override
