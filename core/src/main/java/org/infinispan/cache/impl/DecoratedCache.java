@@ -9,13 +9,16 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 
 import org.infinispan.AdvancedCache;
+import org.infinispan.Cache;
 import org.infinispan.CacheCollection;
 import org.infinispan.CacheSet;
 import org.infinispan.commons.util.EnumUtil;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.context.Flag;
+import org.infinispan.context.InvocationContext;
 import org.infinispan.filter.KeyFilter;
 import org.infinispan.metadata.EmbeddedMetadata;
 import org.infinispan.metadata.Metadata;
@@ -37,13 +40,16 @@ import org.infinispan.stream.impl.local.ValueCacheCollection;
  * @since 5.1
  */
 public class DecoratedCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> {
-
    private final long flags;
+   private final Object lockOwner;
    private final CacheImpl<K, V> cacheImplementation;
 
    public DecoratedCache(AdvancedCache<K, V> delegate, Flag... flags) {
-      super(delegate);
+      this(delegate, null, flags);
+   }
 
+   public DecoratedCache(AdvancedCache<K, V> delegate, Object lockOwner, Flag... flags) {
+      super(delegate);
       if (flags == null)
          throw new IllegalArgumentException("There is no point in using a DecoratedCache if Flags are set.");
 
@@ -53,14 +59,17 @@ public class DecoratedCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> 
          this.flags = EnumUtil.bitSetOf(flags);
       }
 
+      this.lockOwner = lockOwner;
+
       // Yuk
       cacheImplementation = (CacheImpl<K, V>) delegate;
    }
 
-   private DecoratedCache(CacheImpl<K, V> delegate, long newFlags) {
+   private DecoratedCache(CacheImpl<K, V> delegate, Object lockOwner, long newFlags) {
       //this constructor is private so we already checked for argument validity
       super(delegate);
       this.flags = newFlags;
+      this.lockOwner = lockOwner;
       this.cacheImplementation = delegate;
    }
 
@@ -83,6 +92,15 @@ public class DecoratedCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> 
             return new DecoratedCache<>(this.cacheImplementation, EnumUtil.mergeBitSets(this.flags, newFlags));
          }
       }
+   }
+
+   @Override
+   public AdvancedCache<K, V> lockAs(Object lockOwner) {
+      Objects.nonNull(lockOwner);
+      if (lockOwner != this.lockOwner) {
+         new DecoratedCache<>(cacheImplementation, lockOwner, flags);
+      }
+      return this;
    }
 
    @Override
@@ -414,7 +432,9 @@ public class DecoratedCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> 
 
    @Override
    public V put(K key, V value) {
-      return cacheImplementation.put(key, value, cacheImplementation.defaultMetadata, flags);
+      InvocationContext ctx = cacheImplementation.getInvocationContextWithImplicitTransaction(false, 1);
+      ctx.setLockOwner(lockOwner);
+      return cacheImplementation.putInternal(key, value, cacheImplementation.defaultMetadata, flags, ctx);
    }
 
    @Override
@@ -530,5 +550,10 @@ public class DecoratedCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> 
    @Override
    public CacheEntry getCacheEntry(Object key) {
       return cacheImplementation.getCacheEntry(key, flags);
+   }
+
+   @Override
+   public void forEachWithLock(BiConsumer<Cache<K, V>, ? super CacheEntry<K, V>> consumer) {
+      cacheImplementation.forEachWithLock(keySet(), consumer);
    }
 }

@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 
 import javax.transaction.TransactionManager;
 import javax.transaction.xa.XAResource;
@@ -32,6 +34,7 @@ import org.infinispan.remoting.rpc.RpcManager;
 import org.infinispan.security.AuthorizationManager;
 import org.infinispan.stats.Stats;
 import org.infinispan.util.concurrent.locks.LockManager;
+import org.infinispan.util.function.SerializableBiConsumer;
 
 /**
  * An advanced interface that exposes additional methods not available on {@link Cache}.
@@ -167,6 +170,16 @@ public interface AdvancedCache<K, V> extends Cache<K, V> {
     * @return an AuthorizationManager or null
     */
    AuthorizationManager getAuthorizationManager();
+
+   /**
+    * Whenever this cache acquires a lock it will do so using the given Object as the owner of said lock.
+    * <p>
+    * This method provides no guarantees as to how this affect locking and should not be used for general usage.
+    * @param lockOwner the lock owner to lock any keys as
+    * @return an {@link AdvancedCache} instance on which a real operation is to be invoked that will use lock owner
+    * object to acquire any locks
+    */
+   AdvancedCache<K, V> lockAs(Object lockOwner);
 
    /**
     * Locks a given key or keys eagerly across cache nodes in a cluster.
@@ -547,6 +560,12 @@ public interface AdvancedCache<K, V> extends Cache<K, V> {
     * @return the entry set containing all of the CacheEntries
     */
    CacheSet<CacheEntry<K, V>> cacheEntrySet();
+
+   void forEachWithLock(BiConsumer<Cache<K, V>, ? super CacheEntry<K, V>> consumer);
+
+   default void forEachWithLock(SerializableBiConsumer<Cache<K, V>, ? super CacheEntry<K, V>> consumer) {
+      forEachWithLock((BiConsumer<Cache<K,V>, ? super CacheEntry<K,V>>) consumer);
+   }
 
    /**
     * Attempts to remove the entry if it is expired.  Due to expired entries not being consistent across nodes, this

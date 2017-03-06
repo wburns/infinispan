@@ -16,11 +16,13 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 
 import javax.transaction.TransactionManager;
 import javax.transaction.xa.XAResource;
 
 import org.infinispan.AdvancedCache;
+import org.infinispan.Cache;
 import org.infinispan.CacheCollection;
 import org.infinispan.CacheSet;
 import org.infinispan.CacheStream;
@@ -332,6 +334,11 @@ public final class FunctionalAdvancedCache<K, V> implements AdvancedCache<K, V> 
    }
 
    @Override
+   public AdvancedCache<K, V> lockAs(Object lockOwner) {
+      throw new UnsupportedOperationException("lockAs is not supported with Functional Cache!");
+   }
+
+   @Override
    public boolean lock(K... keys) {
       return false;  // TODO: Customise this generated block
    }
@@ -464,6 +471,11 @@ public final class FunctionalAdvancedCache<K, V> implements AdvancedCache<K, V> 
    @Override
    public CacheSet<CacheEntry<K, V>> cacheEntrySet() {
       return null;  // TODO: Customise this generated block
+   }
+
+   @Override
+   public void forEachWithLock(BiConsumer<Cache<K, V>, ? super CacheEntry<K, V>> consumer) {
+      // TODO: Customize this generated block
    }
 
    @Override

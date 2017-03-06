@@ -7,11 +7,13 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.BiConsumer;
 
 import javax.transaction.TransactionManager;
 import javax.transaction.xa.XAResource;
 
 import org.infinispan.AdvancedCache;
+import org.infinispan.Cache;
 import org.infinispan.CacheCollection;
 import org.infinispan.CacheSet;
 import org.infinispan.atomic.Delta;
@@ -360,6 +362,11 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    }
 
    @Override
+   public AdvancedCache<K, V> lockAs(Object lockOwner) {
+      return new SecureCacheImpl(delegate.lockAs(lockOwner));
+   }
+
+   @Override
    public CompletableFuture<V> putIfAbsentAsync(K key, V value, long lifespan, TimeUnit lifespanUnit, long maxIdle,
          TimeUnit maxIdleUnit) {
       authzManager.checkPermission(AuthorizationPermission.WRITE);
@@ -512,6 +519,12 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    public CacheSet<CacheEntry<K, V>> cacheEntrySet() {
       authzManager.checkPermission(AuthorizationPermission.BULK_READ);
       return delegate.cacheEntrySet();
+   }
+
+   @Override
+   public void forEachWithLock(BiConsumer<Cache<K, V>, ? super CacheEntry<K, V>> consumer) {
+      authzManager.checkPermission(AuthorizationPermission.BULK_WRITE);
+      delegate.forEachWithLock(consumer);
    }
 
    @Override

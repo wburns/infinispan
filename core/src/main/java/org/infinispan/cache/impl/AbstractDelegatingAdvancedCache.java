@@ -6,11 +6,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
 
 import javax.transaction.TransactionManager;
 import javax.transaction.xa.XAResource;
 
 import org.infinispan.AdvancedCache;
+import org.infinispan.Cache;
 import org.infinispan.CacheSet;
 import org.infinispan.atomic.Delta;
 import org.infinispan.batch.BatchContainer;
@@ -130,6 +132,16 @@ public class AbstractDelegatingAdvancedCache<K, V> extends AbstractDelegatingCac
    @Override
    public AuthorizationManager getAuthorizationManager() {
       return cache.getAuthorizationManager();
+   }
+
+   @Override
+   public AdvancedCache<K, V> lockAs(Object lockOwner) {
+      AdvancedCache<K, V> lockCache = this.cache.lockAs(lockOwner);
+      if (lockCache != cache) {
+         return this.wrapper.wrap(lockCache);
+      } else {
+         return this;
+      }
    }
 
    @Override
@@ -329,6 +341,11 @@ public class AbstractDelegatingAdvancedCache<K, V> extends AbstractDelegatingCac
    @Override
    public CacheSet<CacheEntry<K, V>> cacheEntrySet() {
       return cache.cacheEntrySet();
+   }
+
+   @Override
+   public void forEachWithLock(BiConsumer<Cache<K, V>, ? super CacheEntry<K, V>> consumer) {
+      cache.forEachWithLock(consumer);
    }
 
    @Override
