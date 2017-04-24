@@ -40,7 +40,8 @@ cluster overall.
 The cache manager comes with a nice utility that allows you to execute arbitrary code in the cluster.
 Note this is unlike the Distributed Execution Service as this requires no Cache to be used.  This
 link:{javadocroot}/org/infinispan/manager/ClusterExecutor.html[cluster executor]
-can be retrieved by calling +executor()+ of the `EmbeddedCacheManager`.
+can be retrieved by calling +executor()+ of the `EmbeddedCacheManager`. This executor is retrievable
+in both clustered and non clustered configurations.
 
 This manager was built specifically using Java 8 and such has functional APIs in mind, thus all methods take a functional
 inteface as an argument.  Also since these arguments will be sent to other nodes they need to be serializable.  We even
@@ -48,7 +49,32 @@ used a nice trick to ensure our lambdas are immediately Serializable.  That is b
 Serializable and the real argument type (ie. Runnable or Function).  The JRE will pick the most specific class when
 determining which method to invoke, so in that case your lambdas will always be serializable.
 
-Below you will see an example of how to use the new executor.
+==== Topology Execution Policy
+
+It may be desirable to only execute some code on a subset of nodes on the cluster. For example you may
+want to only run a computation on machines in the same rack. Or you may want to perform an operation
+once in the local site and again on a different site. A cluster executor can limit what nodes it sends
+requests to at the scope of same or different machine, rack or site level,
+
+[source,java]
+.SameRack.java
+----
+   EmbeddedCacheManager manager = ...;
+   manager.executor().filterTargets(ClusterExecutionPolicy.SAME_RACK).submit(...)
+----
+
+To use this you must enable topology aware consistent hashing TODO:
+
+==== Timeout
+
+Cluster Executor allows for a timeout to be set per invocation. This defaults to the distributed sync timeout
+as configured on the Transport Configuration. This timeout works in both a clusetered an non clustered
+cache manager. There are no guarantees as to if the execution is attempted to be interrupted or not. However
+when the timeout occurs any `Consumer` or `Future` will be completed passing back a `TimeoutException`.
+
+==== Failover
+
+
 
 ==== Example: Dynamically Start and Stop Clustered Cache
 This example shows how you can use the ClusterExecutor to dynamically start and stop a cache.
@@ -71,7 +97,7 @@ To do this on every single node though, you could write your own service to do t
 .StartCache.java
 ----
 
-   EmbeddedCacheManager manager = null;
+   EmbeddedCacheManager manager = ...;
    String cacheName = "start-this-cache";
    manager.executor().submitConsumer(localManager -> {
          localManager.getCache(cacheName);
