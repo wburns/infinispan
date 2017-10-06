@@ -54,7 +54,7 @@ public interface OffHeapEntryFactory {
     * @param address the address of the entry to read
     * @return the entry created on heap from off heap
     */
-   InternalCacheEntry<WrappedBytes, WrappedBytes> fromMemory(long address);
+   InternalCacheEntry<WrappedBytes, WrappedBytes> fromMemory(long address, boolean updateMaxIdle);
 
    /**
     * Returns the key for the given address

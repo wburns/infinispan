@@ -58,4 +58,22 @@ public class ExpirationFunctionalTest extends SingleCacheManagerTest {
       timeService.advance(2);
       assertEquals(0, cache.size());
    }
+
+   public void testExpirationMaxIdleWithAccess() {
+      for (int i = 0; i < SIZE; i++) {
+         cache.put("key-" + i, "value-" + i,-1, null, 3, TimeUnit.MILLISECONDS);
+      }
+      // Advance most of the way
+      timeService.advance(2);
+      // Only access 1 key which should refresh access time
+      assertEquals("value-1", cache.get("key-1"));
+      // Finally expire other entries
+      timeService.advance(2);
+
+      assertEquals(1, cache.size());
+
+      timeService.advance(2);
+
+      assertEquals(0, cache.size());
+   }
 }

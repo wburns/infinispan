@@ -1,6 +1,7 @@
 package org.infinispan.container.offheap;
 
 import java.io.IOException;
+import java.util.Arrays;
 
 import org.infinispan.commons.CacheException;
 import org.infinispan.commons.marshall.Marshaller;
@@ -207,7 +208,7 @@ public class OffHeapEntryFactoryImpl implements OffHeapEntryFactory {
     * @return the entry at the memory location
     */
    @Override
-   public InternalCacheEntry<WrappedBytes, WrappedBytes> fromMemory(long address) {
+   public InternalCacheEntry<WrappedBytes, WrappedBytes> fromMemory(long address, boolean updateMaxIdle) {
       address += (evictionEnabled ? 16 : 8);
       byte[] header = readHeader(address);
 
@@ -268,12 +269,20 @@ public class OffHeapEntryFactoryImpl implements OffHeapEntryFactory {
                maxIdle = Bits.getLong(metadataBytes, offset);
                created = -1;
                lastUsed = Bits.getLong(metadataBytes, offset += 8);
+               if (updateMaxIdle) {
+                  Bits.putLong(metadataBytes, offset, timeService.wallClockTime());
+                  UNSAFE.copyMemory(metadataBytes, BYTE_ARRAY_BASE_OFFSET, null, address + HEADER_LENGTH + keyBytes.length, offset += 8);
+               }
                break;
             case TRANSIENT_MORTAL:
                lifespan = Bits.getLong(metadataBytes, offset);
                maxIdle = Bits.getLong(metadataBytes, offset += 8);
                created = Bits.getLong(metadataBytes, offset += 8);
                lastUsed = Bits.getLong(metadataBytes, offset += 8);
+               if (updateMaxIdle) {
+                  Bits.putLong(metadataBytes, offset, timeService.wallClockTime());
+                  UNSAFE.copyMemory(metadataBytes, BYTE_ARRAY_BASE_OFFSET, null, address + HEADER_LENGTH + keyBytes.length, offset += 8);
+               }
                break;
             default:
                throw new IllegalArgumentException("Unsupported type: " + metadataType);

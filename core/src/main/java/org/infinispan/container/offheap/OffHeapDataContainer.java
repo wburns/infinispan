@@ -22,6 +22,7 @@ import org.infinispan.container.InternalEntryFactory;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.eviction.EvictionManager;
 import org.infinispan.eviction.PassivationManager;
+import org.infinispan.expiration.ExpirationManager;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Stop;
 import org.infinispan.filter.KeyFilter;
@@ -51,6 +52,7 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
    protected InternalEntryFactory internalEntryFactory;
    protected TimeService timeService;
    protected EvictionManager evictionManager;
+   protected ExpirationManager<WrappedBytes, WrappedBytes> expirationManager;
    protected PassivationManager passivator;
    // Variable to make sure memory locations aren't read after being deallocated
    // This variable should always be read first after acquiring either the read or write lock
@@ -83,13 +85,15 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
 
    @Inject
    public void inject(EvictionManager evictionManager, PassivationManager passivator, OffHeapEntryFactory offHeapEntryFactory,
-                      OffHeapMemoryAllocator allocator, TimeService timeService, InternalEntryFactory internalEntryFactory) {
+                      OffHeapMemoryAllocator allocator, TimeService timeService, InternalEntryFactory internalEntryFactory,
+                      ExpirationManager<WrappedBytes, WrappedBytes> expirationManager) {
       this.evictionManager = evictionManager;
       this.passivator = passivator;
       this.internalEntryFactory = internalEntryFactory;
       this.allocator = allocator;
       this.offHeapEntryFactory = offHeapEntryFactory;
       this.timeService = timeService;
+      this.expirationManager = expirationManager;
    }
 
    /**
@@ -126,6 +130,7 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
 
    @Override
    public InternalCacheEntry<WrappedBytes, WrappedBytes> get(Object k) {
+      InternalCacheEntry<WrappedBytes, WrappedBytes> ice;
       Lock lock = locks.getLock(k).readLock();
       lock.lock();
       try {
@@ -135,17 +140,26 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
             return null;
          }
 
-         return performGet(address, k);
+         ice = performGet(address, k);
       } finally {
          lock.unlock();
       }
+
+      // We cannot expire the entry under the read lock, as the expiration manager may require the write lock
+      // to remove it, which would cause a deadlock.
+      long currentTimeMillis;
+      if (ice != null && ice.isExpired((currentTimeMillis  = timeService.wallClockTime()))) {
+         expirationManager.handleInMemoryExpiration(ice, currentTimeMillis);
+         ice = null;
+      }
+      return ice;
    }
 
    protected InternalCacheEntry<WrappedBytes, WrappedBytes> performGet(long address, Object k) {
       WrappedBytes wrappedKey = toWrapper(k);
       while (address != 0) {
          long nextAddress = offHeapEntryFactory.getNextLinkedPointerAddress(address);
-         InternalCacheEntry<WrappedBytes, WrappedBytes> ice = offHeapEntryFactory.fromMemory(address);
+         InternalCacheEntry<WrappedBytes, WrappedBytes> ice = offHeapEntryFactory.fromMemory(address, true);
          if (wrappedKey.equalsWrappedBytes(ice.getKey())) {
             entryRetrieved(address);
             return ice;
@@ -333,7 +347,7 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
 
       while (address != 0) {
          long nextAddress = offHeapEntryFactory.getNextLinkedPointerAddress(address);
-         InternalCacheEntry<WrappedBytes, WrappedBytes> ice = offHeapEntryFactory.fromMemory(address);
+         InternalCacheEntry<WrappedBytes, WrappedBytes> ice = offHeapEntryFactory.fromMemory(address, false);
          if (ice.getKey().equals(wba)) {
             entryRemoved(address);
             // Free the node
@@ -493,11 +507,15 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
          checkDeallocation();
          long address = memoryLookup.getMemoryAddress(key);
          if (address != 0) {
-            // TODO: this could be more efficient
             InternalCacheEntry<WrappedBytes, WrappedBytes> ice = performGet(address, key);
             if (ice != null) {
-               passivator.passivate(ice);
-               performRemove(address, key);
+               long currentTimeMillis = timeService.wallClockTime();
+               if (ice.isExpired(currentTimeMillis)) {
+                  expirationManager.handleInMemoryExpiration(ice, currentTimeMillis);
+               } else {
+                  passivator.passivate(ice);
+                  performRemove(address, key);
+               }
             }
          }
       } finally {
@@ -539,7 +557,7 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
                long address = memoryLookup.getMemoryAddressOffset(j);
                while (address != 0) {
                   long nextAddress = offHeapEntryFactory.getNextLinkedPointerAddress(address);
-                  InternalCacheEntry<WrappedBytes, WrappedBytes> ice = offHeapEntryFactory.fromMemory(address);
+                  InternalCacheEntry<WrappedBytes, WrappedBytes> ice = offHeapEntryFactory.fromMemory(address, false);
                   consumer.accept(ice);
                   address = nextAddress;
                }
@@ -585,7 +603,7 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
                   long nextAddress;
                   do {
                      nextAddress = offHeapEntryFactory.getNextLinkedPointerAddress(address);
-                     builder.accept(offHeapEntryFactory.fromMemory(address));
+                     builder.accept(offHeapEntryFactory.fromMemory(address, false));
                   } while ((address = nextAddress) != 0);
                   return builder.build();
                } finally {
