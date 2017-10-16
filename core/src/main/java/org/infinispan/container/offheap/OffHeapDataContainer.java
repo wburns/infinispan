@@ -168,7 +168,8 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
       try {
          checkDeallocation();
          long newAddress = offHeapEntryFactory.create(key, value, metadata);
-         performPut(newAddress, key);
+         long address = memoryLookup.getMemoryAddress(key);
+         performPut(address, newAddress, key);
       } finally {
          lock.unlock();
       }
@@ -177,14 +178,10 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
    /**
     * Performs the actual put operation putting the new address into the memory lookups.  The write lock for the given
     * key <b>must</b> be held before calling this method.
+    * @param address the address lookup that holds entries for given hashCode
     * @param newAddress the address of the new entry
     * @param key the key of the entry
     */
-   protected void performPut(long newAddress, WrappedBytes key) {
-      long address = memoryLookup.getMemoryAddress(key);
-      performPut(address, newAddress, key);
-   }
-
    protected void performPut(long address, long newAddress, WrappedBytes key) {
       boolean shouldCreate = false;
       // Have to start new linked node list
@@ -203,7 +200,6 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
             if (!foundKey) {
                if (offHeapEntryFactory.equalsKey(address, key)) {
                   entryReplaced(newAddress, address);
-                  allocator.deallocate(address);
                   foundKey = true;
                   // If this is true it means this was the first node in the linked list
                   if (prevAddress == 0) {
@@ -244,7 +240,7 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
 
    /**
     * Invoked when an entry is about to be created.  The new address is fully addressable,
-    * The write lock will already be acquired for the given * segment the key mapped to.
+    * The write lock will already be acquired for the given segment the key mapped to.
     * @param newAddress the address just created that will be the new entry
     */
    protected void entryCreated(long newAddress) {
@@ -259,7 +255,7 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
     * @param oldAddress the old address for this entry that will be soon removed
     */
    protected void entryReplaced(long newAddress, long oldAddress) {
-
+      allocator.deallocate(oldAddress);
    }
 
    /**
@@ -268,7 +264,7 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
     * @param removedAddress the address about to be removed
     */
    protected void entryRemoved(long removedAddress) {
-
+      allocator.deallocate(removedAddress);
    }
 
    @Override
@@ -336,8 +332,6 @@ public class OffHeapDataContainer implements DataContainer<WrappedBytes, Wrapped
          InternalCacheEntry<WrappedBytes, WrappedBytes> ice = offHeapEntryFactory.fromMemory(address);
          if (ice.getKey().equals(wba)) {
             entryRemoved(address);
-            // Free the node
-            allocator.deallocate(address);
             if (prevAddress != 0) {
                UNSAFE.putLong(prevAddress, nextAddress);
             } else {

@@ -131,8 +131,8 @@ public class OffHeapEntryFactoryImpl implements OffHeapEntryFactory {
       // Eviction requires an additional memory pointer at the beginning that points to
       // its linked node
       if (evictionEnabled) {
-         memoryAddress = allocator.allocate(totalSize + 8);
-         memoryOffset = memoryAddress + 8;
+         memoryAddress = allocator.allocate(totalSize + 16);
+         memoryOffset = memoryAddress + 16;
       } else {
          memoryAddress = allocator.allocate(totalSize);
          memoryOffset =  memoryAddress;
@@ -173,7 +173,7 @@ public class OffHeapEntryFactoryImpl implements OffHeapEntryFactory {
 
    @Override
    public long determineSize(long address) {
-      int beginningOffset = evictionEnabled ? 16 : 8;
+      int beginningOffset = evictionEnabled ? 24 : 8;
       byte[] header = readHeader(beginningOffset + address);
 
       int keyLength = Bits.getInt(header, 4);
@@ -185,19 +185,19 @@ public class OffHeapEntryFactoryImpl implements OffHeapEntryFactory {
 
    @Override
    public long getNextLinkedPointerAddress(long address) {
-      return UNSAFE.getLong(evictionEnabled ? address + 8 : address);
+      return UNSAFE.getLong(evictionEnabled ? address + 16 : address);
    }
 
    @Override
    public void updateNextLinkedPointerAddress(long address, long value) {
-      UNSAFE.putLong(evictionEnabled ? address + 8 : address, value);
+      UNSAFE.putLong(evictionEnabled ? address + 16 : address, value);
    }
 
    @Override
    public int getHashCodeForAddress(long address) {
       // 8 bytes for eviction if needed (optional)
       // 8 bytes for linked pointer
-      byte[] header = readHeader(evictionEnabled ? address + 16 : address + 8);
+      byte[] header = readHeader(evictionEnabled ? address + 24 : address + 8);
       return Bits.getInt(header, 0);
    }
 
@@ -208,7 +208,7 @@ public class OffHeapEntryFactoryImpl implements OffHeapEntryFactory {
     */
    @Override
    public InternalCacheEntry<WrappedBytes, WrappedBytes> fromMemory(long address) {
-      address += (evictionEnabled ? 16 : 8);
+      address += (evictionEnabled ? 24 : 8);
       byte[] header = readHeader(address);
 
       int offset = 0;
@@ -296,7 +296,7 @@ public class OffHeapEntryFactoryImpl implements OffHeapEntryFactory {
 
    @Override
    public WrappedBytes getKey(long address) {
-      address += (evictionEnabled ? 16 : 8);
+      address += (evictionEnabled ? 24 : 8);
       byte[] header = readHeader(address);
       int keyLength = Bits.getInt(header, 4);
       byte[] keyBytes = new byte[keyLength];
@@ -319,7 +319,7 @@ public class OffHeapEntryFactoryImpl implements OffHeapEntryFactory {
     */
    @Override
    public boolean equalsKey(long address, WrappedBytes wrappedBytes) {
-      address += evictionEnabled ? 16 : 8;
+      address += evictionEnabled ? 24 : 8;
       byte[] header = readHeader(address);
       int hashCode = wrappedBytes.hashCode();
       if (hashCode != Bits.getInt(header, 0)) {
@@ -330,6 +330,7 @@ public class OffHeapEntryFactoryImpl implements OffHeapEntryFactory {
       UNSAFE.copyMemory(null, address + HEADER_LENGTH, keyBytes,
             BYTE_ARRAY_BASE_OFFSET, keyLength);
 
+      // TODO: optimize this to not have to create a WBA for no reason
       return new WrappedByteArray(keyBytes, hashCode).equalsWrappedBytes(wrappedBytes);
    }
 }
