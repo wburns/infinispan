@@ -146,7 +146,7 @@ public class ClusteredLockSplitBrainTest extends BasePartitionHandlingTest {
       assertFailureFromMinorityPartition(lock3);
    }
 
-   @Test
+   @Test(invocationCount = 1000)
    public void testAutoReleaseIfLockIsAcquiredFromAMinorityPartition() throws Throwable {
 
       ClusteredLockManager clm0 = EmbeddedClusteredLockManagerFactory.from(getCacheManagers().get(0));
@@ -162,15 +162,15 @@ public class ClusteredLockSplitBrainTest extends BasePartitionHandlingTest {
 
       splitCluster(new int[]{0}, new int[]{1, 2, 3});
 
+      assertTrue(await(lock1.tryLock(20, TimeUnit.SECONDS)));
+
       assertFailureFromMinorityPartition(lock0);
-      assertTrue(await(lock1.tryLock(1, TimeUnit.SECONDS)));
    }
 
-   private void assertFailureFromMinorityPartition(ClusteredLock lock3) {
-      await(lock3.lock()
+   private void assertFailureFromMinorityPartition(ClusteredLock lock) {
+      await(lock.lock()
             .thenRun(() -> {
                fail("Should fail from minority partition");
-               lock3.unlock();
             }).exceptionally(ex -> {
                assertException(CompletionException.class, ex);
                assertException(ClusteredLockException.class, ex.getCause());

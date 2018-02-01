@@ -30,7 +30,7 @@ import org.infinispan.lock.impl.log.Log;
  * @author Katia Aresti, karesti@redhat.com
  * @since 9.2
  */
-public class UnlockFunction implements Function<EntryView.ReadWriteEntryView<ClusteredLockKey, ClusteredLockValue>, Void> {
+public class UnlockFunction implements Function<EntryView.ReadWriteEntryView<ClusteredLockKey, ClusteredLockValue>, Boolean> {
 
    private static final Log log = LogFactory.getLog(UnlockFunction.class, Log.class);
 
@@ -50,14 +50,19 @@ public class UnlockFunction implements Function<EntryView.ReadWriteEntryView<Clu
    }
 
    @Override
-   public Void apply(EntryView.ReadWriteEntryView<ClusteredLockKey, ClusteredLockValue> entryView) {
+   public Boolean apply(EntryView.ReadWriteEntryView<ClusteredLockKey, ClusteredLockValue> entryView) {
       ClusteredLockValue lockValue = entryView.find().orElseThrow(() -> log.lockDeleted());
+
       boolean requestIdMatches = requestId == null || (lockValue.getRequestId() != null && lockValue.getRequestId().equals(requestId));
+      log.tracef("unlock request by reqId %s requestor %s", requestId, requestor);
       boolean ownerMatches = lockValue.getOwner() != null && lockValue.getOwner().equals(requestor);
       if (requestIdMatches && ownerMatches) {
+         log.tracef("unlocked by %s %s", requestId, requestor);
          entryView.set(ClusteredLockValue.INITIAL_STATE);
+         return Boolean.TRUE;
       }
-      return null;
+      log.tracef("unlock not possible, owned by %s %s", lockValue.getRequestId(), lockValue.getOwner());
+      return Boolean.FALSE;
    }
 
    private static class Externalizer implements AdvancedExternalizer<UnlockFunction> {

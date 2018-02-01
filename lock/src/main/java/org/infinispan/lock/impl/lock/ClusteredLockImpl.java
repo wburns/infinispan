@@ -158,10 +158,11 @@ public class ClusteredLockImpl implements ClusteredLock {
       protected void handle(Boolean result) {
          if (time <= 0) {
             // The answer has to be returned without holding the CompletableFuture
-            log.tracef("Return the request no for %s", this);
+            log.tracef("Result[%b] for request %s", result,this);
             request.complete(result);
          } else if (result) {
             // The lock might have been acquired correctly
+            log.tracef("LockResult[%b] for %s", result, this);
             request.complete(true);
             Boolean tryLockRealResult = request.join();
             if (!tryLockRealResult) {
@@ -173,6 +174,7 @@ public class ClusteredLockImpl implements ClusteredLock {
                unlock(requestId, requestor);
             }
          } else if(!isScheduled){
+            log.tracef("Schedule for expiration %s", this);
             // If the lock was not acquired, then schedule a complete false for the given timeout
             isScheduled = true;
             clusteredLockManager.schedule(() -> request.complete(false), time, unit);
@@ -182,7 +184,7 @@ public class ClusteredLockImpl implements ClusteredLock {
       @Override
       public String toString() {
          final StringBuilder sb = new StringBuilder("TryLockRequestHolder{");
-         sb.append(", requestId=").append(requestId);
+         sb.append("requestId=").append(requestId);
          sb.append(", requestor=").append(requestor);
          sb.append(", time=").append(time);
          sb.append(", unit=").append(unit);
@@ -204,10 +206,13 @@ public class ClusteredLockImpl implements ClusteredLock {
       public void entryModified(CacheEntryModifiedEvent event) {
          ClusteredLockValue value = (ClusteredLockValue) event.getValue();
          if (value.getState() == ClusteredLockState.RELEASED) {
+            log.tracef("Lock has been released, %s notified", originator);
             RequestHolder nextRequestor = null;
+            log.tracef("Pending requests size[%d] in %s", pendingRequests.size(), originator);
             while (!pendingRequests.isEmpty() && (nextRequestor == null || nextRequestor.isDone()))
                nextRequestor = pendingRequests.poll();
 
+            log.tracef("About to retry lock for %s", nextRequestor);
             final RequestHolder requestor = nextRequestor;
             clusteredLockManager.execute(() -> lock(requestor));
          }
@@ -226,7 +231,8 @@ public class ClusteredLockImpl implements ClusteredLock {
 
       @ViewChanged
       public void viewChange(ViewChangedEvent event) {
-         log.trace("viewChange event has been fired");
+         log.tracef("viewChange event has been fired %s", originator);
+
          List<Address> newMembers = event.getNewMembers();
          List<Address> oldMembers = event.getOldMembers();
 
@@ -237,11 +243,16 @@ public class ClusteredLockImpl implements ClusteredLock {
             oldMembers.stream().filter(a -> !newMembers.contains(a)).forEach(notPresent -> {
                try {
                   if (clusteredLockManager.isDefined(name)) {
-                     clusteredLockManager.execute(() -> unlock(null, notPresent)
-                           .exceptionally(ex -> {
-                              log.error("Unlock failed wrong", ex);
-                              return null;
-                           }));
+                     clusteredLockManager.execute(() -> {
+                        log.tracef("Call unlock for %s from %s ", notPresent, originator);
+                        unlock(null, notPresent)
+                                    .whenComplete((re, t) ->  log.tracef("Unlock result %b for %s from %s ", re, notPresent, originator))
+                                    .exceptionally(ex -> {
+                                       log.error("Unlock failed wrong", ex);
+                                       return null;
+                                    });
+                           }
+                     );
                   }
                } catch (AvailabilityException ex) {
                   log.error("Unable to release due to cluster change", ex);
@@ -262,10 +273,11 @@ public class ClusteredLockImpl implements ClusteredLock {
    private void lock(RequestHolder<Void> requestHolder) {
       if (requestHolder == null || requestHolder.isDone())
          return;
-
       pendingRequests.offer(requestHolder);
       readWriteMap.eval(lockKey, new LockFunction(requestHolder.requestId, requestHolder.requestor))
-            .whenComplete((lockResult, ex) -> requestHolder.handleLockResult(lockResult, ex));
+            .whenComplete((lockResult, ex) -> {
+               requestHolder.handleLockResult(lockResult, ex);
+            });
    }
 
    @Override
@@ -299,8 +311,9 @@ public class ClusteredLockImpl implements ClusteredLock {
    public CompletableFuture<Void> unlock() {
       log.tracef("unlock called from %s", originator);
       CompletableFuture<Void> unlockRequest = new CompletableFuture<>();
-      readWriteMap.eval(lockKey, new UnlockFunction(originator)).whenComplete((lockResult, ex) -> {
+      readWriteMap.eval(lockKey, new UnlockFunction(originator)).whenComplete((unlockResult, ex) -> {
          if (ex == null) {
+            log.tracef("Unlock result for $s is $s", originator, unlockRequest);
             unlockRequest.complete(null);
          } else {
             unlockRequest.completeExceptionally(handleException(ex));
@@ -337,12 +350,12 @@ public class ClusteredLockImpl implements ClusteredLock {
       return isLockedByMeRequest;
    }
 
-   private CompletableFuture<Void> unlock(String requestId, Object owner) {
-      log.tracef("unlock called for requestId %s for possible owner %s", owner);
-      CompletableFuture<Void> unlockRequest = new CompletableFuture<>();
-      readWriteMap.eval(lockKey, new UnlockFunction(requestId, owner)).whenComplete((lockResult, ex) -> {
+   private CompletableFuture<Boolean> unlock(String requestId, Object owner) {
+      log.tracef("unlock called for %s %s", requestId, owner);
+      CompletableFuture<Boolean> unlockRequest = new CompletableFuture<>();
+      readWriteMap.eval(lockKey, new UnlockFunction(requestId, owner)).whenComplete((unlockResult, ex) -> {
          if (ex == null) {
-            unlockRequest.complete(null);
+            unlockRequest.complete(unlockResult);
          } else {
             unlockRequest.completeExceptionally(handleException(ex));
          }
