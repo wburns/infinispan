@@ -55,7 +55,7 @@ public class UnlockFunction implements Function<EntryView.ReadWriteEntryView<Clu
 
       boolean requestIdMatches = requestId == null || (lockValue.getRequestId() != null && lockValue.getRequestId().equals(requestId));
       log.tracef("unlock request by reqId %s requestor %s", requestId, requestor);
-      boolean ownerMatches = lockValue.getOwner() != null && lockValue.getOwner().equals(requestor);
+      boolean ownerMatches = lockValue.getOwner() == null || lockValue.getOwner().equals(requestor);
       if (requestIdMatches && ownerMatches) {
          log.tracef("unlocked by %s %s", requestId, requestor);
          entryView.set(ClusteredLockValue.INITIAL_STATE);

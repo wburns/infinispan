@@ -45,6 +45,9 @@ public class LockFunction implements Function<EntryView.ReadWriteEntryView<Clust
          entryView.set(new ClusteredLockValue(requestId, requestor, ClusteredLockState.ACQUIRED));
          log.tracef("lock acquired by %s %s", requestId, requestor);
          return Boolean.TRUE;
+      } else if (lock.getState() == ClusteredLockState.ACQUIRED && lock.getOwner().equals(requestor) && lock.getRequestId().equals(requestId)) {
+         log.tracef("lock was already acquired by %s %s", requestId, requestor);
+         return Boolean.TRUE;
       }
       log.tracef("lock not available, owned by %s %s", lock.getRequestId(), lock.getOwner());
       return Boolean.FALSE;
