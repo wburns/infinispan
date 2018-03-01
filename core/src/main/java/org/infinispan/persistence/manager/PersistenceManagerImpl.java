@@ -50,7 +50,6 @@ import org.infinispan.factories.annotations.ComponentName;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.annotations.Stop;
-import org.infinispan.filter.KeyFilter;
 import org.infinispan.interceptors.AsyncInterceptor;
 import org.infinispan.interceptors.AsyncInterceptorChain;
 import org.infinispan.interceptors.impl.CacheLoaderInterceptor;
@@ -248,7 +247,6 @@ public class PersistenceManagerImpl implements PersistenceManager {
 
       long start = timeService.time();
 
-
       final long maxEntries = getMaxEntries();
       final AtomicInteger loadedEntries = new AtomicInteger(0);
       final AdvancedCache<Object, Object> flaggedCache = getCacheForStateInsertion();
@@ -431,37 +429,6 @@ public class PersistenceManagerImpl implements PersistenceManager {
             }
          }
          return removed;
-      } finally {
-         storesMutex.readLock().unlock();
-      }
-   }
-
-   @Override
-   public void processOnAllStores(KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task,
-         boolean fetchValue, boolean fetchMetadata) {
-      processOnAllStores(persistenceExecutor, keyFilter, task, fetchValue, fetchMetadata);
-   }
-
-   @Override
-   public void processOnAllStores(Executor executor, KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata) {
-      processOnAllStores(executor, keyFilter, task, fetchValue, fetchMetadata, AccessMode.BOTH);
-   }
-
-   @Override
-   public void processOnAllStores(KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task,
-         boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
-      processOnAllStores(persistenceExecutor, keyFilter, task, fetchValue, fetchMetadata, mode);
-   }
-
-   @Override
-   public void processOnAllStores(Executor executor, KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
-      storesMutex.readLock().lock();
-      try {
-         for (CacheLoader loader : loaders) {
-            if (mode.canPerform(configMap.get(loader)) && loader instanceof AdvancedCacheLoader) {
-               ((AdvancedCacheLoader) loader).process(keyFilter, task, executor, fetchValue, fetchMetadata);
-            }
-         }
       } finally {
          storesMutex.readLock().unlock();
       }
