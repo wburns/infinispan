@@ -9,7 +9,6 @@ import static org.infinispan.context.Flag.SKIP_LOCKING;
 import static org.infinispan.context.Flag.SKIP_OWNERSHIP_CHECK;
 import static org.infinispan.context.Flag.SKIP_XSITE_BACKUP;
 import static org.infinispan.factories.KnownComponentNames.PERSISTENCE_EXECUTOR;
-import static org.infinispan.persistence.manager.PersistenceManager.AccessMode.BOTH;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -22,12 +21,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 import javax.transaction.Transaction;
 import javax.transaction.TransactionManager;
@@ -37,7 +38,6 @@ import org.infinispan.commons.CacheException;
 import org.infinispan.commons.api.Lifecycle;
 import org.infinispan.commons.io.ByteBufferFactory;
 import org.infinispan.commons.marshall.StreamingMarshaller;
-import org.infinispan.commons.util.ByRef;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.Configuration;
@@ -82,9 +82,11 @@ import org.infinispan.persistence.support.DelegatingCacheLoader;
 import org.infinispan.persistence.support.DelegatingCacheWriter;
 import org.infinispan.persistence.support.SingletonCacheWriter;
 import org.infinispan.util.TimeService;
-import org.infinispan.util.concurrent.WithinThreadExecutor;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.reactivestreams.Publisher;
+
+import io.reactivex.Flowable;
 
 public class PersistenceManagerImpl implements PersistenceManager {
 
@@ -97,7 +99,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    @Inject private TransactionManager transactionManager;
    @Inject private TimeService timeService;
    @Inject @ComponentName(PERSISTENCE_EXECUTOR)
-   private Executor persistenceExecutor;
+   private ExecutorService persistenceExecutor;
    @Inject private ByteBufferFactory byteBufferFactory;
    @Inject private MarshalledEntryFactory marshalledEntryFactory;
    @Inject private CacheStoreFactoryRegistry cacheStoreFactoryRegistry;
@@ -227,7 +229,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    public void preload() {
       if (!enabled)
          return;
-      AdvancedCacheLoader preloadCl = null;
+      AdvancedCacheLoader<Object, Object> preloadCl = null;
 
       for (CacheLoader l : loaders) {
          if (configMap.get(l).preload()) {
@@ -250,18 +252,13 @@ public class PersistenceManagerImpl implements PersistenceManager {
       final long maxEntries = getMaxEntries();
       final AtomicInteger loadedEntries = new AtomicInteger(0);
       final AdvancedCache<Object, Object> flaggedCache = getCacheForStateInsertion();
-      ByRef.Boolean preloaded = new ByRef.Boolean(true);
-      preloadCl.process(null, (me, taskContext) -> {
-         if (loadedEntries.getAndIncrement() >= maxEntries) {
-            taskContext.stop();
-            preloaded.set(false);
-            return;
-         }
-         Metadata metadata = me.getMetadata() != null ? ((InternalMetadataImpl) me.getMetadata()).actual() :
+      Long insertAmount = Flowable.fromPublisher(preloadCl.publishEntries(null, true, true))
+         .take(maxEntries).doOnNext(me -> {
+            Metadata metadata = me.getMetadata() != null ? ((InternalMetadataImpl) me.getMetadata()).actual() :
                null; //the downcast will go away with ISPN-3460
          preloadKey(flaggedCache, me.getKey(), me.getValue(), metadata);
-      }, new WithinThreadExecutor(), true, true);
-      this.preloaded = preloaded.get();
+      }).count().blockingGet();
+      this.preloaded = insertAmount < maxEntries;
 
       log.debugf("Preloaded %d keys in %s", loadedEntries.get(), Util.prettyPrintTime(timeService.timeDuration(start, MILLISECONDS)));
    }
@@ -441,18 +438,18 @@ public class PersistenceManagerImpl implements PersistenceManager {
 
    @Override
    public void processOnAllStores(KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task,
-                                  boolean fetchValue, boolean fetchMetadata) {
+         boolean fetchValue, boolean fetchMetadata) {
       processOnAllStores(persistenceExecutor, keyFilter, task, fetchValue, fetchMetadata);
    }
 
    @Override
    public void processOnAllStores(Executor executor, KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata) {
-      processOnAllStores(executor, keyFilter, task, fetchValue, fetchMetadata, BOTH);
+      processOnAllStores(executor, keyFilter, task, fetchValue, fetchMetadata, AccessMode.BOTH);
    }
 
    @Override
    public void processOnAllStores(KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task,
-                                  boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
+         boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
       processOnAllStores(persistenceExecutor, keyFilter, task, fetchValue, fetchMetadata, mode);
    }
 
@@ -468,6 +465,41 @@ public class PersistenceManagerImpl implements PersistenceManager {
       } finally {
          storesMutex.readLock().unlock();
       }
+   }
+
+   <K, V> AdvancedCacheLoader<K, V> getFirstAdvancedCacheLoader(AccessMode mode) {
+      storesMutex.readLock().lock();
+      try {
+         for (CacheLoader loader : loaders) {
+            if (mode.canPerform(configMap.get(loader)) && loader instanceof AdvancedCacheLoader) {
+               return ((AdvancedCacheLoader<K, V>) loader);
+            }
+         }
+      } finally {
+         storesMutex.readLock().unlock();
+      }
+      return null;
+   }
+
+   @Override
+   public <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue,
+         boolean fetchMetadata, AccessMode mode) {
+      AdvancedCacheLoader<K, V> advancedCacheLoader = getFirstAdvancedCacheLoader(mode);
+
+      if (advancedCacheLoader != null) {
+         return advancedCacheLoader.publishEntries(filter, fetchValue, fetchMetadata);
+      }
+      return Flowable.empty();
+   }
+
+   @Override
+   public <K> Publisher<K> publishKeys(Predicate<? super K> filter, AccessMode mode) {
+      AdvancedCacheLoader<K, ?> advancedCacheLoader = getFirstAdvancedCacheLoader(mode);
+
+      if (advancedCacheLoader != null) {
+         return advancedCacheLoader.publishKeys(filter);
+      }
+      return Flowable.empty();
    }
 
    @Override
@@ -626,7 +658,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
          loader = postProcessReader(processedConfiguration, writer, loader);
 
          InitializationContextImpl ctx = new InitializationContextImpl(processedConfiguration, cache, m, timeService, byteBufferFactory,
-                                                                       marshalledEntryFactory);
+                                                                       marshalledEntryFactory, persistenceExecutor);
          initializeLoader(processedConfiguration, loader, ctx);
          initializeWriter(processedConfiguration, writer, ctx);
          initializeBareInstance(bareInstance, ctx);
