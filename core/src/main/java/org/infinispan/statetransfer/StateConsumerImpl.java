@@ -26,8 +26,10 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+
 import javax.transaction.SystemException;
 import javax.transaction.TransactionManager;
 
@@ -61,6 +63,7 @@ import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.annotations.Stop;
 import org.infinispan.filter.KeyFilter;
 import org.infinispan.interceptors.AsyncInterceptorChain;
+import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
 import org.infinispan.persistence.manager.PersistenceManager;
 import org.infinispan.remoting.inboundhandler.DeliverOrder;
@@ -86,7 +89,9 @@ import org.infinispan.util.concurrent.CompletableFutures;
 import org.infinispan.util.concurrent.TimeoutException;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.reactivestreams.Publisher;
 
+import io.reactivex.Flowable;
 import net.jcip.annotations.GuardedBy;
 
 /**
@@ -961,14 +966,15 @@ public class StateConsumerImpl implements StateConsumer {
       // gather all keys from cache store that belong to the segments that are being removed/moved to L1
       if (!removedSegments.isEmpty()) {
          try {
-            KeyFilter filter = key -> {
+            Predicate<Object> filter = key -> {
                if (dataContainer.containsKey(key))
                   return false;
                int keySegment = getSegment(key);
                return (removedSegments.contains(keySegment));
             };
-            persistenceManager.processOnAllStores(filter,
-                  (marshalledEntry, taskContext) -> keysToRemove.add(marshalledEntry.getKey()), false, false, PRIVATE);
+            Publisher<MarshalledEntry<Object, Object>> publisher = persistenceManager.publishKeys(
+                  filter, PRIVATE);
+            Flowable.fromPublisher(publisher).blockingForEach(keysToRemove::add);
          } catch (CacheException e) {
             log.failedLoadingKeysFromCacheStore(e);
          }

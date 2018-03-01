@@ -65,7 +65,6 @@ import org.infinispan.stream.impl.interceptor.AbstractDelegatingKeyCacheSet;
 import org.infinispan.stream.impl.spliterators.IteratorAsSpliterator;
 import org.infinispan.util.DoubleIterator;
 import org.infinispan.util.TimeService;
-import org.infinispan.util.function.CloseableSupplier;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.reactivestreams.Publisher;
@@ -207,28 +206,6 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          CacheSet<CacheEntry<K, V>> entrySet = (CacheSet<CacheEntry<K, V>>) rv;
          return new WrappedEntrySet(command, entrySet);
       });
-   }
-
-   class SupplierFunction<K, V> implements CloseableSupplier<K> {
-      private final CloseableSupplier<CacheEntry<K, V>> supplier;
-
-      SupplierFunction(CloseableSupplier<CacheEntry<K, V>> supplier) {
-         this.supplier = supplier;
-      }
-
-      @Override
-      public K get() {
-         CacheEntry<K, V> entry = supplier.get();
-         if (entry != null) {
-            return entry.getKey();
-         }
-         return null;
-      }
-
-      @Override
-      public void close() {
-         supplier.close();
-      }
    }
 
    @Override

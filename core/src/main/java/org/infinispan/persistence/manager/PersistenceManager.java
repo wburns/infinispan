@@ -2,7 +2,6 @@ package org.infinispan.persistence.manager;
 
 import java.util.Collection;
 import java.util.Set;
-import java.util.concurrent.Executor;
 import java.util.function.Predicate;
 
 import javax.transaction.Transaction;
@@ -10,7 +9,6 @@ import javax.transaction.Transaction;
 import org.infinispan.commons.api.Lifecycle;
 import org.infinispan.configuration.cache.StoreConfiguration;
 import org.infinispan.context.InvocationContext;
-import org.infinispan.filter.KeyFilter;
 import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.persistence.spi.AdvancedCacheLoader;
 import org.infinispan.persistence.spi.PersistenceException;
@@ -59,14 +57,6 @@ public interface PersistenceManager extends Lifecycle {
    void clearAllStores(AccessMode mode);
 
    boolean deleteFromAllStores(Object key, AccessMode mode);
-
-   void processOnAllStores(KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata);
-
-   void processOnAllStores(Executor executor, KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata);
-
-   void processOnAllStores(KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata, AccessMode mode);
-
-   void processOnAllStores(Executor executor, KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata, AccessMode mode);
 
    /**
     * See {@link #publishEntries(Predicate, boolean, boolean, AccessMode)}
