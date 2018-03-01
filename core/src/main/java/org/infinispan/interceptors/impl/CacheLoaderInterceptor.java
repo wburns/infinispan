@@ -76,7 +76,6 @@ import org.infinispan.stream.impl.spliterators.IteratorAsSpliterator;
 import org.infinispan.util.LazyConcatIterator;
 import org.infinispan.util.EntryWrapper;
 import org.infinispan.util.TimeService;
-import org.infinispan.util.function.CloseableSupplier;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.reactivestreams.Publisher;
@@ -222,28 +221,6 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          CacheSet<CacheEntry<K, V>> entrySet = (CacheSet<CacheEntry<K, V>>) rv;
          return new WrappedEntrySet(command, isRemoteIteration, entrySet);
       });
-   }
-
-   class SupplierFunction<K, V> implements CloseableSupplier<K> {
-      private final CloseableSupplier<CacheEntry<K, V>> supplier;
-
-      SupplierFunction(CloseableSupplier<CacheEntry<K, V>> supplier) {
-         this.supplier = supplier;
-      }
-
-      @Override
-      public K get() {
-         CacheEntry<K, V> entry = supplier.get();
-         if (entry != null) {
-            return entry.getKey();
-         }
-         return null;
-      }
-
-      @Override
-      public void close() {
-         supplier.close();
-      }
    }
 
    @Override
@@ -613,7 +590,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
       public boolean contains(Object o) {
          boolean contains = false;
          if (o != null) {
-            contains = super.contains(o);
+            contains = cacheSet.contains(o);
             if (!contains) {
                Map.Entry<K, V> entry = toEntry(o);
                if (entry != null) {
@@ -678,7 +655,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
       public boolean contains(Object o) {
          boolean contains = false;
          if (o != null) {
-            contains = super.contains(o);
+            contains = cacheSet.contains(o);
             if (!contains) {
                MarshalledEntry<K, V> me = persistenceManager.loadFromAllStores(o, true);
                contains = me != null;

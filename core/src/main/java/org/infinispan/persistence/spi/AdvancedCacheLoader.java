@@ -44,8 +44,9 @@ public interface AdvancedCacheLoader<K, V> extends CacheLoader<K, V> {
     *                      intended only ove the key set, then no pint fetching the metadata from the persistent store
     *                      as well
     * @throws PersistenceException in case of an error, e.g. communicating with the external storage
-    * @deprecated This is to be removed and replaced by {@link #publishEntries(Predicate, boolean, boolean)}
+    * @deprecated since 9.3 This is to be removed and replaced by {@link #publishEntries(Predicate, boolean, boolean)}
     */
+   @Deprecated
    default void process(KeyFilter<? super K> filter, CacheLoaderTask<K, V> task, Executor executor, boolean fetchValue, boolean fetchMetadata) {
       throw new UnsupportedOperationException("Should call processEntries!");
    }
@@ -101,7 +102,7 @@ public interface AdvancedCacheLoader<K, V> extends CacheLoader<K, V> {
    /**
     * Offers a callback to be invoked for parallel iteration over the entries in an external store. Implementors should
     * be thread safe.
-    * @deprecated The process method is no longer suggested and thus this class shouldn't be in use any more
+    * @deprecated since 9.3 The process method is deprecated and thus this class shouldn't be in use any more
     */
    @ThreadSafe
    @Deprecated

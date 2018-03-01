@@ -9,7 +9,6 @@ import static org.infinispan.context.Flag.SKIP_LOCKING;
 import static org.infinispan.context.Flag.SKIP_OWNERSHIP_CHECK;
 import static org.infinispan.context.Flag.SKIP_XSITE_BACKUP;
 import static org.infinispan.factories.KnownComponentNames.PERSISTENCE_EXECUTOR;
-import static org.infinispan.persistence.manager.PersistenceManager.AccessMode.BOTH;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -20,11 +19,11 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
@@ -49,7 +48,6 @@ import org.infinispan.factories.annotations.ComponentName;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.annotations.Stop;
-import org.infinispan.filter.KeyFilter;
 import org.infinispan.interceptors.AsyncInterceptor;
 import org.infinispan.interceptors.AsyncInterceptorChain;
 import org.infinispan.interceptors.impl.CacheLoaderInterceptor;
@@ -270,9 +268,10 @@ public class PersistenceManagerImpl implements PersistenceManager {
       final AtomicInteger loadedEntries = new AtomicInteger(0);
       final AdvancedCache<Object, Object> flaggedCache = getCacheForStateInsertion();
       Long insertAmount = Flowable.fromPublisher(preloadCl.publishEntries(null, true, true))
-            .take(maxEntries).doOnNext(me -> {
-               Metadata metadata = me.getMetadata() != null ? ((InternalMetadataImpl) me.getMetadata()).actual() :
-                     null; //the downcast will go away with ISPN-3460
+            .take(maxEntries)
+            .doOnNext(me -> {
+               //the downcast will go away with ISPN-3460
+               Metadata metadata = me.getMetadata() != null ? ((InternalMetadataImpl) me.getMetadata()).actual() : null;
                preloadKey(flaggedCache, me.getKey(), me.getValue(), metadata);
             }).count().blockingGet();
       this.preloaded = insertAmount < maxEntries;
@@ -458,38 +457,6 @@ public class PersistenceManagerImpl implements PersistenceManager {
       }
    }
 
-   @Override
-   public void processOnAllStores(KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task,
-         boolean fetchValue, boolean fetchMetadata) {
-      processOnAllStores(persistenceExecutor, keyFilter, task, fetchValue, fetchMetadata);
-   }
-
-   @Override
-   public void processOnAllStores(Executor executor, KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata) {
-      processOnAllStores(executor, keyFilter, task, fetchValue, fetchMetadata, BOTH);
-   }
-
-   @Override
-   public void processOnAllStores(KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task,
-         boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
-      processOnAllStores(persistenceExecutor, keyFilter, task, fetchValue, fetchMetadata, mode);
-   }
-
-   @Override
-   public void processOnAllStores(Executor executor, KeyFilter keyFilter, AdvancedCacheLoader.CacheLoaderTask task, boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
-      storesMutex.readLock().lock();
-      try {
-         for (CacheLoader loader : loaders) {
-            if (mode.canPerform(configMap.get(loader)) && loader instanceof AdvancedCacheLoader) {
-               //noinspection unchecked
-               ((AdvancedCacheLoader) loader).process(keyFilter, task, executor, fetchValue, fetchMetadata);
-            }
-         }
-      } finally {
-         storesMutex.readLock().unlock();
-      }
-   }
-
    <K, V> AdvancedCacheLoader<K, V> getFirstAdvancedCacheLoader(AccessMode mode) {
       storesMutex.readLock().lock();
       try {
@@ -510,7 +477,12 @@ public class PersistenceManagerImpl implements PersistenceManager {
       AdvancedCacheLoader<K, V> advancedCacheLoader = getFirstAdvancedCacheLoader(mode);
 
       if (advancedCacheLoader != null) {
-         return advancedCacheLoader.publishEntries(filter, fetchValue, fetchMetadata);
+         // We have to acquire the read lock on the stores mutex to be sure that no concurrent stop or store removal
+         // is done while processing data
+         return Flowable.using(storesMutex::readLock, lock -> {
+            lock.lock();
+            return advancedCacheLoader.publishEntries(filter, fetchValue, fetchMetadata);
+         }, Lock::unlock);
       }
       return Flowable.empty();
    }
@@ -520,7 +492,12 @@ public class PersistenceManagerImpl implements PersistenceManager {
       AdvancedCacheLoader<K, ?> advancedCacheLoader = getFirstAdvancedCacheLoader(mode);
 
       if (advancedCacheLoader != null) {
-         return advancedCacheLoader.publishKeys(filter);
+         // We have to acquire the read lock on the stores mutex to be sure that no concurrent stop or store removal
+         // is done while processing data
+         return Flowable.using(storesMutex::readLock, lock -> {
+            lock.lock();
+            return advancedCacheLoader.publishKeys(filter);
+         }, Lock::unlock);
       }
       return Flowable.empty();
    }
