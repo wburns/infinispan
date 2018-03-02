@@ -381,6 +381,13 @@ public class SmallIntSet implements IntSet {
    }
 
    @Override
+   public void forEach(IntConsumer consumer) {
+      for (int i = bitSet.nextSetBit(0); i >= 0; i = bitSet.nextSetBit(i+1)) {
+         consumer.accept(i);
+      }
+   }
+
+   @Override
    public boolean equals(Object o) {
       if (this == o)
          return true;

@@ -2,6 +2,7 @@ package org.infinispan.commons.util;
 
 import java.util.PrimitiveIterator;
 import java.util.Set;
+import java.util.function.IntConsumer;
 import java.util.stream.IntStream;
 
 /**
@@ -72,6 +73,24 @@ public interface IntSet extends Set<Integer> {
     * @return the iterator
     */
    PrimitiveIterator.OfInt iterator();
+
+   /**
+    * Performs the given action for each element of the {@code IntSet}
+    * until all elements have been processed or the action throws an
+    * exception.  Unless otherwise specified by the implementing class,
+    * actions are performed in the order of iteration (if an iteration order
+    * is specified).  Exceptions thrown by the action are relayed to the
+    * caller.
+    * @implSpec
+    * <p>The default implementation behaves as if:
+    * <pre>{@code
+    *     iterator().forEachRemaining(consumer);
+    * }</pre>
+    * @param consumer The action to be performed for each element
+    */
+   default void forEach(IntConsumer consumer) {
+      iterator().forEachRemaining(consumer);
+   }
 
    /**
     * A stream of ints representing the data in this set

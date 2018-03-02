@@ -1758,4 +1758,7 @@ public interface Log extends BasicLogger {
 
    @Message(value = "The configuration is immutable", id = 515)
    UnsupportedOperationException immutableConfiguration();
+
+   @Message(value = "Shared Store or loader %s must implement SegmentedLoadWriteStore if configured as segmented")
+   CacheConfigurationException storeNotSegmented(Class<?> implementedClass);
 }

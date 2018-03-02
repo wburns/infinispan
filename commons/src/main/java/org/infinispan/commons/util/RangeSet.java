@@ -4,6 +4,7 @@ import java.util.Collection;
 import java.util.NoSuchElementException;
 import java.util.PrimitiveIterator;
 import java.util.Set;
+import java.util.function.IntConsumer;
 import java.util.stream.IntStream;
 
 /**
@@ -171,6 +172,13 @@ public class RangeSet implements IntSet {
    @Override
    public IntStream intStream() {
       return IntStream.range(0, size);
+   }
+
+   @Override
+   public void forEach(IntConsumer consumer) {
+      for (int i = 0; i < size; ++i) {
+         consumer.accept(i);
+      }
    }
 
    @Override

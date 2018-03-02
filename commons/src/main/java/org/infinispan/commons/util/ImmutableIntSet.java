@@ -2,6 +2,7 @@ package org.infinispan.commons.util;
 
 import java.util.Collection;
 import java.util.PrimitiveIterator;
+import java.util.function.IntConsumer;
 import java.util.stream.IntStream;
 
 /**
@@ -125,6 +126,11 @@ public class ImmutableIntSet implements IntSet {
    @Override
    public IntStream intStream() {
       return set.intStream();
+   }
+
+   @Override
+   public void forEach(IntConsumer consumer) {
+      set.forEach(consumer);
    }
 
    private class ImmutableIterator implements PrimitiveIterator.OfInt {
