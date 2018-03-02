@@ -1807,4 +1807,7 @@ public interface Log extends BasicLogger {
 
    @Message(value = "Cannot acquire lock as this partition is DEGRADED", id = 528)
    AvailabilityException degradedModeLockUnavailable();
+
+   @Message(value = "Shared Store or loader %s must implement SegmentedLoadWriteStore if configured as segmented", id = 529)
+   CacheConfigurationException storeNotSegmented(Class<?> implementedClass);
 }

@@ -14,7 +14,7 @@ import org.infinispan.commons.configuration.attributes.AttributeSet;
  * @since 6.0
  */
 public class SingleFileStoreConfigurationBuilder
-      extends AbstractStoreConfigurationBuilder<SingleFileStoreConfiguration, SingleFileStoreConfigurationBuilder> {
+      extends AbstractSegmentedStoreConfigurationBuilder<SingleFileStoreConfiguration, SingleFileStoreConfigurationBuilder> {
 
    public SingleFileStoreConfigurationBuilder(PersistenceConfigurationBuilder builder) {
       this(builder, SingleFileStoreConfiguration.attributeDefinitionSet());
@@ -22,6 +22,14 @@ public class SingleFileStoreConfigurationBuilder
 
    public SingleFileStoreConfigurationBuilder(PersistenceConfigurationBuilder builder, AttributeSet attributeSet) {
       super(builder, attributeSet);
+   }
+
+   @Override
+   public SingleFileStoreConfiguration newConfigurationFor(int segment) {
+      SingleFileStoreConfigurationBuilder copy = new SingleFileStoreConfigurationBuilder(builder.persistence(), attributes);
+      String currentLocation = attributes.attribute(LOCATION).get();
+      copy.location(currentLocation + "-" + segment);
+      return copy.create();
    }
 
    @Override
