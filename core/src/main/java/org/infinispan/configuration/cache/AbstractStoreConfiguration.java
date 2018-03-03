@@ -6,7 +6,6 @@ import org.infinispan.commons.configuration.attributes.Attribute;
 import org.infinispan.commons.configuration.attributes.AttributeDefinition;
 import org.infinispan.commons.configuration.attributes.AttributeSet;
 import org.infinispan.commons.util.TypedProperties;
-import org.w3c.dom.Attr;
 
 public class AbstractStoreConfiguration implements StoreConfiguration {
    public static final AttributeDefinition<Boolean> FETCH_PERSISTENT_STATE = AttributeDefinition.builder("fetchPersistentState", false).xmlName("fetch-state").immutable().build();

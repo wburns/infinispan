@@ -39,6 +39,7 @@ import org.infinispan.commons.api.Lifecycle;
 import org.infinispan.commons.io.ByteBufferFactory;
 import org.infinispan.commons.marshall.StreamingMarshaller;
 import org.infinispan.commons.util.Util;
+import org.infinispan.configuration.cache.AbstractNonSharedSegmentedConfiguration;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.StoreConfiguration;
@@ -80,6 +81,7 @@ import org.infinispan.persistence.support.AdvancedSingletonCacheWriter;
 import org.infinispan.persistence.support.BatchModification;
 import org.infinispan.persistence.support.DelegatingCacheLoader;
 import org.infinispan.persistence.support.DelegatingCacheWriter;
+import org.infinispan.persistence.support.NonSharedSegmentedLoadWriteStore;
 import org.infinispan.persistence.support.SingletonCacheWriter;
 import org.infinispan.util.TimeService;
 import org.infinispan.util.logging.Log;
@@ -713,7 +715,14 @@ public class PersistenceManagerImpl implements PersistenceManager {
 
    private void createLoadersAndWriters() {
       for (StoreConfiguration cfg : configuration.persistence().stores()) {
-         Object bareInstance = cacheStoreFactoryRegistry.createInstance(cfg);
+
+         Object bareInstance;
+         if (cfg.segmented() && !cfg.shared()) {
+            bareInstance = new NonSharedSegmentedLoadWriteStore<>((AbstractNonSharedSegmentedConfiguration) cfg);
+         } else {
+            bareInstance = cacheStoreFactoryRegistry.createInstance(cfg);
+         }
+
 
          StoreConfiguration processedConfiguration = cacheStoreFactoryRegistry.processStoreConfiguration(cfg);
 

@@ -13,12 +13,16 @@ import org.reactivestreams.Publisher;
  * invoked - which means it is a bug! These methods are also all declared final as to make sure the end user does not
  * implement the incorrect method.
  * @author wburns
- * @since 9.3
+ * @since 9.4
  */
 public abstract class AbstractSegmentedAdvancedLoadWriteStore<K, V> implements SegmentedAdvancedLoadWriteStore<K, V> {
+   public ToIntFunction<Object> getKeyMapper() {
+      throw new UnsupportedOperationException();
+   }
+
    @Override
    public final MarshalledEntry<K, V> load(Object key) {
-      throw new UnsupportedOperationException();
+      return load(getKeyMapper().applyAsInt(key), key);
    }
 
    @Override
@@ -28,7 +32,7 @@ public abstract class AbstractSegmentedAdvancedLoadWriteStore<K, V> implements S
 
    @Override
    public final void write(MarshalledEntry<? extends K, ? extends V> entry) {
-      throw new UnsupportedOperationException();
+      write(getKeyMapper().applyAsInt(entry.getKey()), entry);
    }
 
    @Override
@@ -37,27 +41,27 @@ public abstract class AbstractSegmentedAdvancedLoadWriteStore<K, V> implements S
    }
 
    @Override
-   public final int size() {
+   public int size() {
       throw new UnsupportedOperationException();
    }
 
    @Override
-   public final Publisher<K> publishKeys(Predicate<? super K> filter) {
+   public Publisher<K> publishKeys(Predicate<? super K> filter) {
       throw new UnsupportedOperationException();
    }
 
    @Override
-   public final Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
+   public Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
       throw new UnsupportedOperationException();
    }
 
    @Override
-   public final void purge(Executor threadPool, PurgeListener<? super K> listener) {
+   public void purge(Executor threadPool, PurgeListener<? super K> listener) {
       throw new UnsupportedOperationException();
    }
 
    @Override
-   public final void clear() {
+   public void clear() {
       throw new UnsupportedOperationException();
    }
 
