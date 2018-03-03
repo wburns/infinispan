@@ -2443,6 +2443,10 @@ public class Parser implements ConfigurationParser {
             storeBuilder.maxBatchSize(Integer.parseInt(value));
             break;
          }
+         case SEGMENTED: {
+            storeBuilder.segmented(Boolean.parseBoolean(value));
+            break;
+         }
          default: {
             throw ParseUtils.unexpectedAttribute(reader, index);
          }

@@ -6,13 +6,13 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.IntConsumer;
 import java.util.function.Predicate;
+import java.util.function.ToIntFunction;
 
 import org.infinispan.Cache;
 import org.infinispan.commons.util.IntSet;
-import org.infinispan.configuration.cache.AbstractSegmentedStoreConfigurationBuilder;
-import org.infinispan.configuration.cache.AbstractStoreConfigurationBuilder;
+import org.infinispan.configuration.cache.AbstractNonSharedSegmentedConfiguration;
+import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.HashConfiguration;
-import org.infinispan.configuration.cache.StoreConfiguration;
 import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.factories.ComponentRegistry;
@@ -28,25 +28,33 @@ import org.infinispan.remoting.transport.Address;
 import org.reactivestreams.Publisher;
 
 import io.reactivex.Flowable;
+import io.reactivex.Scheduler;
+import io.reactivex.schedulers.Schedulers;
 
 /**
  * @author wburns
  * @since 9.0
  */
 @Listener(observation = Listener.Observation.PRE)
-public class NonSharedSegmentedLoadWriteStore<K, V, T extends StoreConfiguration, S extends AbstractStoreConfigurationBuilder<T, S>> extends AbstractSegmentedAdvancedLoadWriteStore<K, V> {
-   private final AbstractSegmentedStoreConfigurationBuilder<T, S> configurationBuilder;
+public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedSegmentedConfiguration> extends AbstractSegmentedAdvancedLoadWriteStore<K, V> {
+   private final AbstractNonSharedSegmentedConfiguration<T> configuration;
    Cache<K, V> cache;
    ExecutorService executorService;
    CacheStoreFactoryRegistry cacheStoreFactoryRegistry;
    KeyPartitioner keyPartitioner;
    InitializationContext ctx;
+   Scheduler scheduler;
    Address localNode;
 
    AtomicReferenceArray<AdvancedLoadWriteStore<K, V>> stores;
 
-   public NonSharedSegmentedLoadWriteStore(AbstractSegmentedStoreConfigurationBuilder<T, S> configurationBuilder) {
-      this.configurationBuilder = configurationBuilder;
+   public NonSharedSegmentedLoadWriteStore(AbstractNonSharedSegmentedConfiguration<T> configuration) {
+      this.configuration = configuration;
+   }
+
+   @Override
+   public ToIntFunction<Object> getKeyMapper() {
+      return keyPartitioner::getSegment;
    }
 
    @Override
@@ -76,12 +84,38 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends StoreConfiguration
 
    @Override
    public Publisher<K> publishKeys(int segment, Predicate<? super K> filter) {
-      return stores.get(segment).publishKeys(filter);
+      AdvancedLoadWriteStore<K, V> alws = stores.get(segment);
+      if (alws == null) {
+         return Flowable.empty();
+      } else {
+         return alws.publishKeys(filter);
+      }
    }
 
    @Override
    public Publisher<MarshalledEntry<K, V>> publishEntries(int segment, Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
-      return stores.get(segment).publishEntries(filter, fetchValue, fetchMetadata);
+      AdvancedLoadWriteStore<K, V> alws = stores.get(segment);
+      if (alws == null) {
+         return Flowable.empty();
+      } else {
+         return alws.publishEntries(filter, fetchValue, fetchMetadata);
+      }
+   }
+
+   @Override
+   public Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
+      return Flowable.range(0, stores.length())
+            .parallel()
+            .runOn(scheduler)
+            .flatMap(i -> {
+               AdvancedLoadWriteStore<K, V> alws = stores.get(i);
+               if (alws == null) {
+                  return Flowable.empty();
+               } else {
+                  return alws.publishEntries(filter, fetchValue, fetchMetadata);
+               }
+            })
+            .sequential();
    }
 
    @Override
@@ -136,12 +170,15 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends StoreConfiguration
       cache.getAdvancedCache().getDistributionManager();
       cache.addListener(this);
 
+      scheduler = Schedulers.from(executorService);
+
       HashConfiguration hashConfiguration = cache.getCacheConfiguration().clustering().hash();
       keyPartitioner = hashConfiguration.keyPartitioner();
       stores = new AtomicReferenceArray<>(hashConfiguration.numSegments());
 
-      // Local cache we just instantiate all the stores immediately
-      if (!cache.getCacheConfiguration().clustering().cacheMode().isClustered()) {
+      CacheMode mode = cache.getCacheConfiguration().clustering().cacheMode();
+      // Local or remote cache we just instantiate all the stores immediately
+      if (!mode.isClustered() || mode.isReplicated()) {
          for (int i = 0; i < stores.length(); ++i) {
             startNewStoreForSegment(i);
          }
@@ -149,12 +186,14 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends StoreConfiguration
    }
 
    private void startNewStoreForSegment(int segment) {
-      T storeConfiguration = configurationBuilder.newConfigurationFor(segment);
-      AdvancedLoadWriteStore<K, V> newStore = (AdvancedLoadWriteStore<K, V>) cacheStoreFactoryRegistry.createInstance(storeConfiguration);
-      newStore.init(new InitializationContextImpl(storeConfiguration, cache, ctx.getMarshaller(), ctx.getTimeService(),
-            ctx.getByteBufferFactory(), ctx.getMarshalledEntryFactory(), ctx.getExecutor()));
-      newStore.start();
-      stores.set(segment, newStore);
+      if (stores.get(segment) == null) {
+         T storeConfiguration = configuration.newConfigurationFrom(segment);
+         AdvancedLoadWriteStore<K, V> newStore = (AdvancedLoadWriteStore<K, V>) cacheStoreFactoryRegistry.createInstance(storeConfiguration);
+         newStore.init(new InitializationContextImpl(storeConfiguration, cache, ctx.getMarshaller(), ctx.getTimeService(),
+               ctx.getByteBufferFactory(), ctx.getMarshalledEntryFactory(), ctx.getExecutor()));
+         newStore.start();
+         stores.set(segment, newStore);
+      }
    }
 
    @Override
@@ -164,12 +203,16 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends StoreConfiguration
 
    @TopologyChanged
    public void onTopologyChange(TopologyChangedEvent<K, V> topologyChangedEvent) {
-      ConsistentHash ch = topologyChangedEvent.getWriteConsistentHashAtEnd();
-      Set<Integer> segments = ch.getSegmentsForOwner(localNode);
-      if (segments instanceof IntSet) {
-         ((IntSet) segments).forEach((IntConsumer) this::startNewStoreForSegment);
+      if (topologyChangedEvent.isPre()) {
+         ConsistentHash ch = topologyChangedEvent.getWriteConsistentHashAtEnd();
+         Set<Integer> segments = ch.getSegmentsForOwner(localNode);
+         if (segments instanceof IntSet) {
+            ((IntSet) segments).forEach((IntConsumer) this::startNewStoreForSegment);
+         } else {
+            segments.forEach(this::startNewStoreForSegment);
+         }
       } else {
-         segments.forEach(this::startNewStoreForSegment);
+         // TODO: need to remove stores heres
       }
    }
 }

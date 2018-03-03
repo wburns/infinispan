@@ -244,7 +244,8 @@ public abstract class AbstractStoreConfigurationBuilder<T extends StoreConfigura
          if (storeKlass.isAnnotationPresent(Store.class)) {
             Store storeProps = (Store) storeKlass.getAnnotation(Store.class);
             boolean shared = attributes.attribute(SHARED).get();
-            if (storeProps.shared() || shared) {
+            // Technically you can use a shared store as non shared - we should allow that anyways
+            if (storeProps.shared() && shared) {
                if (segmented && !storeKlass.isAssignableFrom(SegmentedAdvancedLoadWriteStore.class)) {
                   throw log.storeNotSegmented(storeKlass);
                }

@@ -11,13 +11,13 @@ import java.util.concurrent.TimeoutException;
 import org.infinispan.Cache;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.configuration.cache.SingleFileStoreConfigurationBuilder;
 import org.infinispan.context.Flag;
 import org.infinispan.distribution.MagicKey;
 import org.infinispan.marshall.TestObjectStreamMarshaller;
 import org.infinispan.marshall.core.MarshalledEntryImpl;
-import org.infinispan.persistence.dummy.DummyInMemoryStore;
-import org.infinispan.persistence.dummy.DummyInMemoryStoreConfigurationBuilder;
 import org.infinispan.persistence.manager.PersistenceManager;
+import org.infinispan.persistence.support.NonSharedSegmentedLoadWriteStore;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.transaction.TransactionMode;
@@ -48,8 +48,8 @@ public abstract class BaseStreamIteratorWithLoaderTest extends MultipleCacheMana
       builderUsed = new ConfigurationBuilder();
       builderUsed.clustering().cacheMode(cacheMode);
       builderUsed.clustering().hash().numOwners(1);
-      builderUsed.persistence().passivation(false).addStore(DummyInMemoryStoreConfigurationBuilder.class)
-            .storeName(cacheName);
+      builderUsed.persistence().passivation(false).addStore(SingleFileStoreConfigurationBuilder.class)
+            .location(cacheName).segmented(true).shared(false);
       if (tx) {
          builderUsed.transaction().transactionMode(TransactionMode.TRANSACTIONAL);
       }
@@ -81,7 +81,7 @@ public abstract class BaseStreamIteratorWithLoaderTest extends MultipleCacheMana
       cache0.putAll(originalValues);
 
       PersistenceManager persistenceManager = TestingUtil.extractComponent(cache0, PersistenceManager.class);
-      DummyInMemoryStore store = persistenceManager.getStores(DummyInMemoryStore.class).iterator().next();
+      NonSharedSegmentedLoadWriteStore store = persistenceManager.getStores(NonSharedSegmentedLoadWriteStore.class).iterator().next();
 
       TestObjectStreamMarshaller sm = new TestObjectStreamMarshaller();
       try {
