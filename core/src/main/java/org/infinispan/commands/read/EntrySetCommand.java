@@ -1,10 +1,12 @@
 package org.infinispan.commands.read;
 
+import java.util.Collections;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.function.ToIntFunction;
+import java.util.stream.StreamSupport;
 
 import org.infinispan.Cache;
 import org.infinispan.CacheSet;
@@ -19,15 +21,21 @@ import org.infinispan.commons.util.EnumUtil;
 import org.infinispan.commons.util.IteratorMapper;
 import org.infinispan.commons.util.RemovableIterator;
 import org.infinispan.container.DataContainer;
+import org.infinispan.container.SegmentedDataContainer;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.context.impl.FlagBitSets;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.stream.impl.local.EntryStreamSupplier;
 import org.infinispan.stream.impl.local.LocalCacheStream;
+import org.infinispan.stream.impl.local.SegmentedEntryStreamSupplier;
 import org.infinispan.util.DataContainerRemoveIterator;
 import org.infinispan.util.EntryWrapper;
+import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
+
+import io.reactivex.Flowable;
 
 /**
  * Command implementation for {@link java.util.Map#entrySet()} functionality.
@@ -82,7 +90,7 @@ public class EntrySetCommand<K, V> extends AbstractLocalCommand implements Visit
          implements CacheSet<CacheEntry<K, V>> {
       private final boolean isRemoteIteration;
 
-      BackingEntrySet(Cache cache, boolean isRemoteIteration) {
+      BackingEntrySet(Cache<K, V> cache, boolean isRemoteIteration) {
          super(cache);
          this.isRemoteIteration = isRemoteIteration;
       }
@@ -94,7 +102,7 @@ public class EntrySetCommand<K, V> extends AbstractLocalCommand implements Visit
          return Closeables.iterator(new IteratorMapper<>(removableIterator, e -> new EntryWrapper<>(cache, e)));
       }
 
-      static <K, V> CloseableSpliterator<CacheEntry<K, V>> cast(Spliterator spliterator) {
+      static <K, V> CloseableSpliterator<CacheEntry<K, V>> closeableCast(Spliterator spliterator) {
          if (spliterator instanceof CloseableSpliterator) {
             return (CloseableSpliterator<CacheEntry<K, V>>) spliterator;
          }
@@ -106,7 +114,7 @@ public class EntrySetCommand<K, V> extends AbstractLocalCommand implements Visit
          DataContainer<K, V> dc = cache.getAdvancedCache().getDataContainer();
 
          // Spliterator doesn't support remove so just return it without wrapping
-         return cast(dc.spliterator());
+         return closeableCast(dc.spliterator());
       }
 
       @Override
@@ -154,16 +162,42 @@ public class EntrySetCommand<K, V> extends AbstractLocalCommand implements Visit
          return null;
       }
 
+      private Spliterator<CacheEntry<K, V>> cast(Spliterator spliterator) {
+         return (Spliterator<CacheEntry<K, V>>) spliterator;
+      }
+
+      private CacheStream<CacheEntry<K, V>> stream(boolean parallel) {
+         DataContainer<K, V> dc = cache.getAdvancedCache().getDataContainer();
+         if (dc instanceof SegmentedDataContainer) {
+            SegmentedDataContainer<K, V> segmentedDataContainer = (SegmentedDataContainer) dc;
+            return new LocalCacheStream<>(new SegmentedEntryStreamSupplier<>(cache, isRemoteIteration, getSegmentMapper(cache),
+                  intSet -> {
+                     Flowable<Iterator<InternalCacheEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(intSet,
+                           i -> {
+                              Iterator<InternalCacheEntry<K, V>> iter = segmentedDataContainer.iterator(i);
+                              if (iter == null) {
+                                 return Collections.emptyIterator();
+                              }
+                              return iter;
+                           });
+                     Iterable<InternalCacheEntry<K, V>> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
+                     return StreamSupport.stream(cast(iterable.spliterator()), false);
+                  }),
+                  parallel, cache.getAdvancedCache().getComponentRegistry());
+         } else {
+            return new LocalCacheStream<>(new EntryStreamSupplier<>(cache, isRemoteIteration, getSegmentMapper(cache),
+                  super::stream), parallel, cache.getAdvancedCache().getComponentRegistry());
+         }
+      }
+
       @Override
       public CacheStream<CacheEntry<K, V>> stream() {
-         return new LocalCacheStream<>(new EntryStreamSupplier<>(cache, isRemoteIteration, getSegmentMapper(cache),
-                 () -> super.stream()), false, cache.getAdvancedCache().getComponentRegistry());
+         return stream(false);
       }
 
       @Override
       public CacheStream<CacheEntry<K, V>> parallelStream() {
-         return new LocalCacheStream<>(new EntryStreamSupplier<>(cache, isRemoteIteration, getSegmentMapper(cache),
-                 () -> super.stream()), true, cache.getAdvancedCache().getComponentRegistry());
+         return stream(true);
       }
    }
 }

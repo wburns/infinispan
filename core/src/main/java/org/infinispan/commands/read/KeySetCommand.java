@@ -1,8 +1,11 @@
 package org.infinispan.commands.read;
 
+import java.util.Collections;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
 import java.util.Spliterator;
+import java.util.function.ToIntFunction;
 import java.util.stream.StreamSupport;
 
 import org.infinispan.Cache;
@@ -15,13 +18,21 @@ import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.CloseableSpliterator;
 import org.infinispan.commons.util.Closeables;
 import org.infinispan.commons.util.EnumUtil;
+import org.infinispan.commons.util.IteratorMapper;
+import org.infinispan.container.DataContainer;
+import org.infinispan.container.SegmentedDataContainer;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.stream.impl.local.KeyStreamSupplier;
 import org.infinispan.stream.impl.local.LocalCacheStream;
+import org.infinispan.stream.impl.local.SegmentedKeyStreamSupplier;
 import org.infinispan.util.DataContainerRemoveIterator;
+import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
+
+import io.reactivex.Flowable;
 
 /**
  * Command implementation for {@link java.util.Map#keySet()} functionality.
@@ -100,20 +111,46 @@ public class KeySetCommand<K, V> extends AbstractLocalCommand implements Visitab
          return cache.remove(o) != null;
       }
 
+      private ToIntFunction<Object> getSegmentMapper(Cache<K, V> cache) {
+         DistributionManager dm = cache.getAdvancedCache().getDistributionManager();
+         if (dm != null) {
+            return dm.getCacheTopology()::getSegment;
+         }
+         return null;
+      }
+
+      private CacheStream<K> stream(boolean parallel) {
+         DataContainer<K, V> dc = cache.getAdvancedCache().getDataContainer();
+         if (dc instanceof SegmentedDataContainer) {
+            SegmentedDataContainer<K, V> segmentedDataContainer = (SegmentedDataContainer) dc;
+            return new LocalCacheStream<>(new SegmentedKeyStreamSupplier<>(cache, getSegmentMapper(cache),
+                  intSet -> {
+                     Flowable<Iterator<K>> flowable = new FlowableFromIntSetFunction<>(intSet,
+                           i -> {
+                              Iterator<InternalCacheEntry<K, V>> iter = segmentedDataContainer.iterator();
+                              if (iter == null) {
+                                 return Collections.emptyIterator();
+                              }
+                              return new IteratorMapper<>(iter, Map.Entry::getKey);
+                           });
+                     Iterable<K> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
+                     return StreamSupport.stream(iterable.spliterator(), false);
+                  }),
+                  parallel, cache.getAdvancedCache().getComponentRegistry());
+         } else {
+            return new LocalCacheStream<>(new KeyStreamSupplier<>(cache, getSegmentMapper(cache),
+                  super::stream), parallel, cache.getAdvancedCache().getComponentRegistry());
+         }
+      }
+
       @Override
       public CacheStream<K> stream() {
-         DistributionManager dm = cache.getAdvancedCache().getDistributionManager();
-         return new LocalCacheStream<>(new KeyStreamSupplier<>(cache, dm != null ? dm.getCacheTopology()::getSegment : null,
-                 () -> StreamSupport.stream(spliterator(), false)), false,
-                 cache.getAdvancedCache().getComponentRegistry());
+         return stream(false);
       }
 
       @Override
       public CacheStream<K> parallelStream() {
-         DistributionManager dm = cache.getAdvancedCache().getDistributionManager();
-         return new LocalCacheStream<>(new KeyStreamSupplier<>(cache, dm != null ? dm.getCacheTopology()::getSegment : null,
-                 () -> StreamSupport.stream(spliterator(), false)), true,
-                 cache.getAdvancedCache().getComponentRegistry());
+         return stream(true);
       }
    }
 
