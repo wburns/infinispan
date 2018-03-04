@@ -25,7 +25,6 @@ import java.util.function.ToIntFunction;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
-import org.infinispan.BaseCacheStream;
 import org.infinispan.Cache;
 import org.infinispan.CacheStream;
 import org.infinispan.DoubleCacheStream;

@@ -18,7 +18,6 @@ import java.util.function.ObjDoubleConsumer;
 import java.util.function.Supplier;
 import java.util.stream.DoubleStream;
 
-import org.infinispan.BaseCacheStream;
 import org.infinispan.Cache;
 import org.infinispan.DoubleCacheStream;
 import org.infinispan.commons.util.IntSet;

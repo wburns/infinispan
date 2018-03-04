@@ -12,7 +12,6 @@ import org.infinispan.cache.impl.AbstractDelegatingCache;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.RemovableCloseableIterator;
-import org.infinispan.commons.util.SmallIntSet;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.util.logging.Log;

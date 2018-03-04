@@ -1,5 +1,6 @@
 package org.infinispan.util.rxjava;
 
+import java.util.Objects;
 import java.util.PrimitiveIterator;
 import java.util.function.IntFunction;
 
@@ -27,8 +28,8 @@ public class FlowableFromIntSetFunction<T> extends Flowable<T> {
    final IntFunction<T> intFunction;
 
    public FlowableFromIntSetFunction(IntSet intSet, IntFunction<T> intFunction) {
-      this.intSet = intSet;
-      this.intFunction = intFunction;
+      this.intSet = Objects.requireNonNull(intSet);
+      this.intFunction = Objects.requireNonNull(intFunction);
    }
 
    @Override

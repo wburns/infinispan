@@ -24,7 +24,6 @@ import java.util.function.ToDoubleFunction;
 import java.util.stream.DoubleStream;
 import java.util.stream.Stream;
 
-import org.infinispan.BaseCacheStream;
 import org.infinispan.Cache;
 import org.infinispan.CacheStream;
 import org.infinispan.DoubleCacheStream;
