@@ -48,16 +48,4 @@ public abstract class AbstractSegmentedDataContainer<K, V> implements SegmentedD
    public InternalCacheEntry<K, V> compute(K key, ComputeAction<K, V> action) {
       return compute(segmentMapper().applyAsInt(key), key, action);
    }
-
-   @Override
-   public Iterator<InternalCacheEntry<K, V>> iterator() {
-      // TODO: filter out non mapped segments
-      return null;
-   }
-
-   @Override
-   public Iterator<InternalCacheEntry<K, V>> iteratorIncludingExpired() {
-      // TODO: filter out non mapped segments
-      return null;
-   }
 }

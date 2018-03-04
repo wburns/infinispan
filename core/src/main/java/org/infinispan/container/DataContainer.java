@@ -175,21 +175,51 @@ public interface DataContainer<K, V> extends Iterable<InternalCacheEntry<K, V>> 
 
    /**
     * Executes task specified by the given action on the container key/values filtered using the specified key filter.
-    *
+    * @implSpec
+    * The default implementation is equivalent to
+    * <pre> {@code
+    * iterator().forEachRemaining(ice -> {
+    *    if (filter == null || filter.accept(ice.getKey())) {
+    *       action.accept(ice.getKey(), ice);
+    *    }
+    * }
+    * }</pre>
     * @param filter the filter for the container keys
     * @param action the specified action to execute on filtered key/values
     * @throws InterruptedException
+    * @deprecated Please use the {@link #iterator()} method and apply filtering manually
     */
-   void executeTask(final KeyFilter<? super K> filter, BiConsumer<? super K, InternalCacheEntry<K, V>> action) throws InterruptedException;
+   default void executeTask(final KeyFilter<? super K> filter, BiConsumer<? super K, InternalCacheEntry<K, V>> action) throws InterruptedException {
+      iterator().forEachRemaining(ice -> {
+         if (filter == null || filter.accept(ice.getKey())) {
+            action.accept(ice.getKey(), ice);
+         }
+      });
+   }
 
    /**
     * Executes task specified by the given action on the container key/values filtered using the specified keyvalue filter.
-    *
+    * @implSpec
+    * The default implementation is equivalent to
+    * <pre> {@code
+    * iterator().forEachRemaining(ice -> {
+    *    if (filter == null || filter.accept(ice.getKey(), ice.getValue(), ice.getMetadata())) {
+    *       action.accept(ice.getKey(), ice);
+    *    }
+    * }
+    * }</pre>
     * @param filter the filter for the container key/values
     * @param action the specified action to execute on filtered key/values
     * @throws InterruptedException
+    * @deprecated Please use the {@link #iterator()} method and apply filtering manually
     */
-   void executeTask(KeyValueFilter<? super K, ? super V> filter, BiConsumer<? super K, InternalCacheEntry<K, V>> action) throws InterruptedException;
+   default void executeTask(KeyValueFilter<? super K, ? super V> filter, BiConsumer<? super K, InternalCacheEntry<K, V>> action) throws InterruptedException {
+      iterator().forEachRemaining(ice -> {
+         if (filter == null || filter.accept(ice.getKey(), ice.getValue(), ice.getMetadata())) {
+            action.accept(ice.getKey(), ice);
+         }
+      });
+   }
 
    /**
     * {@inheritDoc}
@@ -266,4 +296,14 @@ public interface DataContainer<K, V> extends Iterable<InternalCacheEntry<K, V>> 
    default long evictionSize() {
       throw new UnsupportedOperationException();
    }
+
+   /**
+    * TODO:
+    */
+   default void start() { }
+
+   /**
+    *
+    */
+   default void stop() { }
 }

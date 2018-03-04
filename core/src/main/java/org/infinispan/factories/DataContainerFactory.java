@@ -5,6 +5,7 @@ import org.infinispan.configuration.cache.MemoryConfiguration;
 import org.infinispan.configuration.cache.StorageType;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.DefaultDataContainer;
+import org.infinispan.container.DefaultSegmentedDataContainer;
 import org.infinispan.container.offheap.BoundedOffHeapDataContainer;
 import org.infinispan.container.offheap.OffHeapDataContainer;
 import org.infinispan.eviction.EvictionStrategy;
@@ -37,7 +38,7 @@ public class DataContainerFactory extends AbstractNamedCacheComponentFactory imp
             if (configuration.memory().storageType() == StorageType.OFF_HEAP) {
                return (T) new OffHeapDataContainer(configuration.memory().addressCount());
             } else {
-               return (T) DefaultDataContainer.unBoundedDataContainer(level);
+               return (T) new DefaultSegmentedDataContainer<>(() -> DefaultDataContainer.unBoundedDataContainer(level));
             }
          }
 
