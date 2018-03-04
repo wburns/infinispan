@@ -125,6 +125,10 @@ public class ExpirationFunctionalTest extends SingleCacheManagerTest {
    }
 
    public void testExpirationMaxIdleInExec() throws Exception {
+      // Clustered caches can return max idle entries to executeTask
+      if (cache.getCacheConfiguration().clustering().cacheMode().isClustered()) {
+         return;
+      }
       for (int i = 0; i < SIZE; i++) {
          cache.put("key-" + i, "value-" + i,-1, null, 1, TimeUnit.MILLISECONDS);
       }

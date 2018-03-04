@@ -44,6 +44,7 @@ import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.CloseableIteratorMapper;
 import org.infinispan.commons.util.CloseableSpliterator;
 import org.infinispan.commons.util.Closeables;
+import org.infinispan.commons.util.IteratorMapper;
 import org.infinispan.commons.util.RemovableCloseableIterator;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.EntryFactory;
@@ -561,7 +562,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          if (isRemoteIteration) {
             return innerIterator();
          }
-         return new CloseableIteratorMapper<>(new RemovableCloseableIterator<>(innerIterator(),
+         return new IteratorMapper<>(new RemovableCloseableIterator<>(innerIterator(),
                e -> cache.remove(e.getKey(), e.getValue())), e -> new EntryWrapper<>(cache, e));
       }
 

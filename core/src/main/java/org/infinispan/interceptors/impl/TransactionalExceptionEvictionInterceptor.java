@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 import org.infinispan.Cache;
 import org.infinispan.commands.tx.CommitCommand;
@@ -22,6 +23,7 @@ import org.infinispan.configuration.cache.MemoryConfiguration;
 import org.infinispan.configuration.cache.StorageType;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.KeyValueMetadataSizeCalculator;
+import org.infinispan.container.SegmentedDataContainer;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.container.offheap.UnpooledOffHeapMemoryAllocator;
@@ -59,6 +61,8 @@ public class TransactionalExceptionEvictionInterceptor extends DDAsyncIntercepto
    private long minSize;
    private KeyValueMetadataSizeCalculator calculator;
 
+   private Consumer<Iterable<InternalCacheEntry>> listener;
+
    public long getCurrentSize() {
       return currentSize.get();
    }
@@ -93,11 +97,26 @@ public class TransactionalExceptionEvictionInterceptor extends DDAsyncIntercepto
          currentSize.set(minSize);
       }
 
+      if (container instanceof SegmentedDataContainer) {
+         listener = this::entriesRemoved;
+         ((SegmentedDataContainer) container).addRemovalListener(listener);
+      }
+
       // Local caches just remove the entry, so we have to listen for those events
       if (!cache.getCacheConfiguration().clustering().cacheMode().isClustered()) {
          // We want the raw values and no transformations for our listener
          // We can't use AbstractDelegatingCache.unwrapCache(cache) as this would give us byte[] instead of WrappedByteArray
          cache.getAdvancedCache().withEncoding(IdentityEncoder.class).withWrapping(IdentityWrapper.class).addListener(this);
+      }
+   }
+
+   private void entriesRemoved(Iterable<InternalCacheEntry> entries) {
+      long changeAmount = 0;
+      for (InternalCacheEntry entry : entries) {
+         changeAmount -= calculator.calculateSize(entry.getKey(), entry.getValue(), entry.getMetadata());
+      }
+      if (changeAmount != 0) {
+         increaseSize(changeAmount);
       }
    }
 

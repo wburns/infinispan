@@ -46,6 +46,7 @@ import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.conflict.impl.InternalConflictManager;
 import org.infinispan.container.DataContainer;
+import org.infinispan.container.SegmentedDataContainer;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.context.InvocationContextFactory;
@@ -234,10 +235,6 @@ public class StateConsumerImpl implements StateConsumer {
 
    @Override
    public CompletableFuture<Void> onTopologyUpdate(final CacheTopology cacheTopology, final boolean isRebalance) {
-      if (!running) {
-         if (trace) log.tracef("State consumer not running for cache %s, ignoring topology update %s",
-                               cacheName, cacheTopology);
-      }
       final boolean isMember = cacheTopology.getMembers().contains(rpcManager.getAddress());
       final boolean startConflictResolution = !isRebalance && cacheTopology.getPhase() == CacheTopology.Phase.CONFLICT_RESOLUTION;
       if (trace) log.tracef("Received new topology for cache %s, isRebalance = %b, isMember = %b, topology = %s", cacheName, isRebalance, isMember, cacheTopology);
@@ -967,29 +964,31 @@ public class StateConsumerImpl implements StateConsumer {
       // Keys that we used to own, and need to be removed from the data container AND the cache stores
       final ConcurrentHashSet<Object> keysToRemove = new ConcurrentHashSet<>();
 
-      dataContainer.executeTask(KeyFilter.ACCEPT_ALL_FILTER, (o, ice) -> {
-         Object key = ice.getKey();
-         int keySegment = getSegment(key);
-         if (removedSegments.contains(keySegment)) {
-            keysToRemove.add(key);
-         }
-      });
-
+      if (dataContainer instanceof SegmentedDataContainer) {
+         SegmentedDataContainer sdc = (SegmentedDataContainer) dataContainer;
+         sdc.removeSegments(SmallIntSet.from(removedSegments));
+      } else {
+         dataContainer.executeTask(KeyFilter.ACCEPT_ALL_FILTER, (o, ice) -> {
+            Object key = ice.getKey();
+            int keySegment = getSegment(key);
+            if (removedSegments.contains(keySegment)) {
+               keysToRemove.add(key);
+            }
+         });
+      }
       // gather all keys from cache store that belong to the segments that are being removed/moved to L1
-      if (!removedSegments.isEmpty()) {
-         try {
-            Predicate<Object> filter = key -> {
-               if (dataContainer.containsKey(key))
-                  return false;
-               int keySegment = getSegment(key);
-               return (removedSegments.contains(keySegment));
-            };
-            Publisher<Object> publisher = persistenceManager.publishKeys(
-                  filter, PRIVATE);
-            Flowable.fromPublisher(publisher).blockingForEach(keysToRemove::add);
-         } catch (CacheException e) {
-            log.failedLoadingKeysFromCacheStore(e);
-         }
+      try {
+         Predicate<Object> filter = key -> {
+            if (dataContainer.containsKey(key))
+               return false;
+            int keySegment = getSegment(key);
+            return (removedSegments.contains(keySegment));
+         };
+         Publisher<Object> publisher = persistenceManager.publishKeys(
+               filter, PRIVATE);
+         Flowable.fromPublisher(publisher).blockingForEach(keysToRemove::add);
+      } catch (CacheException e) {
+         log.failedLoadingKeysFromCacheStore(e);
       }
 
       if (!keysToRemove.isEmpty()) {

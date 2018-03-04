@@ -14,12 +14,13 @@ import org.infinispan.cache.impl.AbstractDelegatingCache;
 import org.infinispan.commands.VisitableCommand;
 import org.infinispan.commands.Visitor;
 import org.infinispan.commons.util.CloseableIterator;
-import org.infinispan.commons.util.CloseableIteratorMapper;
 import org.infinispan.commons.util.CloseableSpliterator;
 import org.infinispan.commons.util.Closeables;
 import org.infinispan.commons.util.EnumUtil;
+import org.infinispan.commons.util.IteratorMapper;
 import org.infinispan.commons.util.RemovableIterator;
 import org.infinispan.container.DataContainer;
+import org.infinispan.container.SegmentedDataContainer;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
@@ -28,6 +29,7 @@ import org.infinispan.context.impl.FlagBitSets;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.stream.impl.local.EntryStreamSupplier;
 import org.infinispan.stream.impl.local.LocalCacheStream;
+import org.infinispan.stream.impl.local.SegmentedEntryStreamSupplier;
 import org.infinispan.util.DataContainerRemoveIterator;
 import org.infinispan.util.EntryWrapper;
 
@@ -81,8 +83,7 @@ public class EntrySetCommand<K, V> extends AbstractLocalCommand implements Visit
             '}';
    }
 
-   static class BackingEntrySet<K, V> extends AbstractCollection<CacheEntry<K, V>>
-         implements CacheSet<CacheEntry<K, V>> {
+   static class BackingEntrySet<K, V> extends AbstractCollection<CacheEntry<K, V>> implements CacheSet<CacheEntry<K, V>> {
       private final boolean isRemoteIteration;
       private final Cache<K, V> cache;
 
@@ -99,10 +100,10 @@ public class EntrySetCommand<K, V> extends AbstractLocalCommand implements Visit
          }
          Iterator<CacheEntry<K, V>> iterator = new DataContainerRemoveIterator<>(cache);
          RemovableIterator<CacheEntry<K, V>> removableIterator = new RemovableIterator<>(iterator, e -> cache.remove(e.getKey(), e.getValue()));
-         return new CloseableIteratorMapper<>(removableIterator, e -> new EntryWrapper<>(cache, e));
+         return new IteratorMapper<>(removableIterator, e -> new EntryWrapper<>(cache, e));
       }
 
-      static <K, V> CloseableSpliterator<CacheEntry<K, V>> cast(Spliterator spliterator) {
+      static <K, V> CloseableSpliterator<CacheEntry<K, V>> closeableCast(Spliterator spliterator) {
          if (spliterator instanceof CloseableSpliterator) {
             return (CloseableSpliterator<CacheEntry<K, V>>) spliterator;
          }
@@ -114,7 +115,7 @@ public class EntrySetCommand<K, V> extends AbstractLocalCommand implements Visit
          DataContainer<K, V> dc = cache.getAdvancedCache().getDataContainer();
 
          // Spliterator doesn't support remove so just return it without wrapping
-         return cast(dc.spliterator());
+         return closeableCast(dc.spliterator());
       }
 
       @Override
@@ -156,16 +157,26 @@ public class EntrySetCommand<K, V> extends AbstractLocalCommand implements Visit
          return null;
       }
 
+      private CacheStream<CacheEntry<K, V>> stream(boolean parallel) {
+         DataContainer<K, V> dc = cache.getAdvancedCache().getDataContainer();
+         if (dc instanceof SegmentedDataContainer) {
+            SegmentedDataContainer<K, V> segmentedDataContainer = (SegmentedDataContainer) dc;
+            return new LocalCacheStream<>(new SegmentedEntryStreamSupplier<>(cache, getSegmentMapper(cache),
+                  segmentedDataContainer), parallel, cache.getAdvancedCache().getComponentRegistry());
+         } else {
+            return new LocalCacheStream<>(new EntryStreamSupplier<>(cache, getSegmentMapper(cache),
+                  super::stream), parallel, cache.getAdvancedCache().getComponentRegistry());
+         }
+      }
+
       @Override
       public CacheStream<CacheEntry<K, V>> stream() {
-         return new LocalCacheStream<>(new EntryStreamSupplier<>(cache, getSegmentMapper(cache),
-                 super::stream), false, cache.getAdvancedCache().getComponentRegistry());
+         return stream(false);
       }
 
       @Override
       public CacheStream<CacheEntry<K, V>> parallelStream() {
-         return new LocalCacheStream<>(new EntryStreamSupplier<>(cache, getSegmentMapper(cache),
-                 super::stream), true, cache.getAdvancedCache().getComponentRegistry());
+         return stream(true);
       }
    }
 }

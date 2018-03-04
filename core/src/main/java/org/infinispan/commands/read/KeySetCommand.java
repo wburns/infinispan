@@ -3,7 +3,7 @@ package org.infinispan.commands.read;
 import java.util.AbstractCollection;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.StreamSupport;
+import java.util.function.ToIntFunction;
 
 import org.infinispan.Cache;
 import org.infinispan.CacheSet;
@@ -12,17 +12,19 @@ import org.infinispan.cache.impl.AbstractDelegatingCache;
 import org.infinispan.commands.VisitableCommand;
 import org.infinispan.commands.Visitor;
 import org.infinispan.commons.util.CloseableIterator;
-import org.infinispan.commons.util.CloseableIteratorMapper;
 import org.infinispan.commons.util.CloseableSpliterator;
-import org.infinispan.commons.util.CloseableSpliteratorMapper;
 import org.infinispan.commons.util.EnumUtil;
+import org.infinispan.commons.util.IteratorMapper;
+import org.infinispan.commons.util.SpliteratorMapper;
 import org.infinispan.container.DataContainer;
+import org.infinispan.container.SegmentedDataContainer;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.context.impl.FlagBitSets;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.stream.impl.local.KeyStreamSupplier;
 import org.infinispan.stream.impl.local.LocalCacheStream;
+import org.infinispan.stream.impl.local.SegmentedKeyStreamSupplier;
 import org.infinispan.util.DataContainerRemoveIterator;
 
 /**
@@ -74,8 +76,8 @@ public class KeySetCommand<K, V> extends AbstractLocalCommand implements Visitab
    }
 
    private static class BackingKeySet<K, V> extends AbstractCollection<K> implements CacheSet<K> {
-      private final Cache<K, V> cache;
       private final boolean isRemoteIteration;
+      private final Cache<K, V> cache;
 
       BackingKeySet(Cache<K, V> cache, boolean isRemoteIteration) {
          this.cache = cache;
@@ -86,9 +88,9 @@ public class KeySetCommand<K, V> extends AbstractLocalCommand implements Visitab
       public CloseableIterator<K> iterator() {
          if (isRemoteIteration) {
             // Don't add the extra wrapping for removal
-            return new CloseableIteratorMapper<>(cache.getAdvancedCache().getDataContainer().iterator(), Map.Entry::getKey);
+            return new IteratorMapper<>(cache.getAdvancedCache().getDataContainer().iterator(), Map.Entry::getKey);
          }
-         return new CloseableIteratorMapper<>(new DataContainerRemoveIterator<>(cache), Map.Entry::getKey);
+         return new IteratorMapper<>(new DataContainerRemoveIterator<>(cache), Map.Entry::getKey);
       }
 
       @Override
@@ -96,7 +98,7 @@ public class KeySetCommand<K, V> extends AbstractLocalCommand implements Visitab
          DataContainer<K, V> dc = cache.getAdvancedCache().getDataContainer();
 
          // Spliterator doesn't support remove so just return it without wrapping
-         return new CloseableSpliteratorMapper<>(dc.spliterator(), Map.Entry::getKey);
+         return new SpliteratorMapper<>(dc.spliterator(), Map.Entry::getKey);
       }
 
       @Override
@@ -114,18 +116,34 @@ public class KeySetCommand<K, V> extends AbstractLocalCommand implements Visitab
          return cache.remove(o) != null;
       }
 
+      private ToIntFunction<Object> getSegmentMapper(Cache<K, V> cache) {
+         DistributionManager dm = cache.getAdvancedCache().getDistributionManager();
+         if (dm != null) {
+            return dm.getCacheTopology()::getSegment;
+         }
+         return null;
+      }
+
+      private CacheStream<K> stream(boolean parallel) {
+         DataContainer<K, V> dc = cache.getAdvancedCache().getDataContainer();
+         if (dc instanceof SegmentedDataContainer) {
+            SegmentedDataContainer<K, V> segmentedDataContainer = (SegmentedDataContainer) dc;
+            return new LocalCacheStream<>(new SegmentedKeyStreamSupplier<>(cache, getSegmentMapper(cache),
+                  segmentedDataContainer), parallel, cache.getAdvancedCache().getComponentRegistry());
+         } else {
+            return new LocalCacheStream<>(new KeyStreamSupplier<>(cache, getSegmentMapper(cache),
+                  super::stream), parallel, cache.getAdvancedCache().getComponentRegistry());
+         }
+      }
+
       @Override
       public CacheStream<K> stream() {
-         DistributionManager dm = cache.getAdvancedCache().getDistributionManager();
-         return new LocalCacheStream<>(new KeyStreamSupplier<>(cache, dm != null ? dm.getCacheTopology()::getSegment : null,
-               () -> StreamSupport.stream(spliterator(), false)), false, cache.getAdvancedCache().getComponentRegistry());
+         return stream(false);
       }
 
       @Override
       public CacheStream<K> parallelStream() {
-         DistributionManager dm = cache.getAdvancedCache().getDistributionManager();
-         return new LocalCacheStream<>(new KeyStreamSupplier<>(cache, dm != null ? dm.getCacheTopology()::getSegment : null,
-               () -> StreamSupport.stream(spliterator(), false)), true, cache.getAdvancedCache().getComponentRegistry());
+         return stream(true);
       }
    }
 }
