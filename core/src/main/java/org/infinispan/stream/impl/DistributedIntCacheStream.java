@@ -25,11 +25,13 @@ import java.util.function.ToIntFunction;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
+import org.infinispan.BaseCacheStream;
 import org.infinispan.Cache;
 import org.infinispan.CacheStream;
 import org.infinispan.DoubleCacheStream;
 import org.infinispan.IntCacheStream;
 import org.infinispan.LongCacheStream;
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.SmallIntSet;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.stream.impl.intops.primitive.i.AsDoubleIntOperation;
@@ -500,9 +502,14 @@ public class DistributedIntCacheStream extends AbstractCacheStream<Integer, IntS
    }
 
    @Override
-   public IntCacheStream
-   filterKeySegments(Set<Integer> segments) {
+   public IntCacheStream filterKeySegments(Set<Integer> segments) {
       segmentsToFilter = SmallIntSet.from(segments);
+      return this;
+   }
+
+   @Override
+   public IntCacheStream filterKeySegments(IntSet segments) {
+      segmentsToFilter = segments;
       return this;
    }
 

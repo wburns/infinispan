@@ -19,11 +19,13 @@ import java.util.function.ObjIntConsumer;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
+import org.infinispan.BaseCacheStream;
 import org.infinispan.Cache;
 import org.infinispan.CacheStream;
 import org.infinispan.DoubleCacheStream;
 import org.infinispan.IntCacheStream;
 import org.infinispan.LongCacheStream;
+import org.infinispan.commons.util.IntSet;
 
 /**
  * Abstract Delegating handler that passes IntStream operations off to the underlying IntCacheStream but delegates
@@ -96,6 +98,12 @@ class AbstractDelegatingIntCacheStream implements IntCacheStream {
 
    @Override
    public IntCacheStream filterKeySegments(Set<Integer> segments) {
+      delegateCacheStream = delegateCacheStream.filterKeySegments(segments);
+      return this;
+   }
+
+   @Override
+   public IntCacheStream filterKeySegments(IntSet segments) {
       delegateCacheStream = delegateCacheStream.filterKeySegments(segments);
       return this;
    }
