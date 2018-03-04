@@ -25,6 +25,7 @@ import org.infinispan.persistence.factory.CacheStoreFactoryRegistry;
 import org.infinispan.persistence.spi.AdvancedLoadWriteStore;
 import org.infinispan.persistence.spi.InitializationContext;
 import org.infinispan.remoting.transport.Address;
+import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
 import org.reactivestreams.Publisher;
 
 import io.reactivex.Flowable;
@@ -83,38 +84,54 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
    }
 
    @Override
-   public Publisher<K> publishKeys(int segment, Predicate<? super K> filter) {
-      AdvancedLoadWriteStore<K, V> alws = stores.get(segment);
-      if (alws == null) {
+   public Flowable<K> publishKeys(IntSet segments, Predicate<? super K> filter) {
+      Flowable<Publisher<K>> flowable = new FlowableFromIntSetFunction<>(segments, i -> {
+         AdvancedLoadWriteStore<K, V> alws = stores.get(i);
+         if (alws != null) {
+            return alws.publishKeys(filter);
+         }
          return Flowable.empty();
-      } else {
-         return alws.publishKeys(filter);
-      }
+      });
+      // Can't chain with this, doesn't like the typing
+      flowable = flowable.filter(f -> f != Flowable.empty());
+      return flowable.parallel()
+            .runOn(scheduler)
+            .flatMap(Flowable::fromPublisher)
+            .sequential();
    }
 
    @Override
-   public Publisher<MarshalledEntry<K, V>> publishEntries(int segment, Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
-      AdvancedLoadWriteStore<K, V> alws = stores.get(segment);
-      if (alws == null) {
+   public Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
+      Flowable<Publisher<MarshalledEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(segments, i -> {
+         AdvancedLoadWriteStore<K, V> alws = stores.get(i);
+         if (alws != null) {
+            return alws.publishEntries(filter, fetchValue, fetchMetadata);
+         }
          return Flowable.empty();
-      } else {
-         return alws.publishEntries(filter, fetchValue, fetchMetadata);
-      }
+      });
+      // Cast is required otherwise it complains I can't use != operator with 2 unlike types.... bug anyone?
+      flowable = flowable.filter(f -> (Object) f != Flowable.empty());
+      return flowable.parallel()
+            .runOn(scheduler)
+            .flatMap(f -> f)
+            .sequential();
    }
 
    @Override
    public Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
-      return Flowable.range(0, stores.length())
-            .parallel()
-            .runOn(scheduler)
-            .flatMap(i -> {
+      Flowable<Publisher<MarshalledEntry<K, V>>> flowable = Flowable.range(0, stores.length())
+            .map(i -> {
                AdvancedLoadWriteStore<K, V> alws = stores.get(i);
                if (alws == null) {
                   return Flowable.empty();
                } else {
                   return alws.publishEntries(filter, fetchValue, fetchMetadata);
                }
-            })
+            });
+      flowable = flowable.filter(f -> (Object) f != Flowable.empty());
+      return flowable.parallel()
+            .runOn(scheduler)
+            .flatMap(f -> f)
             .sequential();
    }
 

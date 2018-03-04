@@ -2,8 +2,10 @@ package org.infinispan.container;
 
 import java.util.Iterator;
 
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.metadata.Metadata;
+import org.reactivestreams.Publisher;
 
 /**
  * @author wburns

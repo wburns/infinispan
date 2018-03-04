@@ -3,6 +3,7 @@ package org.infinispan.persistence.spi;
 import java.util.concurrent.Executor;
 import java.util.function.Predicate;
 
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.marshall.core.MarshalledEntry;
 import org.reactivestreams.Publisher;
 
@@ -27,9 +28,9 @@ public interface SegmentedAdvancedLoadWriteStore<K, V> extends AdvancedLoadWrite
    // AdvancedCacheLoader methods
    int size(int segment);
 
-   Publisher<K> publishKeys(int segment, Predicate<? super K> filter);
+   Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter);
 
-   Publisher<MarshalledEntry<K, V>> publishEntries(int segment, Predicate<? super K> filter, boolean fetchValue,
+   Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean fetchValue,
          boolean fetchMetadata);
 
    // AdvancedCacheWriter methods
