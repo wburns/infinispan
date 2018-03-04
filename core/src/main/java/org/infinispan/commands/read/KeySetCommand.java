@@ -124,19 +124,7 @@ public class KeySetCommand<K, V> extends AbstractLocalCommand implements Visitab
          if (dc instanceof SegmentedDataContainer) {
             SegmentedDataContainer<K, V> segmentedDataContainer = (SegmentedDataContainer) dc;
             return new LocalCacheStream<>(new SegmentedKeyStreamSupplier<>(cache, getSegmentMapper(cache),
-                  intSet -> {
-                     Flowable<Iterator<K>> flowable = new FlowableFromIntSetFunction<>(intSet,
-                           i -> {
-                              Iterator<InternalCacheEntry<K, V>> iter = segmentedDataContainer.iterator();
-                              if (iter == null) {
-                                 return Collections.emptyIterator();
-                              }
-                              return new IteratorMapper<>(iter, Map.Entry::getKey);
-                           });
-                     Iterable<K> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
-                     return StreamSupport.stream(iterable.spliterator(), false);
-                  }),
-                  parallel, cache.getAdvancedCache().getComponentRegistry());
+                  segmentedDataContainer), parallel, cache.getAdvancedCache().getComponentRegistry());
          } else {
             return new LocalCacheStream<>(new KeyStreamSupplier<>(cache, getSegmentMapper(cache),
                   super::stream), parallel, cache.getAdvancedCache().getComponentRegistry());

@@ -1,11 +1,15 @@
 package org.infinispan.stream.impl.local;
 
 import java.lang.invoke.MethodHandles;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Spliterator;
 import java.util.function.Function;
 import java.util.function.ToIntFunction;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.Cache;
@@ -13,30 +17,36 @@ import org.infinispan.cache.impl.AbstractDelegatingCache;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.RemovableCloseableIterator;
+import org.infinispan.container.SegmentedDataContainer;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
+
+import io.reactivex.Flowable;
 
 /**
  * @author wburns
  * @since 9.0
  */
 public class SegmentedEntryStreamSupplier<K, V> implements AbstractLocalCacheStream.StreamSupplier<CacheEntry<K, V>, Stream<CacheEntry<K, V>>> {
+   // TODO: make this a component!
    private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
    private static final boolean trace = log.isTraceEnabled();
 
    private final Cache<K, V> cache;
    private final boolean remoteIterator;
    private final ToIntFunction<Object> toIntFunction;
-   private final Function<IntSet, Stream<CacheEntry<K, V>>> function;
+   private final SegmentedDataContainer<K, V> segmentedDataContainer;
 
    public SegmentedEntryStreamSupplier(Cache<K, V> cache, boolean remoteIterator, ToIntFunction<Object> toIntFunction,
-         Function<IntSet, Stream<CacheEntry<K, V>>> function) {
+         SegmentedDataContainer<K, V> segmentedDataContainer) {
       this.cache = cache;
       this.remoteIterator = remoteIterator;
       this.toIntFunction = toIntFunction;
-      this.function = function;
+      this.segmentedDataContainer = segmentedDataContainer;
    }
 
    @Override
@@ -66,9 +76,26 @@ public class SegmentedEntryStreamSupplier<K, V> implements AbstractLocalCacheStr
             });
          }
       } else {
-         stream = function.apply(segmentsToFilter);
+         if (segmentsToFilter != null) {
+            Flowable<Iterator<InternalCacheEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(segmentsToFilter,
+                  i -> {
+                     Iterator<InternalCacheEntry<K, V>> iter = segmentedDataContainer.iterator(i);
+                     if (iter == null) {
+                        return Collections.emptyIterator();
+                     }
+                     return iter;
+                  });
+            Iterable<InternalCacheEntry<K, V>> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
+            stream = StreamSupport.stream(cast(iterable.spliterator()), false);
+         } else {
+            stream = StreamSupport.stream(cast(segmentedDataContainer.spliterator()), false);
+         }
       }
       return stream;
+   }
+
+   private Spliterator<CacheEntry<K, V>> cast(Spliterator spliterator) {
+      return (Spliterator<CacheEntry<K, V>>) spliterator;
    }
 
    @Override

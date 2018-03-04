@@ -162,28 +162,12 @@ public class EntrySetCommand<K, V> extends AbstractLocalCommand implements Visit
          return null;
       }
 
-      private Spliterator<CacheEntry<K, V>> cast(Spliterator spliterator) {
-         return (Spliterator<CacheEntry<K, V>>) spliterator;
-      }
-
       private CacheStream<CacheEntry<K, V>> stream(boolean parallel) {
          DataContainer<K, V> dc = cache.getAdvancedCache().getDataContainer();
          if (dc instanceof SegmentedDataContainer) {
             SegmentedDataContainer<K, V> segmentedDataContainer = (SegmentedDataContainer) dc;
             return new LocalCacheStream<>(new SegmentedEntryStreamSupplier<>(cache, isRemoteIteration, getSegmentMapper(cache),
-                  intSet -> {
-                     Flowable<Iterator<InternalCacheEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(intSet,
-                           i -> {
-                              Iterator<InternalCacheEntry<K, V>> iter = segmentedDataContainer.iterator(i);
-                              if (iter == null) {
-                                 return Collections.emptyIterator();
-                              }
-                              return iter;
-                           });
-                     Iterable<InternalCacheEntry<K, V>> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
-                     return StreamSupport.stream(cast(iterable.spliterator()), false);
-                  }),
-                  parallel, cache.getAdvancedCache().getComponentRegistry());
+                  segmentedDataContainer), parallel, cache.getAdvancedCache().getComponentRegistry());
          } else {
             return new LocalCacheStream<>(new EntryStreamSupplier<>(cache, isRemoteIteration, getSegmentMapper(cache),
                   super::stream), parallel, cache.getAdvancedCache().getComponentRegistry());

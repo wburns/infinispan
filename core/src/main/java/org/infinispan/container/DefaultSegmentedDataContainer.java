@@ -282,31 +282,38 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataCo
             segments.forEach(this::startNewDataContainerForSegment);
          }
       } else {
-         ConsistentHash beginCH = topologyChangedEvent.getWriteConsistentHashAtEnd();
+         ConsistentHash beginCH = topologyChangedEvent.getWriteConsistentHashAtStart();
          ConsistentHash endCH = topologyChangedEvent.getWriteConsistentHashAtEnd();
 
-         Set<Integer> beginSegments = beginCH.getSegmentsForOwner(localNode);
-         Set<Integer> endSegments = endCH.getSegmentsForOwner(localNode);
+         // When node first joins start CH is null - means it was all add so we don't need to remove any
+         if (beginCH != null) {
+            Set<Integer> beginSegments = beginCH.getSegmentsForOwner(localNode);
+            Set<Integer> endSegments = endCH.getSegmentsForOwner(localNode);
 
-         if (beginSegments instanceof IntSet && endSegments instanceof IntSet) {
-            IntSet endIntSet = (IntSet) endSegments;
-            ((IntSet) beginSegments).forEach((int i) -> {
-               if (!endIntSet.contains(i)) {
-                  DataContainer<K, V> dataContainer = containers.getAndSet(i, null);
-                  if (dataContainer != null) {
-                     dataContainer.stop();
+            if (beginSegments.size() != 256) {
+               System.currentTimeMillis();
+            }
+
+            if (beginSegments instanceof IntSet && endSegments instanceof IntSet) {
+               IntSet endIntSet = (IntSet) endSegments;
+               ((IntSet) beginSegments).forEach((int i) -> {
+                  if (!endIntSet.contains(i)) {
+                     DataContainer<K, V> dataContainer = containers.getAndSet(i, null);
+                     if (dataContainer != null) {
+                        dataContainer.stop();
+                     }
                   }
-               }
-            });
-         } else {
-            beginSegments.forEach(i -> {
-               if (!endSegments.contains(i)) {
-                  DataContainer<K, V> dataContainer = containers.getAndSet(i, null);
-                  if (dataContainer != null) {
-                     dataContainer.stop();
+               });
+            } else {
+               beginSegments.forEach(i -> {
+                  if (!endSegments.contains(i)) {
+                     DataContainer<K, V> dataContainer = containers.getAndSet(i, null);
+                     if (dataContainer != null) {
+                        dataContainer.stop();
+                     }
                   }
-               }
-            });
+               });
+            }
          }
       }
    }
