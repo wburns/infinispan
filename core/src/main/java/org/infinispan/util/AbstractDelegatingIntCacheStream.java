@@ -19,7 +19,6 @@ import java.util.function.ObjIntConsumer;
 import java.util.function.Supplier;
 import java.util.stream.IntStream;
 
-import org.infinispan.BaseCacheStream;
 import org.infinispan.Cache;
 import org.infinispan.CacheStream;
 import org.infinispan.DoubleCacheStream;

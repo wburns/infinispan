@@ -1,6 +1,5 @@
 package org.infinispan.container;
 
-import java.util.Iterator;
 import java.util.function.ToIntFunction;
 
 import org.infinispan.container.entries.InternalCacheEntry;

@@ -18,7 +18,6 @@ import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.HashConfiguration;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.distribution.ch.ConsistentHash;
-import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
@@ -26,6 +25,7 @@ import org.infinispan.factories.annotations.Stop;
 import org.infinispan.filter.KeyFilter;
 import org.infinispan.filter.KeyValueFilter;
 import org.infinispan.metadata.Metadata;
+import org.infinispan.notifications.Listener;
 import org.infinispan.notifications.cachelistener.annotation.TopologyChanged;
 import org.infinispan.notifications.cachelistener.event.TopologyChangedEvent;
 import org.infinispan.remoting.transport.Address;
@@ -37,6 +37,7 @@ import io.reactivex.Flowable;
  * @author wburns
  * @since 9.0
  */
+@Listener
 public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataContainer<K, V> {
    private final Supplier<DataContainer<K, V>> supplier;
 
