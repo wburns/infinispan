@@ -54,6 +54,40 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
    }
 
    @Override
+   public void init(InitializationContext ctx) {
+      this.ctx = ctx;
+      cache = ctx.getCache();
+      executorService = ctx.getExecutor();
+   }
+
+   @Override
+   public void start() {
+      localNode = cache.getCacheManager().getAddress();
+      ComponentRegistry componentRegistry = cache.getAdvancedCache().getComponentRegistry();
+      cacheStoreFactoryRegistry = componentRegistry.getComponent(CacheStoreFactoryRegistry.class);
+      cache.addListener(this);
+
+      scheduler = Schedulers.from(executorService);
+
+      HashConfiguration hashConfiguration = cache.getCacheConfiguration().clustering().hash();
+      keyPartitioner = hashConfiguration.keyPartitioner();
+      stores = new AtomicReferenceArray<>(hashConfiguration.numSegments());
+
+      CacheMode mode = cache.getCacheConfiguration().clustering().cacheMode();
+      // Local or remote cache we just instantiate all the stores immediately
+      if (!mode.isClustered() || mode.isReplicated()) {
+         for (int i = 0; i < stores.length(); ++i) {
+            startNewStoreForSegment(i);
+         }
+      }
+   }
+
+   @Override
+   public void stop() {
+      // TODO
+   }
+
+   @Override
    public ToIntFunction<Object> getKeyMapper() {
       return keyPartitioner::getSegment;
    }
@@ -173,35 +207,6 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
             );
    }
 
-   @Override
-   public void init(InitializationContext ctx) {
-      this.ctx = ctx;
-      cache = ctx.getCache();
-      executorService = ctx.getExecutor();
-   }
-
-   @Override
-   public void start() {
-      ComponentRegistry componentRegistry = cache.getAdvancedCache().getComponentRegistry();
-      cacheStoreFactoryRegistry = componentRegistry.getComponent(CacheStoreFactoryRegistry.class);
-      cache.getAdvancedCache().getDistributionManager();
-      cache.addListener(this);
-
-      scheduler = Schedulers.from(executorService);
-
-      HashConfiguration hashConfiguration = cache.getCacheConfiguration().clustering().hash();
-      keyPartitioner = hashConfiguration.keyPartitioner();
-      stores = new AtomicReferenceArray<>(hashConfiguration.numSegments());
-
-      CacheMode mode = cache.getCacheConfiguration().clustering().cacheMode();
-      // Local or remote cache we just instantiate all the stores immediately
-      if (!mode.isClustered() || mode.isReplicated()) {
-         for (int i = 0; i < stores.length(); ++i) {
-            startNewStoreForSegment(i);
-         }
-      }
-   }
-
    private void startNewStoreForSegment(int segment) {
       if (stores.get(segment) == null) {
          T storeConfiguration = configuration.newConfigurationFrom(segment);
@@ -211,11 +216,6 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
          newStore.start();
          stores.set(segment, newStore);
       }
-   }
-
-   @Override
-   public void stop() {
-
    }
 
    @TopologyChanged

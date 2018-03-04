@@ -6,36 +6,81 @@ import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.IntConsumer;
 import java.util.function.Supplier;
 import java.util.function.ToIntFunction;
 
+import org.infinispan.Cache;
 import org.infinispan.commons.util.IntSet;
+import org.infinispan.commons.util.RangeSet;
+import org.infinispan.configuration.cache.CacheMode;
+import org.infinispan.configuration.cache.HashConfiguration;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.distribution.ch.ConsistentHash;
+import org.infinispan.distribution.ch.KeyPartitioner;
+import org.infinispan.factories.ComponentRegistry;
+import org.infinispan.factories.annotations.Inject;
+import org.infinispan.factories.annotations.Start;
+import org.infinispan.factories.annotations.Stop;
 import org.infinispan.filter.KeyFilter;
 import org.infinispan.filter.KeyValueFilter;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.notifications.cachelistener.annotation.TopologyChanged;
 import org.infinispan.notifications.cachelistener.event.TopologyChangedEvent;
 import org.infinispan.remoting.transport.Address;
+import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
+
+import io.reactivex.Flowable;
 
 /**
  * @author wburns
  * @since 9.0
  */
-public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataContainer<K, V> implements SegmentedDataContainer<K, V> {
-   private final AtomicReferenceArray<DataContainer<K, V>> containers;
+public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataContainer<K, V> {
    private final Supplier<DataContainer<K, V>> supplier;
-   private final Address localNode;
-   private final ToIntFunction<Object> segmentMapper;
 
-   public DefaultSegmentedDataContainer(int maxSegments, Supplier<DataContainer<K, V>> supplier, Address localNode,
-         ToIntFunction<Object> segmentMapper) {
-      this.containers = new AtomicReferenceArray<>(maxSegments);
+   private ComponentRegistry componentRegistry;
+   private ToIntFunction<Object> segmentMapper;
+   private AtomicReferenceArray<DataContainer<K, V>> containers;
+   private Address localNode;
+
+   @Inject
+   private Cache<K, V> cache;
+
+   public DefaultSegmentedDataContainer(Supplier<DataContainer<K, V>> supplier) {
       this.supplier = supplier;
-      this.localNode = localNode;
-      this.segmentMapper = segmentMapper;
+   }
+
+   @Start
+   @Override
+   public void start() {
+      localNode = cache.getCacheManager().getAddress();
+      componentRegistry = cache.getAdvancedCache().getComponentRegistry();
+      cache.addListener(this);
+
+      HashConfiguration hashConfiguration = cache.getCacheConfiguration().clustering().hash();
+      segmentMapper = hashConfiguration.keyPartitioner()::getSegment;
+      containers = new AtomicReferenceArray<>(hashConfiguration.numSegments());
+
+      CacheMode mode = cache.getCacheConfiguration().clustering().cacheMode();
+      // Local or remote cache we just instantiate all the stores immediately
+      if (!mode.isClustered() || mode.isReplicated()) {
+         for (int i = 0; i < containers.length(); ++i) {
+            startNewDataContainerForSegment(i);
+         }
+      }
+   }
+
+   @Stop
+   @Override
+   public void stop() {
+      cache.removeListener(this);
+
+      for (int i = 0; i < containers.length(); ++i) {
+         DataContainer<K, V> dataContainer = containers.getAndSet(i, null);
+         dataContainer.stop();
+      }
    }
 
    @Override
@@ -122,6 +167,36 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataCo
    }
 
    @Override
+   public Iterator<InternalCacheEntry<K, V>> iterator() {
+      IntSet intSet = new RangeSet(containers.length());
+      Flowable<Iterator<InternalCacheEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(intSet,
+            i -> {
+               Iterator<InternalCacheEntry<K, V>> iter = iterator(i);
+               if (iter == null) {
+                  return Collections.emptyIterator();
+               }
+               return iter;
+            });
+      Iterable<InternalCacheEntry<K, V>> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
+      return iterable.iterator();
+   }
+
+   @Override
+   public Iterator<InternalCacheEntry<K, V>> iteratorIncludingExpired() {
+      IntSet intSet = new RangeSet(containers.length());
+      Flowable<Iterator<InternalCacheEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(intSet,
+            i -> {
+               Iterator<InternalCacheEntry<K, V>> iter = iteratorIncludingExpired(i);
+               if (iter == null) {
+                  return Collections.emptyIterator();
+               }
+               return iter;
+            });
+      Iterable<InternalCacheEntry<K, V>> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
+      return iterable.iterator();
+   }
+
+   @Override
    public int size() {
       int size = 0;
       for (int i = 0; i < containers.length(); ++i) {
@@ -179,9 +254,19 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataCo
 
    }
 
+   @Override
+   public void removeDataContainer(int segment, Consumer<DataContainer<K, V>> preDestroy) {
+      DataContainer<K, V> container = containers.getAndSet(segment, null);
+      preDestroy.accept(container);
+      container.stop();
+   }
+
    private void startNewDataContainerForSegment(int segment) {
       if (containers.get(segment) == null) {
-         containers.set(segment, supplier.get());
+         DataContainer<K, V> dataContainer = supplier.get();
+         componentRegistry.wireDependencies(dataContainer);
+         dataContainer.start();
+         containers.set(segment, dataContainer);
       }
    }
 
@@ -196,7 +281,32 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataCo
             segments.forEach(this::startNewDataContainerForSegment);
          }
       } else {
-         // TODO: need to remove containers here
+         ConsistentHash beginCH = topologyChangedEvent.getWriteConsistentHashAtEnd();
+         ConsistentHash endCH = topologyChangedEvent.getWriteConsistentHashAtEnd();
+
+         Set<Integer> beginSegments = beginCH.getSegmentsForOwner(localNode);
+         Set<Integer> endSegments = endCH.getSegmentsForOwner(localNode);
+
+         if (beginSegments instanceof IntSet && endSegments instanceof IntSet) {
+            IntSet endIntSet = (IntSet) endSegments;
+            ((IntSet) beginSegments).forEach((int i) -> {
+               if (!endIntSet.contains(i)) {
+                  DataContainer<K, V> dataContainer = containers.getAndSet(i, null);
+                  if (dataContainer != null) {
+                     dataContainer.stop();
+                  }
+               }
+            });
+         } else {
+            beginSegments.forEach(i -> {
+               if (!endSegments.contains(i)) {
+                  DataContainer<K, V> dataContainer = containers.getAndSet(i, null);
+                  if (dataContainer != null) {
+                     dataContainer.stop();
+                  }
+               }
+            });
+         }
       }
    }
 }

@@ -1,6 +1,7 @@
 package org.infinispan.container;
 
 import java.util.Iterator;
+import java.util.function.Consumer;
 
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.container.entries.InternalCacheEntry;
@@ -35,4 +36,12 @@ public interface SegmentedDataContainer<K, V> extends DataContainer<K, V> {
    Iterator<InternalCacheEntry<K, V>> iterator(int segment);
 
    Iterator<InternalCacheEntry<K, V>> iteratorIncludingExpired(int segment);
+
+   /**
+    * Removes and un-associates the data container with given segment. The consumer will be provided the container
+    * and after it returns the DataContainer will be stopped.
+    * @param segment segment of the container to remove
+    * @param preDestroy callback invoked for the data container mapped to this segment
+    */
+   void removeDataContainer(int segment, Consumer<DataContainer<K, V>> preDestroy);
 }
