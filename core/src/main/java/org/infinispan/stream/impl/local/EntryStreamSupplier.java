@@ -40,7 +40,7 @@ public class EntryStreamSupplier<K, V> implements AbstractLocalCacheStream.Strea
    }
 
    @Override
-   public Stream<CacheEntry<K, V>> buildStream(Set<Integer> segmentsToFilter, Set<?> keysToFilter) {
+   public Stream<CacheEntry<K, V>> buildStream(IntSet segmentsToFilter, Set<?> keysToFilter) {
       Stream<CacheEntry<K, V>> stream;
       if (keysToFilter != null) {
          if (trace) {
@@ -59,11 +59,10 @@ public class EntryStreamSupplier<K, V> implements AbstractLocalCacheStream.Strea
          if (trace) {
             log.tracef("Applying segment filter %s", segmentsToFilter);
          }
-         IntSet intSet = SmallIntSet.from(segmentsToFilter);
          stream = stream.filter(k -> {
             K key = k.getKey();
             int segment = toIntFunction.applyAsInt(key);
-            boolean isPresent = intSet.contains(segment);
+            boolean isPresent = segmentsToFilter.contains(segment);
             if (trace)
                log.tracef("Is key %s present in segment %d? %b", key, segment, isPresent);
             return isPresent;

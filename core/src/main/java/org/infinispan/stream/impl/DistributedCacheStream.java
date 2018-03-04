@@ -788,6 +788,12 @@ public class DistributedCacheStream<R> extends AbstractCacheStream<R, Stream<R>,
    }
 
    @Override
+   public CacheStream<R> filterKeySegments(IntSet segments) {
+      segmentsToFilter = segments;
+      return this;
+   }
+
+   @Override
    public CacheStream<R> filterKeys(Set<?> keys) {
       keysToFilter = keys;
       return this;

@@ -35,7 +35,7 @@ public class KeyStreamSupplier<K, V> implements AbstractLocalCacheStream.StreamS
    }
 
    @Override
-   public Stream<K> buildStream(Set<Integer> segmentsToFilter, Set<?> keysToFilter) {
+   public Stream<K> buildStream(IntSet segmentsToFilter, Set<?> keysToFilter) {
       Stream<K> stream;
       if (keysToFilter != null) {
          if (trace) {
@@ -52,8 +52,7 @@ public class KeyStreamSupplier<K, V> implements AbstractLocalCacheStream.StreamS
          if (trace) {
             log.tracef("Applying segment filter %s", segmentsToFilter);
          }
-         IntSet intSet = SmallIntSet.from(segmentsToFilter);
-         stream = stream.filter(k -> intSet.contains(toIntFunction.applyAsInt(k)));
+         stream = stream.filter(k -> segmentsToFilter.contains(toIntFunction.applyAsInt(k)));
       }
       return stream;
    }

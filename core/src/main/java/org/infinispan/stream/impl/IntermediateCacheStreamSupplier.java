@@ -5,6 +5,7 @@ import java.util.stream.BaseStream;
 
 import org.infinispan.BaseCacheStream;
 import org.infinispan.commons.util.CloseableIterator;
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.stream.impl.local.AbstractLocalCacheStream;
 
 /**
@@ -22,7 +23,7 @@ class IntermediateCacheStreamSupplier<T, S extends BaseStream<T, S>> implements 
 
 
    @Override
-   public S buildStream(Set<Integer> segmentsToFilter, Set<?> keysToFilter) {
+   public S buildStream(IntSet segmentsToFilter, Set<?> keysToFilter) {
       return (S) type.handleStream(streamable);
    }
 

@@ -24,11 +24,13 @@ import java.util.function.ToDoubleFunction;
 import java.util.stream.DoubleStream;
 import java.util.stream.Stream;
 
+import org.infinispan.BaseCacheStream;
 import org.infinispan.Cache;
 import org.infinispan.CacheStream;
 import org.infinispan.DoubleCacheStream;
 import org.infinispan.IntCacheStream;
 import org.infinispan.LongCacheStream;
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.SmallIntSet;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.stream.impl.intops.primitive.d.BoxedDoubleOperation;
@@ -486,6 +488,12 @@ public class DistributedDoubleCacheStream extends AbstractCacheStream<Double, Do
    @Override
    public DoubleCacheStream filterKeySegments(Set<Integer> segments) {
       segmentsToFilter = SmallIntSet.from(segments);
+      return this;
+   }
+
+   @Override
+   public DoubleCacheStream filterKeySegments(IntSet segments) {
+      segmentsToFilter = segments;
       return this;
    }
 
