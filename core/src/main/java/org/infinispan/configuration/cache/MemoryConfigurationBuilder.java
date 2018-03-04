@@ -3,6 +3,7 @@ package org.infinispan.configuration.cache;
 import static org.infinispan.configuration.cache.MemoryConfiguration.ADDRESS_COUNT;
 import static org.infinispan.configuration.cache.MemoryConfiguration.EVICTION_STRATEGY;
 import static org.infinispan.configuration.cache.MemoryConfiguration.EVICTION_TYPE;
+import static org.infinispan.configuration.cache.MemoryConfiguration.SEGMENTED;
 import static org.infinispan.configuration.cache.MemoryConfiguration.SIZE;
 import static org.infinispan.configuration.cache.MemoryConfiguration.STORAGE_TYPE;
 
@@ -145,6 +146,16 @@ public class MemoryConfigurationBuilder extends AbstractConfigurationChildBuilde
     */
    public int addressCount() {
       return attributes.attribute(ADDRESS_COUNT).get();
+   }
+
+   /**
+    * TODO:
+    * @param segmented
+    * @return
+    */
+   public MemoryConfigurationBuilder segmented(boolean segmented) {
+      attributes.attribute(SEGMENTED).set(segmented);
+      return this;
    }
 
    @Override

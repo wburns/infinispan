@@ -1,5 +1,7 @@
 package org.infinispan.factories;
 
+import java.util.function.Supplier;
+
 import org.infinispan.configuration.cache.EvictionConfiguration;
 import org.infinispan.configuration.cache.MemoryConfiguration;
 import org.infinispan.configuration.cache.StorageType;
@@ -35,10 +37,16 @@ public class DataContainerFactory extends AbstractNamedCacheComponentFactory imp
          EvictionStrategy strategy = configuration.memory().evictionStrategy();
          //handle case when < 0 value signifies unbounded container or when we are not removal based
          if (strategy.isExceptionBased() || !strategy.isEnabled()) {
+            Supplier<DataContainer> dataContainerSupplier;
             if (configuration.memory().storageType() == StorageType.OFF_HEAP) {
-               return (T) new DefaultSegmentedDataContainer<>(() -> new OffHeapDataContainer(configuration.memory().addressCount()));
+               dataContainerSupplier = () -> new OffHeapDataContainer(configuration.memory().addressCount());
             } else {
-               return (T) new DefaultSegmentedDataContainer<>(() -> DefaultDataContainer.unBoundedDataContainer(level));
+               dataContainerSupplier = () -> DefaultDataContainer.unBoundedDataContainer(level);
+            }
+            if (configuration.memory().segmented()) {
+               return (T) new DefaultSegmentedDataContainer<>((Supplier) dataContainerSupplier);
+            } else {
+               return (T) dataContainerSupplier.get();
             }
          }
 

@@ -21,10 +21,11 @@ public class MemoryConfiguration implements Matchable<MemoryConfiguration> {
    public static final AttributeDefinition<Long> SIZE  = AttributeDefinition.builder("size", -1L).build();
    public static final AttributeDefinition<EvictionType> EVICTION_TYPE  = AttributeDefinition.builder("type", EvictionType.COUNT).build();
    public static final AttributeDefinition<EvictionStrategy> EVICTION_STRATEGY = AttributeDefinition.builder("strategy", EvictionStrategy.NONE).build();
+   public static final AttributeDefinition<Boolean> SEGMENTED = AttributeDefinition.builder("segmented", false).build();
 
    static public AttributeSet attributeDefinitionSet() {
       return new AttributeSet(MemoryConfiguration.class, AbstractTypedPropertiesConfiguration.attributeSet(),
-            STORAGE_TYPE, SIZE, EVICTION_TYPE, EVICTION_STRATEGY, ADDRESS_COUNT);
+            STORAGE_TYPE, SIZE, EVICTION_TYPE, EVICTION_STRATEGY, ADDRESS_COUNT, SEGMENTED);
    }
 
    private final Attribute<Long> size;
@@ -32,6 +33,7 @@ public class MemoryConfiguration implements Matchable<MemoryConfiguration> {
    private final Attribute<EvictionStrategy> evictionStrategy;
    private final Attribute<StorageType> storageType;
    private final Attribute<Integer> addressCount;
+   private final Attribute<Boolean> segmented;
    private final AttributeSet attributes;
 
    MemoryConfiguration(AttributeSet attributes) {
@@ -41,6 +43,7 @@ public class MemoryConfiguration implements Matchable<MemoryConfiguration> {
       evictionType = attributes.attribute(EVICTION_TYPE);
       evictionStrategy = attributes.attribute(EVICTION_STRATEGY);
       addressCount = attributes.attribute(ADDRESS_COUNT);
+      segmented = attributes.attribute(SEGMENTED);
    }
 
    /**
@@ -93,6 +96,10 @@ public class MemoryConfiguration implements Matchable<MemoryConfiguration> {
     */
    public int addressCount() {
       return addressCount.get();
+   }
+
+   public boolean segmented() {
+      return segmented.get();
    }
 
    public AttributeSet attributes() {
