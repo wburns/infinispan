@@ -1,38 +1,50 @@
 package org.infinispan.stream.impl.local;
 
 import java.lang.invoke.MethodHandles;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.function.ToIntFunction;
 import java.util.stream.Stream;
+import java.util.stream.StreamSupport;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.Cache;
 import org.infinispan.cache.impl.AbstractDelegatingCache;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.IntSet;
+import org.infinispan.commons.util.IteratorMapper;
 import org.infinispan.commons.util.RemovableCloseableIterator;
+import org.infinispan.commons.util.SpliteratorMapper;
+import org.infinispan.container.SegmentedDataContainer;
+import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
+
+import io.reactivex.Flowable;
 
 /**
  * @author wburns
  * @since 9.0
  */
 public class SegmentedKeyStreamSupplier<K, V> implements AbstractLocalCacheStream.StreamSupplier<K, Stream<K>> {
+   // TODO: make this a component!
    private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
    private static final boolean trace = log.isTraceEnabled();
 
    private final Cache<K, V> cache;
    private final ToIntFunction<Object> toIntFunction;
-   private final Function<IntSet, Stream<K>> function;
+   private final SegmentedDataContainer<K, V> segmentedDataContainer;
 
    public SegmentedKeyStreamSupplier(Cache<K, V> cache, ToIntFunction<Object> toIntFunction,
-         Function<IntSet, Stream<K>> function) {
+         SegmentedDataContainer<K, V> segmentedDataContainer) {
       this.cache = cache;
       this.toIntFunction = toIntFunction;
-      this.function = function;
+      this.segmentedDataContainer = segmentedDataContainer;
    }
 
    @Override
@@ -59,7 +71,20 @@ public class SegmentedKeyStreamSupplier<K, V> implements AbstractLocalCacheStrea
             });
          }
       } else {
-         stream = function.apply(segmentsToFilter);
+         if (segmentsToFilter != null) {
+            Flowable<Iterator<K>> flowable = new FlowableFromIntSetFunction<>(segmentsToFilter,
+                  i -> {
+                     Iterator<InternalCacheEntry<K, V>> iter = segmentedDataContainer.iterator();
+                     if (iter == null) {
+                        return Collections.emptyIterator();
+                     }
+                     return new IteratorMapper<>(iter, Map.Entry::getKey);
+                  });
+            Iterable<K> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
+            stream = StreamSupport.stream(iterable.spliterator(), false);
+         } else {
+            stream = StreamSupport.stream(new SpliteratorMapper<>(segmentedDataContainer.spliterator(), Map.Entry::getKey), false);
+         }
       }
       return stream;
    }

@@ -36,7 +36,7 @@ public class DataContainerFactory extends AbstractNamedCacheComponentFactory imp
          //handle case when < 0 value signifies unbounded container or when we are not removal based
          if (strategy.isExceptionBased() || !strategy.isEnabled()) {
             if (configuration.memory().storageType() == StorageType.OFF_HEAP) {
-               return (T) new OffHeapDataContainer(configuration.memory().addressCount());
+               return (T) new DefaultSegmentedDataContainer<>(() -> new OffHeapDataContainer(configuration.memory().addressCount()));
             } else {
                return (T) new DefaultSegmentedDataContainer<>(() -> DefaultDataContainer.unBoundedDataContainer(level));
             }
