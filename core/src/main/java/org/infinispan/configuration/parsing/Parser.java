@@ -1650,7 +1650,20 @@ public class Parser implements ConfigurationParser {
 
    private void parseMemory(final XMLExtendedStreamReader reader, final ConfigurationBuilderHolder holder) throws XMLStreamException {
       MemoryConfigurationBuilder memoryBuilder = holder.getCurrentConfigurationBuilder().memory();
-      ParseUtils.requireNoAttributes(reader);
+
+      for (int i = 0; i < reader.getAttributeCount(); i++) {
+         ParseUtils.requireNoNamespaceAttribute(reader, i);
+         String value = replaceProperties(reader.getAttributeValue(i));
+         Attribute attribute = Attribute.forName(reader.getAttributeLocalName(i));
+         switch (attribute) {
+            case SEGMENTED:
+               memoryBuilder.segmented(Boolean.parseBoolean(value));
+               break;
+            default:
+               throw ParseUtils.unexpectedAttribute(reader, i);
+         }
+      }
+
       while (reader.hasNext() && (reader.nextTag() != XMLStreamConstants.END_ELEMENT)) {
          Element element = Element.forName(reader.getLocalName());
          switch (element) {
