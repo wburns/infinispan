@@ -1,14 +1,17 @@
 package org.infinispan.container;
 
 import java.util.Iterator;
+import java.util.Set;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
 
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.metadata.Metadata;
 
 /**
  * @author wburns
- * @since 9.0
+ * @since 9.3
  */
 public interface SegmentedDataContainer<K, V> extends DataContainer<K, V> {
    InternalCacheEntry<K, V> get(int segment, Object k);
@@ -21,25 +24,29 @@ public interface SegmentedDataContainer<K, V> extends DataContainer<K, V> {
 
    InternalCacheEntry<K, V> remove(int segment, Object k);
 
-   int size(int segment);
-
-   int sizeIncludingExpired(int segment);
-
-   void clear(int segment);
-
    void evict(int segment, K key);
 
    InternalCacheEntry<K, V> compute(int segment, K key, ComputeAction<K, V> action);
 
-   Iterator<InternalCacheEntry<K, V>> iterator(int segment);
+   int size(IntSet segments);
 
-   Iterator<InternalCacheEntry<K, V>> iteratorIncludingExpired(int segment);
+   int sizeIncludingExpired(IntSet segments);
+
+   void clear(IntSet segments);
+
+   Iterator<InternalCacheEntry<K, V>> iterator(IntSet segments);
+
+   Iterator<InternalCacheEntry<K, V>> iteratorIncludingExpired(IntSet segments);
 
    /**
-    * Removes and un-associates the data container with given segment. The consumer will be provided the container
-    * and after it returns the DataContainer will be stopped.
-    * @param segment segment of the container to remove
-    * @param preDestroy callback invoked for the data container mapped to this segment
+    * Removes and un-associates the given segments. This will notify any listeners registered via
+    * {@link #addRemovalListener(Consumer)}. There is no guarantee if the consumer is invoked once or multiple times
+    * per segment and could be in any order
+    * @param segments segments of the container to remove
     */
-   void removeDataContainer(int segment, Consumer<DataContainer<K, V>> preDestroy);
+   void removeSegments(IntSet segments);
+
+   void addRemovalListener(Consumer<Iterable<InternalCacheEntry<K, V>>> listener);
+
+   void removeRemovalListener(Object listener);
 }

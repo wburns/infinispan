@@ -84,24 +84,17 @@ public class SmallIntSet implements IntSet {
       bitSet = new BitSet(initialRange);
    }
 
-   public SmallIntSet(SmallIntSet other) {
-      bitSet = new BitSet(other.bitSet.size());
-      bitSet.or(other.bitSet);
-   }
-
    public SmallIntSet(Set<Integer> set) {
-      bitSet = new BitSet();
-      set.forEach(bitSet::set);
-   }
-
-   public SmallIntSet(IntSet set) {
       if (set instanceof SmallIntSet) {
          BitSet bitSet = ((SmallIntSet) set).bitSet;
          this.bitSet = new BitSet(bitSet.size());
          this.bitSet.or(bitSet);
-      } else {
+      } else if (set instanceof IntSet) {
          this.bitSet = new BitSet();
-         set.iterator().forEachRemaining((IntConsumer) bitSet::set);
+         ((IntSet) set).iterator().forEachRemaining((IntConsumer) bitSet::set);
+      } else {
+         bitSet = new BitSet(set.size());
+         set.forEach(bitSet::set);
       }
    }
 
