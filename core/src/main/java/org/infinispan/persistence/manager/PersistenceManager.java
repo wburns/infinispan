@@ -7,13 +7,13 @@ import java.util.function.Predicate;
 import javax.transaction.Transaction;
 
 import org.infinispan.commons.api.Lifecycle;
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.configuration.cache.StoreConfiguration;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.persistence.spi.AdvancedCacheLoader;
 import org.infinispan.persistence.spi.PersistenceException;
 import org.infinispan.persistence.support.BatchModification;
-import org.infinispan.stream.StreamMarshalling;
 import org.reactivestreams.Publisher;
 
 /**
@@ -62,7 +62,7 @@ public interface PersistenceManager extends Lifecycle {
     * See {@link #publishEntries(Predicate, boolean, boolean, AccessMode)}
     */
    default <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(boolean fetchValue, boolean fetchMetadata) {
-      return publishEntries(StreamMarshalling.alwaysTruePredicate(), fetchValue, fetchMetadata, AccessMode.BOTH);
+      return publishEntries(null, fetchValue, fetchMetadata, AccessMode.BOTH);
    }
 
    /**
@@ -81,6 +81,20 @@ public interface PersistenceManager extends Lifecycle {
     * @return publisher that will publish entries
     */
    <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue,
+         boolean fetchMetadata, AccessMode mode);
+
+   /**
+    *
+    * @param segments
+    * @param filter
+    * @param fetchValue
+    * @param fetchMetadata
+    * @param mode
+    * @param <K>
+    * @param <V>
+    * @return
+    */
+   <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean fetchValue,
          boolean fetchMetadata, AccessMode mode);
 
    /**
@@ -212,7 +226,7 @@ public interface PersistenceManager extends Lifecycle {
    /**
     * Remove all entries from the underlying non-transactional stores as a single batch.
     *
-    * @param entries a List of Keys to be removed from the store.
+    * @param keys a List of Keys to be removed from the store.
     * @param accessMode the type of access to the underlying store.
     * @param flags Flags used during command invocation
     */

@@ -38,6 +38,7 @@ import org.infinispan.commons.CacheException;
 import org.infinispan.commons.api.Lifecycle;
 import org.infinispan.commons.io.ByteBufferFactory;
 import org.infinispan.commons.marshall.StreamingMarshaller;
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.AbstractNonSharedSegmentedConfiguration;
 import org.infinispan.configuration.cache.CacheMode;
@@ -45,6 +46,7 @@ import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.StoreConfiguration;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
+import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.eviction.EvictionType;
 import org.infinispan.expiration.ExpirationManager;
 import org.infinispan.factories.annotations.ComponentName;
@@ -75,6 +77,7 @@ import org.infinispan.persistence.spi.CacheWriter;
 import org.infinispan.persistence.spi.FlagAffectedStore;
 import org.infinispan.persistence.spi.LocalOnlyCacheLoader;
 import org.infinispan.persistence.spi.PersistenceException;
+import org.infinispan.persistence.spi.SegmentedAdvancedLoadWriteStore;
 import org.infinispan.persistence.spi.TransactionalCacheWriter;
 import org.infinispan.persistence.support.AdvancedSingletonCacheWriter;
 import org.infinispan.persistence.support.BatchModification;
@@ -105,6 +108,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    @Inject private MarshalledEntryFactory marshalledEntryFactory;
    @Inject private CacheStoreFactoryRegistry cacheStoreFactoryRegistry;
    @Inject private ExpirationManager expirationManager;
+   @Inject private KeyPartitioner keyPartitioner;
 
    private final List<CacheLoader> loaders = new ArrayList<>();
    private final List<CacheWriter> nonTxWriters = new ArrayList<>();
@@ -450,6 +454,20 @@ public class PersistenceManagerImpl implements PersistenceManager {
       return null;
    }
 
+   <K, V> SegmentedAdvancedLoadWriteStore<K, V> getFirstSegmentedStore(AccessMode mode) {
+      storesMutex.readLock().lock();
+      try {
+         for (CacheLoader loader : loaders) {
+            if (mode.canPerform(configMap.get(loader)) && loader instanceof SegmentedAdvancedLoadWriteStore) {
+               return ((SegmentedAdvancedLoadWriteStore<K, V>) loader);
+            }
+         }
+      } finally {
+         storesMutex.readLock().unlock();
+      }
+      return null;
+   }
+
    @Override
    public <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue,
          boolean fetchMetadata, AccessMode mode) {
@@ -459,6 +477,19 @@ public class PersistenceManagerImpl implements PersistenceManager {
          return advancedCacheLoader.publishEntries(filter, fetchValue, fetchMetadata);
       }
       return Flowable.empty();
+   }
+
+   @Override
+   public <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter,
+         boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
+      SegmentedAdvancedLoadWriteStore<K, V> segmentedStore = getFirstSegmentedStore(mode);
+      if (segmentedStore != null) {
+         return segmentedStore.publishEntries(segments, filter, fetchValue, fetchMetadata);
+      } else {
+         Predicate<Object> segmentFilter = k -> segments.contains(keyPartitioner.getSegment(k));
+         return Flowable.fromPublisher(publishEntries(filter == null ? segmentFilter : filter.and(segmentFilter),
+               fetchValue, fetchMetadata, mode));
+      }
    }
 
    @Override

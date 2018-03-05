@@ -11,6 +11,7 @@ import java.util.function.Predicate;
 
 import org.infinispan.Cache;
 import org.infinispan.CacheSet;
+import org.infinispan.CacheStream;
 import org.infinispan.cache.impl.Caches;
 import org.infinispan.commands.FlagAffectedCommand;
 import org.infinispan.commands.VisitableCommand;
@@ -46,6 +47,7 @@ import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.container.entries.MVCCEntry;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.context.impl.FlagBitSets;
+import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.distribution.group.impl.GroupFilter;
 import org.infinispan.distribution.group.impl.GroupManager;
 import org.infinispan.factories.annotations.Inject;
@@ -62,6 +64,8 @@ import org.infinispan.persistence.PersistenceUtil;
 import org.infinispan.persistence.manager.PersistenceManager;
 import org.infinispan.stream.impl.interceptor.AbstractDelegatingEntryCacheSet;
 import org.infinispan.stream.impl.interceptor.AbstractDelegatingKeyCacheSet;
+import org.infinispan.stream.impl.local.LocalCacheStream;
+import org.infinispan.stream.impl.local.PersistenceEntryStreamSupplier;
 import org.infinispan.stream.impl.spliterators.IteratorAsSpliterator;
 import org.infinispan.util.DoubleIterator;
 import org.infinispan.util.TimeService;
@@ -89,6 +93,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
    @Inject private InternalEntryFactory iceFactory;
    @Inject private DataContainer<K, V> dataContainer;
    @Inject private GroupManager groupManager;
+   @Inject private KeyPartitioner keyPartitioner;
    @Inject private Cache<K, V> cache;
 
    private boolean activation;
@@ -469,7 +474,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          Publisher<CacheEntry<K, V>> publisher = flowable
                .map(me -> (CacheEntry<K, V>) PersistenceUtil.convert(me, iceFactory));
          // This way we don't subscribe to the flowable until after the first iterator is fully exhausted
-         return new DoubleIterator<>(localIterator, () -> org.infinispan.util.Closeables.iterator(publisher, 64));
+         return new DoubleIterator<>(localIterator, () -> org.infinispan.util.Closeables.iterator(publisher, 128));
       }
 
       @Override
@@ -489,6 +494,13 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
             return Integer.MAX_VALUE;
          }
          return (int) size;
+      }
+
+      @Override
+      protected CacheStream<CacheEntry<K, V>> getStream(boolean parallel) {
+         return new LocalCacheStream<>(new PersistenceEntryStreamSupplier<>(cache, false,
+               iceFactory, keyPartitioner::getSegment, entrySet.stream(), persistenceManager), parallel,
+               cache.getAdvancedCache().getComponentRegistry());
       }
    }
 
