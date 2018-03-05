@@ -86,6 +86,7 @@ public class CacheLoaderFunctionalTest extends AbstractInfinispanTest {
       ConfigurationBuilder cfg = new ConfigurationBuilder();
       cfg.persistence()
          .addStore(DummyInMemoryStoreConfigurationBuilder.class)
+            .segmented(true)
          .storeName(this.getClass().getName()) // in order to use the same store
          .transaction().transactionMode(TransactionMode.TRANSACTIONAL);
       return cfg;

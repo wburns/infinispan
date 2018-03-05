@@ -7,6 +7,7 @@ import java.util.function.Predicate;
 
 import javax.transaction.Transaction;
 
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.factories.annotations.SurvivesRestarts;
 import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.persistence.spi.AdvancedCacheLoader;
@@ -75,7 +76,17 @@ public class PersistenceManagerStub implements PersistenceManager {
    }
 
    @Override
+   public <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
+      return null;
+   }
+
+   @Override
    public <K> Publisher<K> publishKeys(Predicate<? super K> filter, AccessMode mode) {
+      return null;
+   }
+
+   @Override
+   public <K> Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter, AccessMode mode) {
       return null;
    }
 

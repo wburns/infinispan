@@ -44,8 +44,8 @@ import org.infinispan.commons.util.concurrent.ConcurrentHashSet;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.conflict.impl.InternalConflictManager;
-import org.infinispan.container.impl.InternalDataContainer;
 import org.infinispan.container.entries.InternalCacheEntry;
+import org.infinispan.container.impl.InternalDataContainer;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.context.InvocationContextFactory;
 import org.infinispan.context.impl.TxInvocationContext;
@@ -287,7 +287,9 @@ public class StateConsumerImpl implements StateConsumer {
       distributionManager.setCacheTopology(cacheTopology);
 
       // Owned segments
-      dataContainer.addSegments(SmallIntSet.from(getOwnedSegments(newWriteCh)));
+      IntSet newWriteCHSegments = SmallIntSet.from(getOwnedSegments(newWriteCh));
+      dataContainer.addSegments(newWriteCHSegments);
+      persistenceManager.addSegments(newWriteCHSegments);
 
       // We need to track changes so that user puts during conflict resolution are prioritised over MergePolicy updates
       // Tracking is stopped once the subsequent rebalance completes
@@ -968,6 +970,11 @@ public class StateConsumerImpl implements StateConsumer {
       // with the store if no segments are removed, so just exit early.
       if (removedSegments.isEmpty())
          return;
+
+      // If there are no stores that couldn't remove segments, we don't have to worry about invaliding entries
+      if (!persistenceManager.removeSegments(removedSegments)) {
+         return;
+      }
 
       // gather all keys from cache store that belong to the segments that are being removed/moved to L1
       try {

@@ -1,12 +1,9 @@
 package org.infinispan.persistence.support;
 
-import java.util.concurrent.Executor;
-import java.util.function.Predicate;
 import java.util.function.ToIntFunction;
 
 import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.persistence.spi.SegmentedAdvancedLoadWriteStore;
-import org.reactivestreams.Publisher;
 
 /**
  * Abstract segment loader writer that implements all the non segmented methods and throws an exception if they are
@@ -27,7 +24,7 @@ public abstract class AbstractSegmentedAdvancedLoadWriteStore<K, V> implements S
 
    @Override
    public final boolean contains(Object key) {
-      throw new UnsupportedOperationException();
+      return contains(getKeyMapper().applyAsInt(key), key);
    }
 
    @Override
@@ -37,37 +34,6 @@ public abstract class AbstractSegmentedAdvancedLoadWriteStore<K, V> implements S
 
    @Override
    public final boolean delete(Object key) {
-      throw new UnsupportedOperationException();
+      return delete(getKeyMapper().applyAsInt(key), key);
    }
-
-   @Override
-   public int size() {
-      throw new UnsupportedOperationException();
-   }
-
-   @Override
-   public Publisher<K> publishKeys(Predicate<? super K> filter) {
-      throw new UnsupportedOperationException();
-   }
-
-   @Override
-   public Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
-      throw new UnsupportedOperationException();
-   }
-
-   @Override
-   public void purge(Executor threadPool, PurgeListener<? super K> listener) {
-      throw new UnsupportedOperationException();
-   }
-
-   @Override
-   public void clear() {
-      throw new UnsupportedOperationException();
-   }
-
-   @Override
-   public abstract void deleteBatch(Iterable<Object> keys);
-
-   @Override
-   public abstract void writeBatch(Iterable<MarshalledEntry<? extends K, ? extends V>> marshalledEntries);
 }

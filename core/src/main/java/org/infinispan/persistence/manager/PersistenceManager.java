@@ -7,12 +7,12 @@ import java.util.function.Predicate;
 import javax.transaction.Transaction;
 
 import org.infinispan.commons.api.Lifecycle;
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.configuration.cache.StoreConfiguration;
 import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.persistence.spi.AdvancedCacheLoader;
 import org.infinispan.persistence.spi.PersistenceException;
 import org.infinispan.persistence.support.BatchModification;
-import org.infinispan.stream.StreamMarshalling;
 import org.reactivestreams.Publisher;
 
 /**
@@ -61,7 +61,7 @@ public interface PersistenceManager extends Lifecycle {
     * See {@link #publishEntries(Predicate, boolean, boolean, AccessMode)}
     */
    default <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(boolean fetchValue, boolean fetchMetadata) {
-      return publishEntries(StreamMarshalling.alwaysTruePredicate(), fetchValue, fetchMetadata, AccessMode.BOTH);
+      return publishEntries(null, fetchValue, fetchMetadata, AccessMode.BOTH);
    }
 
    /**
@@ -83,6 +83,20 @@ public interface PersistenceManager extends Lifecycle {
          boolean fetchMetadata, AccessMode mode);
 
    /**
+    * TODO:
+    * @param segments
+    * @param filter
+    * @param fetchValue
+    * @param fetchMetadata
+    * @param mode
+    * @param <K>
+    * @param <V>
+    * @return
+    */
+   <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean fetchValue,
+         boolean fetchMetadata, AccessMode mode);
+
+   /**
     * Returns a publisher that will publish all keys stored by the underlying cache store. Only the first cache store
     * that implements {@link AdvancedCacheLoader} will be used. Predicate is applied by the underlying
     * loader in a best attempt to improve performance.
@@ -97,6 +111,16 @@ public interface PersistenceManager extends Lifecycle {
     * @return publisher that will publish keys
     */
    <K> Publisher<K> publishKeys(Predicate<? super K> filter, AccessMode mode);
+
+   /**
+    * TODO:
+    * @param segments
+    * @param filter
+    * @param mode
+    * @param <K>
+    * @return
+    */
+   <K> Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter, AccessMode mode);
 
    MarshalledEntry loadFromAllStores(Object key, boolean localInvocation);
 
@@ -211,7 +235,7 @@ public interface PersistenceManager extends Lifecycle {
    /**
     * Remove all entries from the underlying non-transactional stores as a single batch.
     *
-    * @param entries a List of Keys to be removed from the store.
+    * @param keys a List of Keys to be removed from the store.
     * @param accessMode the type of access to the underlying store.
     * @param flags Flags used during command invocation
     */
@@ -222,4 +246,28 @@ public interface PersistenceManager extends Lifecycle {
     * @return true if all configured stores are available and ready for read/write operations.
     */
    boolean isAvailable();
+
+   /**
+    * Notifies any underlying segmented stores that the segments provided are owned by this cache and to start/configure
+    * any underlying resources required to handle requests for entries on the given segments.
+    * <p>
+    * This only affects stores that are not shared as shared stores have to keep all segments running at all times
+    * @param segments segments this cache owns
+    * @return if a configured store couldn't add segments (non segmented and non shared)
+    */
+   default boolean addSegments(IntSet segments) {
+      return false;
+   }
+
+   /**
+    * Notifies any underlying segmented stores that a given segment is no longer owned by this cache and allowing
+    * it to remove the given segments and release resources related to it.
+    * <p>
+    * This only affects stores that are not shared as shared stores have to keep all segments running at all times
+    * @param segments segments this cache no longer owns
+    * @return if a configured store couldn't add segments (non segmented and non shared)
+    */
+   default boolean removeSegments(IntSet segments) {
+      return false;
+   }
 }

@@ -20,7 +20,14 @@ public class DistSyncTxStoreSharedTest extends BaseDistStoreTest {
    public DistSyncTxStoreSharedTest() {
       transactional = true;
       testRetVals = true;
-      shared = true;
+   }
+
+   @Override
+   public Object[] factory() {
+      return new Object[] {
+            new DistSyncTxStoreSharedTest().shared(true).segmented(true),
+            new DistSyncTxStoreSharedTest().shared(true).segmented(false),
+      };
    }
 
    public void testPutFromNonOwner() throws Exception {

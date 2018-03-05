@@ -11,7 +11,7 @@ import org.infinispan.configuration.cache.SingletonStoreConfiguration;
 
 @BuiltBy(DummyInMemoryStoreConfigurationBuilder.class)
 @ConfigurationFor(DummyInMemoryStore.class)
-public class DummyInMemoryStoreConfiguration extends AbstractNonSharedSegmentedConfiguration {
+public class DummyInMemoryStoreConfiguration extends AbstractNonSharedSegmentedConfiguration<DummyInMemoryStoreConfiguration> {
    static final AttributeDefinition<Boolean> SLOW = AttributeDefinition.builder("slow", false).immutable().build();
    static final AttributeDefinition<String> STORE_NAME = AttributeDefinition.builder("storeName", null, String.class).immutable().build();
    static final AttributeDefinition<Integer> START_FAILURES = AttributeDefinition.builder("startFailures", 0).immutable().build();
@@ -24,11 +24,13 @@ public class DummyInMemoryStoreConfiguration extends AbstractNonSharedSegmentedC
    }
 
    @Override
-   public AbstractStoreConfiguration newConfigurationFrom(int segment) {
+   public DummyInMemoryStoreConfiguration newConfigurationFrom(int segment) {
       AttributeSet set = DummyInMemoryStoreConfiguration.attributeDefinitionSet();
       set.read(attributes);
       String storeName = set.attribute(STORE_NAME).get();
-      set.attribute(STORE_NAME).set(storeName + "-" + segment);
+      if (storeName != null) {
+         set.attribute(STORE_NAME).set(storeName + "-" + segment);
+      }
       return new DummyInMemoryStoreConfiguration(set.protect(), async(), singletonStore());
    }
 

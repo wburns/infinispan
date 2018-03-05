@@ -1,30 +1,26 @@
 package org.infinispan.persistence.support;
 
-import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.IntConsumer;
+import java.util.function.ObjIntConsumer;
 import java.util.function.Predicate;
 import java.util.function.ToIntFunction;
 
 import org.infinispan.Cache;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.configuration.cache.AbstractNonSharedSegmentedConfiguration;
-import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.HashConfiguration;
-import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.notifications.Listener;
-import org.infinispan.notifications.cachelistener.annotation.TopologyChanged;
-import org.infinispan.notifications.cachelistener.event.TopologyChangedEvent;
 import org.infinispan.persistence.InitializationContextImpl;
 import org.infinispan.persistence.factory.CacheStoreFactoryRegistry;
 import org.infinispan.persistence.spi.AdvancedLoadWriteStore;
 import org.infinispan.persistence.spi.InitializationContext;
-import org.infinispan.remoting.transport.Address;
+import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
 import org.reactivestreams.Publisher;
 
 import io.reactivex.Flowable;
@@ -44,7 +40,7 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
    KeyPartitioner keyPartitioner;
    InitializationContext ctx;
    Scheduler scheduler;
-   Address localNode;
+   boolean shouldStopSegments;
 
    AtomicReferenceArray<AdvancedLoadWriteStore<K, V>> stores;
 
@@ -59,73 +55,169 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
 
    @Override
    public MarshalledEntry<K, V> load(int segment, Object key) {
-      return stores.get(segment).load(key);
+      AdvancedLoadWriteStore<K, V> store = stores.get(segment);
+      if (store != null) {
+         return store.load(key);
+      }
+      return null;
    }
 
    @Override
    public boolean contains(int segment, Object key) {
-      return stores.get(segment).contains(key);
+      AdvancedLoadWriteStore<K, V> store = stores.get(segment);
+      return store != null && store.contains(key);
    }
 
    @Override
    public void write(int segment, MarshalledEntry<? extends K, ? extends V> entry) {
-      stores.get(segment).write(entry);
+      AdvancedLoadWriteStore<K, V> store = stores.get(segment);
+      if (store != null) {
+         store.write(entry);
+      }
    }
 
    @Override
    public boolean delete(int segment, Object key) {
-      return stores.get(segment).delete(key);
+      AdvancedLoadWriteStore<K, V> store = stores.get(segment);
+      return store != null && store.delete(key);
    }
 
    @Override
    public int size(int segment) {
-      return stores.get(segment).size();
+      AdvancedLoadWriteStore<K, V> store = stores.get(segment);
+      if (store != null) {
+         return store.size();
+      }
+      return 0;
    }
 
    @Override
-   public Publisher<K> publishKeys(int segment, Predicate<? super K> filter) {
-      AdvancedLoadWriteStore<K, V> alws = stores.get(segment);
-      if (alws == null) {
-         return Flowable.empty();
-      } else {
-         return alws.publishKeys(filter);
+   public int size() {
+      int size = 0;
+      for (int i = 0; i < stores.length(); ++i) {
+         AdvancedLoadWriteStore<K, V> store = stores.get(i);
+         if (store != null) {
+            size += store.size();
+            if (size < 0) {
+               return Integer.MAX_VALUE;
+            }
+         }
       }
+      return size;
    }
 
    @Override
-   public Publisher<MarshalledEntry<K, V>> publishEntries(int segment, Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
-      AdvancedLoadWriteStore<K, V> alws = stores.get(segment);
-      if (alws == null) {
+   public Flowable<K> publishKeys(IntSet segments, Predicate<? super K> filter) {
+      Flowable<Publisher<K>> flowable = new FlowableFromIntSetFunction<>(segments, i -> {
+         AdvancedLoadWriteStore<K, V> alws = stores.get(i);
+         if (alws != null) {
+            return alws.publishKeys(filter);
+         }
          return Flowable.empty();
-      } else {
-         return alws.publishEntries(filter, fetchValue, fetchMetadata);
-      }
+      });
+      // Can't chain with this, doesn't like the typing
+      // Filter out empty so we don't use a thread for it
+      flowable = flowable.filter(f -> f != Flowable.empty());
+      return flowable.parallel()
+            .runOn(scheduler)
+            .flatMap(f -> f)
+            .sequential();
+   }
+
+   @Override
+   public Publisher<K> publishKeys(Predicate<? super K> filter) {
+      Flowable<Publisher<K>> flowable = Flowable.range(0, stores.length())
+            .map(i -> {
+               AdvancedLoadWriteStore<K, V> alws = stores.get(i);
+               if (alws == null) {
+                  return Flowable.empty();
+               } else {
+                  return alws.publishKeys(filter);
+               }
+            });
+      // Can't chain with this, doesn't like the typing
+      // Filter out empty so we don't use a thread for it
+      flowable = flowable.filter(f -> f != Flowable.empty());
+      return flowable.parallel()
+            .runOn(scheduler)
+            .flatMap(f -> f)
+            .sequential();
+   }
+
+   @Override
+   public Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
+      Flowable<Publisher<MarshalledEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(segments, i -> {
+         AdvancedLoadWriteStore<K, V> alws = stores.get(i);
+         if (alws != null) {
+            return alws.publishEntries(filter, fetchValue, fetchMetadata);
+         }
+         return Flowable.empty();
+      });
+      // Cast is required otherwise it complains I can't use != operator with 2 unlike types.... bug anyone?
+      // Filter out empty so we don't use a thread for it
+      flowable = flowable.filter(f -> (Object) f != Flowable.empty());
+      return flowable.parallel()
+            .runOn(scheduler)
+            .flatMap(f -> f)
+            .sequential();
    }
 
    @Override
    public Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
-      return Flowable.range(0, stores.length())
-            .parallel()
-            .runOn(scheduler)
-            .flatMap(i -> {
+      Flowable<Publisher<MarshalledEntry<K, V>>> flowable = Flowable.range(0, stores.length())
+            .map(i -> {
                AdvancedLoadWriteStore<K, V> alws = stores.get(i);
                if (alws == null) {
                   return Flowable.empty();
                } else {
                   return alws.publishEntries(filter, fetchValue, fetchMetadata);
                }
-            })
+            });
+      flowable = flowable.filter(f -> (Object) f != Flowable.empty());
+      return flowable.parallel()
+            .runOn(scheduler)
+            .flatMap(f -> f)
             .sequential();
    }
 
    @Override
-   public void clear(int segment) {
-      stores.get(segment).clear();
+   public void clear() {
+      for (int i = 0; i < stores.length(); ++i) {
+         AdvancedLoadWriteStore<K, V> alws = stores.get(i);
+         if (alws != null) {
+            alws.clear();
+         }
+      }
    }
 
    @Override
-   public void purge(int segment, Executor threadPool, PurgeListener<? super K> listener) {
-      stores.get(segment).purge(threadPool, listener);
+   public void purge(Executor threadPool, PurgeListener<? super K> listener) {
+      for (int i = 0; i < stores.length(); ++i) {
+         AdvancedLoadWriteStore<K, V> alws = stores.get(i);
+         if (alws != null) {
+            alws.purge(threadPool, listener);
+         }
+      }
+   }
+
+   @Override
+   public void clear(IntSet segments) {
+      segments.forEach((int i) -> {
+         AdvancedLoadWriteStore<K, V> alws = stores.get(i);
+         if (alws != null) {
+            alws.clear();
+         }
+      });
+   }
+
+   @Override
+   public void purge(IntSet segments, Executor threadPool, PurgeListener<? super K> listener) {
+      segments.forEach((int i) -> {
+         AdvancedLoadWriteStore<K, V> alws = stores.get(i);
+         if (alws != null) {
+            alws.purge(threadPool, listener);
+         }
+      });
    }
 
    @Override
@@ -167,22 +259,23 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
    public void start() {
       ComponentRegistry componentRegistry = cache.getAdvancedCache().getComponentRegistry();
       cacheStoreFactoryRegistry = componentRegistry.getComponent(CacheStoreFactoryRegistry.class);
-      cache.getAdvancedCache().getDistributionManager();
-      cache.addListener(this);
 
       scheduler = Schedulers.from(executorService);
 
       HashConfiguration hashConfiguration = cache.getCacheConfiguration().clustering().hash();
-      keyPartitioner = hashConfiguration.keyPartitioner();
+      keyPartitioner = componentRegistry.getComponent(KeyPartitioner.class);
       stores = new AtomicReferenceArray<>(hashConfiguration.numSegments());
 
-      CacheMode mode = cache.getCacheConfiguration().clustering().cacheMode();
-      // Local or remote cache we just instantiate all the stores immediately
-      if (!mode.isClustered() || mode.isReplicated()) {
-         for (int i = 0; i < stores.length(); ++i) {
-            startNewStoreForSegment(i);
-         }
+      // Local (invalidation), replicated and scattered cache we just instantiate all the maps immediately
+      // Scattered needs this for backups as they can be for any segment
+      // Distributed needs them all only at beginning for preload of data - rehash event will remove others
+      for (int i = 0; i < stores.length(); ++i) {
+         startNewStoreForSegment(i);
       }
+
+      // Distributed is the only mode that allows for dynamic addition/removal of maps as others own all segments
+      // in some fashion
+      shouldStopSegments = cache.getCacheConfiguration().clustering().cacheMode().isDistributed();
    }
 
    private void startNewStoreForSegment(int segment) {
@@ -196,23 +289,40 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
       }
    }
 
-   @Override
-   public void stop() {
-
+   private void stopStoreForSegment(int segment) {
+      AdvancedLoadWriteStore<K, V> store = stores.getAndSet(segment, null);
+      if (store != null) {
+         store.stop();
+      }
    }
 
-   @TopologyChanged
-   public void onTopologyChange(TopologyChangedEvent<K, V> topologyChangedEvent) {
-      if (topologyChangedEvent.isPre()) {
-         ConsistentHash ch = topologyChangedEvent.getWriteConsistentHashAtEnd();
-         Set<Integer> segments = ch.getSegmentsForOwner(localNode);
-         if (segments instanceof IntSet) {
-            ((IntSet) segments).forEach((IntConsumer) this::startNewStoreForSegment);
-         } else {
-            segments.forEach(this::startNewStoreForSegment);
-         }
+   @Override
+   public void stop() {
+      for (int i = 0; i < stores.length(); ++i) {
+         stopStoreForSegment(i);
+      }
+   }
+
+   @Override
+   public void addSegments(IntSet segments) {
+      segments.forEach((IntConsumer) this::startNewStoreForSegment);
+   }
+
+   @Override
+   public void removeSegments(IntSet segments) {
+      if (shouldStopSegments) {
+         segments.forEach((IntConsumer) this::stopStoreForSegment);
       } else {
-         // TODO: need to remove stores heres
+         clear(segments);
+      }
+   }
+
+   public void forEach(ObjIntConsumer<? super AdvancedLoadWriteStore> consumer) {
+      for (int i = 0; i < stores.length(); ++i) {
+         AdvancedLoadWriteStore store = stores.get(i);
+         if (store != null) {
+            consumer.accept(store, i);
+         }
       }
    }
 }
