@@ -23,7 +23,7 @@ class IntermediateCacheStreamSupplier<T, S extends BaseStream<T, S>> implements 
 
 
    @Override
-   public S buildStream(IntSet segmentsToFilter, Set<?> keysToFilter) {
+   public S buildStream(IntSet segmentsToFilter, Set<?> keysToFilter, boolean parallel) {
       return (S) type.handleStream(streamable);
    }
 

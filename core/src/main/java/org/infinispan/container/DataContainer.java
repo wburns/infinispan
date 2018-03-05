@@ -113,7 +113,7 @@ public interface DataContainer<K, V> extends Iterable<InternalCacheEntry<K, V>> 
     * the underlying collection as a side of effect of iterating through it.
     * <p>
     * This set of keys will include expired entries. If you wish to only retrieve non expired keys please use the
-    * {@link DataContainer#entrySet()} method and retrieve keys from there.
+    * {@link DataContainer#iterator()} method and retrieve keys from there.
     * @return a set of keys
     * @deprecated Please use iterator method if bulk operations are required.
     */

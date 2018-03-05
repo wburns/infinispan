@@ -1,10 +1,7 @@
 package org.infinispan.container;
 
 import java.lang.invoke.MethodHandles;
-import java.util.AbstractCollection;
-import java.util.AbstractSet;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -13,7 +10,6 @@ import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Spliterator;
-import java.util.Spliterators;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiConsumer;
 
@@ -24,6 +20,7 @@ import org.infinispan.commons.util.EntrySizeCalculator;
 import org.infinispan.commons.util.EvictionListener;
 import org.infinispan.commons.util.FilterIterator;
 import org.infinispan.commons.util.IntSet;
+import org.infinispan.configuration.cache.HashConfiguration;
 import org.infinispan.container.entries.CacheEntrySizeCalculator;
 import org.infinispan.container.entries.ImmortalCacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
@@ -35,12 +32,12 @@ import org.infinispan.eviction.EvictionType;
 import org.infinispan.eviction.PassivationManager;
 import org.infinispan.expiration.ExpirationManager;
 import org.infinispan.factories.annotations.Inject;
+import org.infinispan.factories.annotations.Start;
 import org.infinispan.filter.KeyFilter;
 import org.infinispan.filter.KeyValueFilter;
 import org.infinispan.marshall.core.WrappedByteArraySizeCalculator;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
 import org.infinispan.persistence.manager.PersistenceManager;
-import org.infinispan.util.CoreImmutables;
 import org.infinispan.util.TimeService;
 import org.infinispan.util.concurrent.WithinThreadExecutor;
 
@@ -80,7 +77,8 @@ public class DefaultDataContainer<K, V> extends AbstractSegmentedDataContainer<K
    @Inject private TimeService timeService;
    @Inject private CacheNotifier cacheNotifier;
    @Inject private ExpirationManager<K, V> expirationManager;
-   @Inject private KeyPartitioner keyPartitioner;
+   @Inject private org.infinispan.Cache<K, V> cache;
+   private KeyPartitioner keyPartitioner;
 
    public DefaultDataContainer(int concurrencyLevel) {
       // If no comparing implementations passed, could fallback on JDK CHM
@@ -182,6 +180,12 @@ public class DefaultDataContainer<K, V> extends AbstractSegmentedDataContainer<K
       return new DefaultDataContainer<>(concurrencyLevel);
    }
 
+   @Start
+   public void start() {
+      HashConfiguration hashConfiguration = cache.getCacheConfiguration().clustering().hash();
+      keyPartitioner = hashConfiguration.keyPartitioner();
+   }
+
    @Override
    protected ConcurrentMap<K, InternalCacheEntry<K, V>> getMapForSegment(int segment) {
       return entries;
@@ -242,16 +246,6 @@ public class DefaultDataContainer<K, V> extends AbstractSegmentedDataContainer<K
    }
 
    @Override
-   public Collection<V> values() {
-      return new Values();
-   }
-
-   @Override
-   public Set<InternalCacheEntry<K, V>> entrySet() {
-      return new EntrySet();
-   }
-
-   @Override
    public Iterator<InternalCacheEntry<K, V>> iterator() {
       return new EntryIterator(entries.values().iterator());
    }
@@ -264,7 +258,13 @@ public class DefaultDataContainer<K, V> extends AbstractSegmentedDataContainer<K
 
    @Override
    public Spliterator<InternalCacheEntry<K, V>> spliterator() {
-      return new EntrySpliterator(entries.values().spliterator());
+      return new EntrySpliterator(spliteratorIncludingExpired());
+   }
+
+   @Override
+   public Spliterator<InternalCacheEntry<K, V>> spliteratorIncludingExpired() {
+      // Technically this spliterator is distinct, but it won't be set - we assume that is okay for now
+      return entries.values().spliterator();
    }
 
    @Override
@@ -276,12 +276,6 @@ public class DefaultDataContainer<K, V> extends AbstractSegmentedDataContainer<K
    public Iterator<InternalCacheEntry<K, V>> iteratorIncludingExpired(IntSet segments) {
       return new FilterIterator<>(iteratorIncludingExpired(),
             ice -> segments.contains(keyPartitioner.getSegment(ice.getKey())));
-   }
-
-   @Override
-   public Spliterator<InternalCacheEntry<K, V>> spliteratorIncludingExpired() {
-      // Technically this spliterator is distinct, but it won't be set - we assume that is okay for now
-      return entries.values().spliterator();
    }
 
    @Override
@@ -333,103 +327,6 @@ public class DefaultDataContainer<K, V> extends AbstractSegmentedDataContainer<K
 
       @Override
       public void onEntryRemoved(Entry<K, InternalCacheEntry<K, V>> entry) {
-      }
-   }
-
-   private class ImmutableEntryIterator extends EntryIterator {
-      ImmutableEntryIterator(Iterator<InternalCacheEntry<K, V>> it){
-         super(it);
-      }
-
-      @Override
-      public InternalCacheEntry<K, V> next() {
-         return CoreImmutables.immutableInternalCacheEntry(super.next());
-      }
-   }
-
-   /**
-    * Minimal implementation needed for unmodifiable Set
-    *
-    */
-   private class EntrySet extends AbstractSet<InternalCacheEntry<K, V>> {
-
-      @Override
-      public boolean contains(Object o) {
-         if (!(o instanceof Map.Entry)) {
-            return false;
-         }
-
-         @SuppressWarnings("rawtypes")
-         Map.Entry e = (Map.Entry) o;
-         InternalCacheEntry ice = entries.get(e.getKey());
-         if (ice == null) {
-            return false;
-         }
-         return ice.getValue().equals(e.getValue());
-      }
-
-      @Override
-      public Iterator<InternalCacheEntry<K, V>> iterator() {
-         return new ImmutableEntryIterator(entries.values().iterator());
-      }
-
-      @Override
-      public int size() {
-         return entries.size();
-      }
-
-      @Override
-      public String toString() {
-         return entries.toString();
-      }
-
-      @Override
-      public Spliterator<InternalCacheEntry<K, V>> spliterator() {
-         return Spliterators.spliterator(this, Spliterator.DISTINCT | Spliterator.CONCURRENT);
-      }
-   }
-
-   /**
-    * Minimal implementation needed for unmodifiable Collection
-    *
-    */
-   private class Values extends AbstractCollection<V> {
-      @Override
-      public Iterator<V> iterator() {
-         return new ValueIterator(entries.values().iterator());
-      }
-
-      @Override
-      public int size() {
-         return entries.size();
-      }
-
-      @Override
-      public Spliterator<V> spliterator() {
-         return Spliterators.spliterator(this, Spliterator.CONCURRENT);
-      }
-   }
-
-   private static class ValueIterator<K, V> implements Iterator<V> {
-      Iterator<InternalCacheEntry<K, V>> currentIterator;
-
-      private ValueIterator(Iterator<InternalCacheEntry<K, V>> it) {
-         currentIterator = it;
-      }
-
-      @Override
-      public boolean hasNext() {
-         return currentIterator.hasNext();
-      }
-
-      @Override
-      public void remove() {
-         throw new UnsupportedOperationException();
-      }
-
-      @Override
-      public V next() {
-         return currentIterator.next().getValue();
       }
    }
 

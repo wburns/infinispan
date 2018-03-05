@@ -29,7 +29,7 @@ public abstract class AbstractLocalCacheStream<T, S extends BaseStream<T, S>, S2
    protected boolean parallel;
 
    public interface StreamSupplier<T, S extends BaseStream<T, S>> {
-      S buildStream(IntSet segmentsToFilter, Set<?> keysToFilter);
+      S buildStream(IntSet segmentsToFilter, Set<?> keysToFilter, boolean parallel);
 
       CloseableIterator<T> removableIterator(CloseableIterator<T> realIterator);
    }
@@ -63,10 +63,7 @@ public abstract class AbstractLocalCacheStream<T, S extends BaseStream<T, S>, S2
    }
 
    protected final S createStream() {
-      BaseStream<?, ?> stream = streamSupplier.buildStream(segmentsToFilter, keysToFilter);
-      if (parallel) {
-         stream = stream.parallel();
-      }
+      BaseStream<?, ?> stream = streamSupplier.buildStream(segmentsToFilter, keysToFilter, parallel);
       for (IntermediateOperation intOp : intermediateOperations) {
          intOp.handleInjection(registry);
          stream = intOp.perform(stream);

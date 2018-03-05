@@ -543,6 +543,7 @@ public class Serializer extends AbstractStoreSerializer implements Configuration
       AttributeSet attributes = memory.attributes();
       if (attributes.isModified()) {
          writer.writeStartElement(Element.MEMORY);
+         // TODO: need to write segmented attribute
          writer.writeStartElement(memory.storageType().getElement());
          switch (memory.storageType()) {
             case OFF_HEAP:

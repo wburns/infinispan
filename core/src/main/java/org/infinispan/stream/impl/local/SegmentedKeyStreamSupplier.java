@@ -47,7 +47,7 @@ public class SegmentedKeyStreamSupplier<K, V> implements AbstractLocalCacheStrea
    }
 
    @Override
-   public Stream<K> buildStream(IntSet segmentsToFilter, Set<?> keysToFilter) {
+   public Stream<K> buildStream(IntSet segmentsToFilter, Set<?> keysToFilter, boolean parallel) {
       Stream<K> stream;
       if (keysToFilter != null) {
          if (trace) {
@@ -56,7 +56,8 @@ public class SegmentedKeyStreamSupplier<K, V> implements AbstractLocalCacheStrea
          // Make sure we aren't going remote to retrieve these
          AdvancedCache<K, V> advancedCache = AbstractDelegatingCache.unwrapCache(cache).getAdvancedCache()
                .withFlags(Flag.CACHE_MODE_LOCAL);
-         stream = (Stream<K>) keysToFilter.stream().filter(advancedCache::containsKey);
+         stream = (Stream<K>) (parallel ? keysToFilter.parallelStream() : keysToFilter.stream())
+               .filter(advancedCache::containsKey);
          if (segmentsToFilter != null && toIntFunction != null) {
             if (trace) {
                log.tracef("Applying segment filter %s", segmentsToFilter);
@@ -71,18 +72,9 @@ public class SegmentedKeyStreamSupplier<K, V> implements AbstractLocalCacheStrea
          }
       } else {
          if (segmentsToFilter != null) {
-            Flowable<Iterator<K>> flowable = new FlowableFromIntSetFunction<>(segmentsToFilter,
-                  i -> {
-                     Iterator<InternalCacheEntry<K, V>> iter = segmentedDataContainer.iterator();
-                     if (iter == null) {
-                        return Collections.emptyIterator();
-                     }
-                     return new IteratorMapper<>(iter, Map.Entry::getKey);
-                  });
-            Iterable<K> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
-            stream = StreamSupport.stream(iterable.spliterator(), false);
+            stream = StreamSupport.stream(new SpliteratorMapper<>(segmentedDataContainer.spliterator(segmentsToFilter), Map.Entry::getKey), parallel);
          } else {
-            stream = StreamSupport.stream(new SpliteratorMapper<>(segmentedDataContainer.spliterator(), Map.Entry::getKey), false);
+            stream = StreamSupport.stream(new SpliteratorMapper<>(segmentedDataContainer.spliterator(), Map.Entry::getKey), parallel);
          }
       }
       return stream;

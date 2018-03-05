@@ -1,8 +1,7 @@
 package org.infinispan.container;
 
 import java.util.Iterator;
-import java.util.Set;
-import java.util.concurrent.ConcurrentMap;
+import java.util.Spliterator;
 import java.util.function.Consumer;
 
 import org.infinispan.commons.util.IntSet;
@@ -33,6 +32,10 @@ public interface SegmentedDataContainer<K, V> extends DataContainer<K, V> {
    int sizeIncludingExpired(IntSet segments);
 
    void clear(IntSet segments);
+
+   Spliterator<InternalCacheEntry<K, V>> spliterator(IntSet segments);
+
+   Spliterator<InternalCacheEntry<K, V>> spliteratorIncludingExpired(IntSet segments);
 
    Iterator<InternalCacheEntry<K, V>> iterator(IntSet segments);
 
