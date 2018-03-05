@@ -1,34 +1,34 @@
 package org.infinispan.container;
 
-import static org.infinispan.commons.util.Util.toStr;
-
+import java.lang.invoke.MethodHandles;
 import java.util.AbstractCollection;
 import java.util.AbstractSet;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.BiConsumer;
-import java.util.function.Consumer;
 
 import org.infinispan.commons.logging.Log;
 import org.infinispan.commons.logging.LogFactory;
-import org.infinispan.commons.util.CloseableSpliterator;
 import org.infinispan.commons.util.CollectionFactory;
 import org.infinispan.commons.util.EntrySizeCalculator;
 import org.infinispan.commons.util.EvictionListener;
-import org.infinispan.commons.util.PeekableMap;
+import org.infinispan.commons.util.FilterIterator;
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.container.entries.CacheEntrySizeCalculator;
 import org.infinispan.container.entries.ImmortalCacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.container.entries.PrimitiveEntrySizeCalculator;
+import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.eviction.ActivationManager;
 import org.infinispan.eviction.EvictionManager;
 import org.infinispan.eviction.EvictionType;
@@ -38,8 +38,6 @@ import org.infinispan.factories.annotations.Inject;
 import org.infinispan.filter.KeyFilter;
 import org.infinispan.filter.KeyValueFilter;
 import org.infinispan.marshall.core.WrappedByteArraySizeCalculator;
-import org.infinispan.metadata.Metadata;
-import org.infinispan.metadata.impl.L1Metadata;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
 import org.infinispan.persistence.manager.PersistenceManager;
 import org.infinispan.util.CoreImmutables;
@@ -66,9 +64,9 @@ import net.jcip.annotations.ThreadSafe;
  * @since 4.0
  */
 @ThreadSafe
-public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
+public class DefaultDataContainer<K, V> extends AbstractSegmentedDataContainer<K, V> {
 
-   private static final Log log = LogFactory.getLog(DefaultDataContainer.class);
+   private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
    private static final boolean trace = log.isTraceEnabled();
 
    private final ConcurrentMap<K, InternalCacheEntry<K, V>> entries;
@@ -82,6 +80,7 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
    @Inject private TimeService timeService;
    @Inject private CacheNotifier cacheNotifier;
    @Inject private ExpirationManager<K, V> expirationManager;
+   @Inject private KeyPartitioner keyPartitioner;
 
    public DefaultDataContainer(int concurrencyLevel) {
       // If no comparing implementations passed, could fallback on JDK CHM
@@ -184,85 +183,24 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
    }
 
    @Override
-   public InternalCacheEntry<K, V> peek(Object key) {
-      if (entries instanceof PeekableMap) {
-         return ((PeekableMap<K, InternalCacheEntry<K, V>>)entries).peek(key);
-      }
-      return entries.get(key);
+   protected ConcurrentMap<K, InternalCacheEntry<K, V>> getMapForSegment(int segment) {
+      return entries;
    }
 
    @Override
-   public InternalCacheEntry<K, V> get(Object k) {
-      InternalCacheEntry<K, V> e = entries.get(k);
-      if (e != null && e.canExpire()) {
-         long currentTimeMillis = timeService.wallClockTime();
-         if (e.isExpired(currentTimeMillis)) {
-            expirationManager.handleInMemoryExpiration(e, currentTimeMillis);
-            e = null;
-         } else {
-            e.touch(currentTimeMillis);
-         }
-      }
-      return e;
+   protected int getSegmentForKey(Object key) {
+      // We always map to same map, so no reason to waste finding out segment
+      return -1;
    }
 
    @Override
-   public void put(K k, V v, Metadata metadata) {
-      boolean l1Entry = false;
-      if (metadata instanceof L1Metadata) {
-         metadata = ((L1Metadata) metadata).metadata();
-         l1Entry = true;
-      }
-      InternalCacheEntry<K, V> e = entries.get(k);
-
-      if (trace) {
-         log.tracef("Creating new ICE for writing. Existing=%s, metadata=%s, new value=%s", e, metadata, toStr(v));
-      }
-      final InternalCacheEntry<K, V> copy;
-      if (l1Entry) {
-         copy = entryFactory.createL1(k, v, metadata);
-      } else if (e != null) {
-         copy = entryFactory.update(e, v, metadata);
-      } else {
-         // this is a brand-new entry
-         copy = entryFactory.create(k, v, metadata);
-      }
-
-      if (trace)
-         log.tracef("Store %s in container", copy);
-
-      entries.compute(copy.getKey(), (key, entry) -> {
-         activator.onUpdate(key, entry == null);
-         return copy;
-      });
+   protected Log log() {
+      return log;
    }
 
    @Override
-   public boolean containsKey(Object k) {
-      InternalCacheEntry<K, V> ice = peek(k);
-      if (ice != null && ice.canExpire()) {
-         long currentTimeMillis = timeService.wallClockTime();
-         if (ice.isExpired(currentTimeMillis)) {
-            expirationManager.handleInMemoryExpiration(ice, currentTimeMillis);
-            ice = null;
-         }
-      }
-      return ice != null;
-   }
-
-   @Override
-   public InternalCacheEntry<K, V> remove(Object k) {
-      final InternalCacheEntry<K,V>[] reference = new InternalCacheEntry[1];
-      entries.compute((K) k, (key, entry) -> {
-         activator.onRemove(key, entry == null);
-         reference[0] = entry;
-         return null;
-      });
-      InternalCacheEntry<K, V> e = reference[0];
-      if (trace) {
-         log.tracef("Removed %s from container", e);
-      }
-      return e == null || (e.canExpire() && e.isExpired(timeService.wallClockTime())) ? null : e;
+   protected boolean trace() {
+      return trace;
    }
 
    private Policy.Eviction<K, InternalCacheEntry<K, V>> eviction() {
@@ -285,17 +223,6 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
    public void resize(long newSize) {
       Policy.Eviction<K, InternalCacheEntry<K, V>> evict = eviction();
       evict.setMaximum(newSize);
-   }
-
-   @Override
-   public int size() {
-      int size = 0;
-      // We have to loop through to make sure to remove expired entries
-      for (Iterator<InternalCacheEntry<K, V>> iter = iterator(); iter.hasNext(); ) {
-         iter.next();
-         if (++size == Integer.MAX_VALUE) return Integer.MAX_VALUE;
-      }
-      return size;
    }
 
    @Override
@@ -325,33 +252,14 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
    }
 
    @Override
-   public void evict(K key) {
-      entries.computeIfPresent(key, (o, entry) -> {
-         passivator.passivate(entry);
-         return null;
-      });
-   }
-
-   @Override
-   public InternalCacheEntry<K, V> compute(K key, ComputeAction<K, V> action) {
-      return entries.compute(key, (k, oldEntry) -> {
-         InternalCacheEntry<K, V> newEntry = action.compute(k, oldEntry, entryFactory);
-         if (newEntry == oldEntry) {
-            return oldEntry;
-         } else if (newEntry == null) {
-            activator.onRemove(k, false);
-            return null;
-         }
-         activator.onUpdate(k, oldEntry == null);
-         if (trace)
-            log.tracef("Store %s in container", newEntry);
-         return newEntry;
-      });
-   }
-
-   @Override
    public Iterator<InternalCacheEntry<K, V>> iterator() {
       return new EntryIterator(entries.values().iterator());
+   }
+
+   @Override
+   public Iterator<InternalCacheEntry<K, V>> iterator(IntSet segments) {
+      return new FilterIterator<>(iterator(),
+            ice -> segments.contains(keyPartitioner.getSegment(ice.getKey())));
    }
 
    @Override
@@ -365,6 +273,12 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
    }
 
    @Override
+   public Iterator<InternalCacheEntry<K, V>> iteratorIncludingExpired(IntSet segments) {
+      return new FilterIterator<>(iteratorIncludingExpired(),
+            ice -> segments.contains(keyPartitioner.getSegment(ice.getKey())));
+   }
+
+   @Override
    public Spliterator<InternalCacheEntry<K, V>> spliteratorIncludingExpired() {
       // Technically this spliterator is distinct, but it won't be set - we assume that is okay for now
       return entries.values().spliterator();
@@ -374,6 +288,30 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
    public long evictionSize() {
       Policy.Eviction<K, InternalCacheEntry<K, V>> evict = eviction();
       return evict.weightedSize().orElse(entries.size());
+   }
+
+   @Override
+   public void removeSegments(IntSet segments) {
+      if (!segments.isEmpty()) {
+         List<InternalCacheEntry<K, V>> removedEntries;
+         if (!listeners.isEmpty()) {
+            removedEntries = new ArrayList<>(entries.size());
+         } else {
+            removedEntries = null;
+         }
+         Iterator<InternalCacheEntry<K, V>> iter = iteratorIncludingExpired(segments);
+         while (iter.hasNext()) {
+            InternalCacheEntry<K, V> ice = iter.next();
+            if (removedEntries != null) {
+               removedEntries.add(ice);
+            }
+            iter.remove();
+         }
+         if (removedEntries != null) {
+            List<InternalCacheEntry<K, V>> unmod = Collections.unmodifiableList(removedEntries);
+            listeners.forEach(c -> c.accept(unmod));
+         }
+      }
    }
 
    private final class DefaultEvictionListener implements EvictionListener<K, InternalCacheEntry<K, V>> {
@@ -406,161 +344,6 @@ public class DefaultDataContainer<K, V> implements DataContainer<K, V> {
       @Override
       public InternalCacheEntry<K, V> next() {
          return CoreImmutables.immutableInternalCacheEntry(super.next());
-      }
-   }
-
-   public class EntryIterator implements Iterator<InternalCacheEntry<K, V>> {
-
-      private final Iterator<InternalCacheEntry<K, V>> it;
-
-      private InternalCacheEntry<K, V> next;
-
-      EntryIterator(Iterator<InternalCacheEntry<K, V>> it) {
-         this.it=it;
-      }
-
-      private InternalCacheEntry<K, V> getNext() {
-         boolean initializedTime = false;
-         long now = 0;
-         while (it.hasNext()) {
-            InternalCacheEntry<K, V> entry = it.next();
-            if (!entry.canExpire()) {
-               if (trace) {
-                  log.tracef("Return next entry %s", entry);
-               }
-               return entry;
-            } else {
-               if (!initializedTime) {
-                  now = timeService.wallClockTime();
-                  initializedTime = true;
-               }
-               if (!entry.isExpired(now)) {
-                  if (trace) {
-                     log.tracef("Return next entry %s", entry);
-                  }
-                  return entry;
-               } else if (trace) {
-                  log.tracef("%s is expired", entry);
-               }
-            }
-         }
-         if (trace) {
-            log.tracef("Return next null");
-         }
-         return null;
-      }
-
-      @Override
-      public InternalCacheEntry<K, V> next() {
-         if (next == null) {
-            next = getNext();
-         }
-         if (next == null) {
-            throw new NoSuchElementException();
-         }
-         InternalCacheEntry<K, V> toReturn = next;
-         next = null;
-         return toReturn;
-      }
-
-      @Override
-      public boolean hasNext() {
-         if (next == null) {
-            next = getNext();
-         }
-         return next != null;
-      }
-
-      @Override
-      public void remove() {
-         throw new UnsupportedOperationException();
-      }
-   }
-
-   /**
-    * Spliterator that wraps another to make sure to now return expired entries. This class also implements
-    * CloseableSpliterator to prevent additional allocations if user needs it to be closeable.
-    */
-   private class EntrySpliterator implements CloseableSpliterator<InternalCacheEntry<K, V>> {
-      private final Spliterator<InternalCacheEntry<K, V>> spliterator;
-      // We assume that spliterator is not used concurrently - normally it is split so we can use these variables safely
-      private final Consumer<? super InternalCacheEntry<K, V>> consumer = ice -> current = ice;
-
-      private InternalCacheEntry<K, V> current;
-
-      private EntrySpliterator(Spliterator<InternalCacheEntry<K, V>> spliterator) {
-         this.spliterator = spliterator;
-      }
-
-      @Override
-      public void close() {
-         // Do nothing
-      }
-
-      @Override
-      public boolean tryAdvance(Consumer<? super InternalCacheEntry<K, V>> action) {
-         InternalCacheEntry<K, V> entryToUse = null;
-         boolean initializedTime = false;
-         long now = 0;
-         while (entryToUse == null && spliterator.tryAdvance(consumer)) {
-            entryToUse = current;
-            if (entryToUse.canExpire()) {
-               if (!initializedTime) {
-                  now = timeService.wallClockTime();
-                  initializedTime = true;
-               }
-               if (entryToUse.isExpired(now)) {
-                  entryToUse = null;
-               }
-            }
-         }
-         if (entryToUse != null) {
-            action.accept(entryToUse);
-            return true;
-         }
-
-         return false;
-      }
-
-      @Override
-      public void forEachRemaining(Consumer<? super InternalCacheEntry<K, V>> action) {
-         // We don't call the forEachRemaining on the actual spliterator since, we want to keep the time between
-         // invocations
-         boolean initializedTime = false;
-         long now = 0;
-
-         while (spliterator.tryAdvance(consumer)) {
-            InternalCacheEntry<K, V> currentEntry = current;
-            if (currentEntry.canExpire()) {
-               if (!initializedTime) {
-                  now = timeService.wallClockTime();
-                  initializedTime = true;
-               }
-               if (currentEntry.isExpired(now)) {
-                  continue;
-               }
-            }
-            action.accept(currentEntry);
-         }
-      }
-
-      @Override
-      public Spliterator<InternalCacheEntry<K, V>> trySplit() {
-         Spliterator<InternalCacheEntry<K, V>> split = spliterator.trySplit();
-         if (split != null) {
-            return new EntrySpliterator(split);
-         }
-         return null;
-      }
-
-      @Override
-      public long estimateSize() {
-         return spliterator.estimateSize();
-      }
-
-      @Override
-      public int characteristics() {
-         return spliterator.characteristics() | Spliterator.DISTINCT;
       }
    }
 

@@ -44,7 +44,7 @@ public class DataContainerFactory extends AbstractNamedCacheComponentFactory imp
                dataContainerSupplier = () -> DefaultDataContainer.unBoundedDataContainer(level);
             }
             if (configuration.memory().segmented()) {
-               return (T) new DefaultSegmentedDataContainer<>((Supplier) dataContainerSupplier);
+               return (T) new DefaultSegmentedDataContainer<>();
             } else {
                return (T) dataContainerSupplier.get();
             }

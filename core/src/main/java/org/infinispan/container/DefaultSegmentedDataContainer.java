@@ -1,71 +1,67 @@
 package org.infinispan.container;
 
+import java.lang.invoke.MethodHandles;
+import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.Iterator;
+import java.util.List;
+import java.util.PrimitiveIterator;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicReferenceArray;
-import java.util.function.Consumer;
 import java.util.function.IntConsumer;
-import java.util.function.Supplier;
-import java.util.function.ToIntFunction;
 
 import org.infinispan.Cache;
+import org.infinispan.commons.logging.Log;
+import org.infinispan.commons.logging.LogFactory;
+import org.infinispan.commons.util.ConcatIterator;
 import org.infinispan.commons.util.IntSet;
-import org.infinispan.commons.util.RangeSet;
+import org.infinispan.commons.util.SmallIntSet;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.HashConfiguration;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.distribution.ch.ConsistentHash;
-import org.infinispan.factories.ComponentRegistry;
+import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.annotations.Stop;
-import org.infinispan.metadata.Metadata;
 import org.infinispan.notifications.Listener;
 import org.infinispan.notifications.cachelistener.annotation.TopologyChanged;
 import org.infinispan.notifications.cachelistener.event.TopologyChangedEvent;
 import org.infinispan.remoting.transport.Address;
-import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
-
-import io.reactivex.Flowable;
 
 /**
  * @author wburns
- * @since 9.0
+ * @since 9.3
  */
 @Listener
-public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataContainer<K, V> {
-   private final Supplier<DataContainer<K, V>> supplier;
+public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataContainer<K, V>
+      implements SegmentedDataContainer<K, V> {
 
-   private ComponentRegistry componentRegistry;
-   private ToIntFunction<Object> segmentMapper;
-   private AtomicReferenceArray<DataContainer<K, V>> containers;
+   private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
+   private static final boolean trace = log.isTraceEnabled();
+
+   private AtomicReferenceArray<ConcurrentMap<K, InternalCacheEntry<K, V>>> maps;
    private Address localNode;
 
-   @Inject
-   private Cache<K, V> cache;
-
-   public DefaultSegmentedDataContainer(Supplier<DataContainer<K, V>> supplier) {
-      this.supplier = supplier;
-   }
+   @Inject private KeyPartitioner keyPartitioner;
+   @Inject private Cache<K, V> cache;
 
    @Start
    @Override
    public void start() {
       localNode = cache.getCacheManager().getAddress();
-      componentRegistry = cache.getAdvancedCache().getComponentRegistry();
       cache.addListener(this);
 
       HashConfiguration hashConfiguration = cache.getCacheConfiguration().clustering().hash();
-      segmentMapper = hashConfiguration.keyPartitioner()::getSegment;
-      containers = new AtomicReferenceArray<>(hashConfiguration.numSegments());
+      maps = new AtomicReferenceArray<>(hashConfiguration.numSegments());
 
       CacheMode mode = cache.getCacheConfiguration().clustering().cacheMode();
       // Local or remote cache we just instantiate all the stores immediately
       if (!mode.isClustered() || mode.isReplicated()) {
-         for (int i = 0; i < containers.length(); ++i) {
-            startNewDataContainerForSegment(i);
+         for (int i = 0; i < maps.length(); ++i) {
+            maps.set(i, new ConcurrentHashMap<>());
          }
       }
    }
@@ -75,130 +71,72 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataCo
    public void stop() {
       cache.removeListener(this);
 
-      for (int i = 0; i < containers.length(); ++i) {
-         DataContainer<K, V> dataContainer = containers.getAndSet(i, null);
-         dataContainer.stop();
+      for (int i = 0; i < maps.length(); ++i) {
+         maps.set(0, null);
       }
    }
 
    @Override
-   protected ToIntFunction<Object> segmentMapper() {
-      return segmentMapper;
+   protected Log log() {
+      return log;
    }
 
    @Override
-   public InternalCacheEntry<K, V> get(int segment, Object k) {
-      DataContainer<K, V> container = containers.get(segment);
-      return container == null ? null : container.get(k);
+   protected boolean trace() {
+      return trace;
    }
 
    @Override
-   public InternalCacheEntry<K, V> peek(int segment, Object k) {
-      DataContainer<K, V> container = containers.get(segment);
-      return container == null ? null : container.peek(k);
+   protected ConcurrentMap<K, InternalCacheEntry<K, V>> getMapForSegment(int segment) {
+      return maps.get(segment);
    }
 
    @Override
-   public void put(int segment, K k, V v, Metadata metadata) {
-      DataContainer<K, V> container = containers.get(segment);
-      if (container != null) {
-         container.put(k, v, metadata);
-      }
+   protected int getSegmentForKey(Object key) {
+      return keyPartitioner.getSegment(key);
    }
 
    @Override
-   public boolean containsKey(int segment, Object k) {
-      DataContainer<K, V> container = containers.get(segment);
-      return container != null && container.containsKey(k);
-   }
-
-   @Override
-   public InternalCacheEntry<K, V> remove(int segment, Object k) {
-      DataContainer<K, V> container = containers.get(segment);
-      return container == null ? null : container.remove(k);
-   }
-
-   @Override
-   public int size(int segment) {
-      DataContainer<K, V> container = containers.get(segment);
-      return container == null ? 0 : container.size();
-   }
-
-   @Override
-   public int sizeIncludingExpired(int segment) {
-      DataContainer<K, V> container = containers.get(segment);
-      return container == null ? 0 : container.size();
-   }
-
-   @Override
-   public void clear(int segment) {
-      DataContainer<K, V> container = containers.get(segment);
-      if (container != null) {
-         container.clear();
-      }
-   }
-
-   @Override
-   public void evict(int segment, K key) {
-      DataContainer<K, V> container = containers.get(segment);
-      if (container != null) {
-         container.evict(key);
-      }
-   }
-
-   @Override
-   public InternalCacheEntry<K, V> compute(int segment, K key, ComputeAction<K, V> action) {
-      DataContainer<K, V> container = containers.get(segment);
-      return container == null ? null : container.compute(key, action);
-   }
-
-   @Override
-   public Iterator<InternalCacheEntry<K, V>> iterator(int segment) {
-      DataContainer<K, V> container = containers.get(segment);
-      return container == null ? Collections.emptyIterator() : container.iterator();
-   }
-
-   @Override
-   public Iterator<InternalCacheEntry<K, V>> iteratorIncludingExpired(int segment) {
-      DataContainer<K, V> container = containers.get(segment);
-      return container == null ? Collections.emptyIterator() : container.iteratorIncludingExpired();
+   public Iterator<InternalCacheEntry<K, V>> iterator(IntSet segments) {
+      return new EntryIterator(iteratorIncludingExpired(segments));
    }
 
    @Override
    public Iterator<InternalCacheEntry<K, V>> iterator() {
-      IntSet intSet = new RangeSet(containers.length());
-      Flowable<Iterator<InternalCacheEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(intSet,
-            i -> {
-               Iterator<InternalCacheEntry<K, V>> iter = iterator(i);
-               if (iter == null) {
-                  return Collections.emptyIterator();
-               }
-               return iter;
-            });
-      Iterable<InternalCacheEntry<K, V>> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
-      return iterable.iterator();
+      return new EntryIterator(iteratorIncludingExpired());
+   }
+
+   @Override
+   public Iterator<InternalCacheEntry<K, V>> iteratorIncludingExpired(IntSet segments) {
+      List<Collection<InternalCacheEntry<K, V>>> valueIterables = new ArrayList<>(segments.size());
+      segments.forEach((int s) -> {
+         ConcurrentMap<K, InternalCacheEntry<K, V>> map = maps.get(s);
+         if (map != null) {
+            valueIterables.add(map.values());
+         }
+      });
+      return new ConcatIterator<>(valueIterables);
    }
 
    @Override
    public Iterator<InternalCacheEntry<K, V>> iteratorIncludingExpired() {
-      IntSet intSet = new RangeSet(containers.length());
-      Flowable<Iterator<InternalCacheEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(intSet,
-            i -> {
-               Iterator<InternalCacheEntry<K, V>> iter = iteratorIncludingExpired(i);
-               if (iter == null) {
-                  return Collections.emptyIterator();
-               }
-               return iter;
-            });
-      Iterable<InternalCacheEntry<K, V>> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
-      return iterable.iterator();
+      List<Collection<InternalCacheEntry<K, V>>> valueIterables = new ArrayList<>(maps.length());
+      for (int i = 0; i < maps.length(); ++i) {
+         ConcurrentMap<K, InternalCacheEntry<K, V>> map = maps.get(i);
+         if (map != null) {
+            valueIterables.add(map.values());
+         }
+      }
+      return new ConcatIterator<>(valueIterables);
    }
 
    @Override
-   public int size() {
+   public int sizeIncludingExpired(IntSet segment) {
+      PrimitiveIterator.OfInt iter = segment.iterator();
       int size = 0;
-      for (int i = 0; i < containers.length(); ++i) {
-         size += size(i);
+      while (iter.hasNext()) {
+         ConcurrentMap<K, InternalCacheEntry<K, V>> map = maps.get(iter.nextInt());
+         size += map != null ? map.size() : 0;
          // Overflow
          if (size < 0) {
             return Integer.MAX_VALUE;
@@ -210,51 +148,66 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataCo
    @Override
    public int sizeIncludingExpired() {
       int size = 0;
-      for (int i = 0; i < containers.length(); ++i) {
-         size += sizeIncludingExpired(i);
-         // Overflow
-         if (size < 0) {
-            return Integer.MAX_VALUE;
+      for (int i = 0; i < maps.length(); ++i) {
+         ConcurrentMap<K, InternalCacheEntry<K, V>> map = maps.get(i);
+         if (map != null) {
+            size += map.size();
+            // Overflow
+            if (size < 0) {
+               return Integer.MAX_VALUE;
+            }
          }
       }
       return size;
    }
 
    @Override
+   public void clear(IntSet segments) {
+      segments.forEach((int s) -> {
+         ConcurrentMap<K, InternalCacheEntry<K, V>> map = maps.get(s);
+         if (map != null) {
+            map.clear();
+         }
+      });
+   }
+
+   @Override
    public void clear() {
-      for (int i = 0; i < containers.length(); ++i) {
-         clear(i);
+      for (int i = 0; i < maps.length(); ++i) {
+         ConcurrentMap<K, InternalCacheEntry<K, V>> map = maps.get(i);
+         if (map != null) {
+            map.clear();
+         }
       }
    }
 
    @Override
    public Set<K> keySet() {
-      return null;
+      throw new UnsupportedOperationException();
    }
 
    @Override
    public Collection<V> values() {
-      return null;
+      throw new UnsupportedOperationException();
    }
 
    @Override
    public Set<InternalCacheEntry<K, V>> entrySet() {
-      return null;
+      throw new UnsupportedOperationException();
    }
 
    @Override
-   public void removeDataContainer(int segment, Consumer<DataContainer<K, V>> preDestroy) {
-      DataContainer<K, V> container = containers.getAndSet(segment, null);
-      preDestroy.accept(container);
-      container.stop();
+   public void removeSegments(IntSet segments) {
+      segments.forEach((int s) -> {
+         ConcurrentMap<K, InternalCacheEntry<K, V>> map = maps.getAndSet(s, null);
+         listeners.forEach(c -> c.accept(map.values()));
+      });
    }
 
-   private void startNewDataContainerForSegment(int segment) {
-      if (containers.get(segment) == null) {
-         DataContainer<K, V> dataContainer = supplier.get();
-         componentRegistry.wireDependencies(dataContainer);
-         dataContainer.start();
-         containers.set(segment, dataContainer);
+   private void startNewMap(int segment) {
+      if (maps.get(segment) == null) {
+         // Just in case of concurrent starts - this shouldn't be possible
+         maps.compareAndSet(segment, null, new ConcurrentHashMap<>());
       }
    }
 
@@ -264,9 +217,9 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataCo
          ConsistentHash ch = topologyChangedEvent.getWriteConsistentHashAtEnd();
          Set<Integer> segments = ch.getSegmentsForOwner(localNode);
          if (segments instanceof IntSet) {
-            ((IntSet) segments).forEach((IntConsumer) this::startNewDataContainerForSegment);
+            ((IntSet) segments).forEach((IntConsumer) this::startNewMap);
          } else {
-            segments.forEach(this::startNewDataContainerForSegment);
+            segments.forEach(this::startNewMap);
          }
       } else {
          ConsistentHash beginCH = topologyChangedEvent.getWriteConsistentHashAtStart();
@@ -281,26 +234,9 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractSegmentedDataCo
                System.currentTimeMillis();
             }
 
-            if (beginSegments instanceof IntSet && endSegments instanceof IntSet) {
-               IntSet endIntSet = (IntSet) endSegments;
-               ((IntSet) beginSegments).forEach((int i) -> {
-                  if (!endIntSet.contains(i)) {
-                     DataContainer<K, V> dataContainer = containers.getAndSet(i, null);
-                     if (dataContainer != null) {
-                        dataContainer.stop();
-                     }
-                  }
-               });
-            } else {
-               beginSegments.forEach(i -> {
-                  if (!endSegments.contains(i)) {
-                     DataContainer<K, V> dataContainer = containers.getAndSet(i, null);
-                     if (dataContainer != null) {
-                        dataContainer.stop();
-                     }
-                  }
-               });
-            }
+            IntSet copy = new SmallIntSet(beginSegments);
+            copy.retainAll(endSegments);
+            removeSegments(copy);
          }
       }
    }
