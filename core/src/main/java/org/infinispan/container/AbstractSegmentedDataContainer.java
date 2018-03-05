@@ -2,12 +2,19 @@ package org.infinispan.container;
 
 import static org.infinispan.commons.util.Util.toStr;
 
+import java.util.AbstractCollection;
+import java.util.AbstractSet;
+import java.util.Collection;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.Spliterator;
+import java.util.Spliterators;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import org.infinispan.commons.logging.Log;
 import org.infinispan.commons.util.AbstractIterator;
@@ -22,6 +29,7 @@ import org.infinispan.expiration.ExpirationManager;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.metadata.impl.L1Metadata;
+import org.infinispan.util.CoreImmutables;
 import org.infinispan.util.TimeService;
 
 /**
@@ -234,6 +242,26 @@ public abstract class AbstractSegmentedDataContainer<K, V> implements DataContai
    }
 
    @Override
+   public Spliterator<InternalCacheEntry<K, V>> spliterator(IntSet segments) {
+      return Spliterators.spliteratorUnknownSize(iterator(segments), Spliterator.DISTINCT | Spliterator.CONCURRENT | Spliterator.NONNULL);
+   }
+
+   @Override
+   public Spliterator<InternalCacheEntry<K, V>> spliterator() {
+      return Spliterators.spliteratorUnknownSize(iterator(), Spliterator.DISTINCT | Spliterator.CONCURRENT | Spliterator.NONNULL);
+   }
+
+   @Override
+   public Spliterator<InternalCacheEntry<K, V>> spliteratorIncludingExpired(IntSet segments) {
+      return Spliterators.spliteratorUnknownSize(iteratorIncludingExpired(segments), Spliterator.DISTINCT | Spliterator.CONCURRENT | Spliterator.NONNULL);
+   }
+
+   @Override
+   public Spliterator<InternalCacheEntry<K, V>> spliteratorIncludingExpired() {
+      return Spliterators.spliteratorUnknownSize(iteratorIncludingExpired(), Spliterator.DISTINCT | Spliterator.CONCURRENT | Spliterator.NONNULL);
+   }
+
+   @Override
    public void clear(IntSet segments) {
       Iterator<InternalCacheEntry<K, V>> iter = iteratorIncludingExpired(segments);
       while (iter.hasNext()) {
@@ -385,6 +413,124 @@ public abstract class AbstractSegmentedDataContainer<K, V> implements DataContai
       @Override
       public int characteristics() {
          return spliterator.characteristics() | Spliterator.DISTINCT;
+      }
+   }
+
+   @Override
+   public Collection<V> values() {
+      return new Values();
+   }
+
+   /**
+    * Minimal implementation needed for unmodifiable Collection
+    * @deprecated This is to removed when {@link #entrySet()} is removed
+    */
+   @Deprecated
+   protected class Values extends AbstractCollection<V> {
+      @Override
+      public Iterator<V> iterator() {
+         return new ValueIterator<>(AbstractSegmentedDataContainer.this.iteratorIncludingExpired());
+      }
+
+      @Override
+      public int size() {
+         return AbstractSegmentedDataContainer.this.sizeIncludingExpired();
+      }
+
+      @Override
+      public Spliterator<V> spliterator() {
+         return Spliterators.spliterator(this, Spliterator.CONCURRENT);
+      }
+   }
+
+   /**
+    * @deprecated This is to removed when {@link #entrySet()} is removed
+    */
+   @Deprecated
+   private static class ValueIterator<K, V> implements Iterator<V> {
+      Iterator<InternalCacheEntry<K, V>> currentIterator;
+
+      private ValueIterator(Iterator<InternalCacheEntry<K, V>> it) {
+         currentIterator = it;
+      }
+
+      @Override
+      public boolean hasNext() {
+         return currentIterator.hasNext();
+      }
+
+      @Override
+      public void remove() {
+         throw new UnsupportedOperationException();
+      }
+
+      @Override
+      public V next() {
+         return currentIterator.next().getValue();
+      }
+   }
+
+   @Override
+   public Set<InternalCacheEntry<K, V>> entrySet() {
+      return new EntrySet();
+   }
+
+   /**
+    * @deprecated this class is to be removed when {@link #entrySet()} is removed
+    */
+   @Deprecated
+   private class ImmutableEntryIterator extends EntryIterator {
+      ImmutableEntryIterator(Iterator<InternalCacheEntry<K, V>> it){
+         super(it);
+      }
+
+      @Override
+      public InternalCacheEntry<K, V> next() {
+         return CoreImmutables.immutableInternalCacheEntry(super.next());
+      }
+   }
+
+   /**
+    * Minimal implementation needed for unmodifiable Set
+    *
+    */
+   private class EntrySet extends AbstractSet<InternalCacheEntry<K, V>> {
+
+      @Override
+      public boolean contains(Object o) {
+         if (!(o instanceof Map.Entry)) {
+            return false;
+         }
+
+         @SuppressWarnings("rawtypes")
+         Map.Entry e = (Map.Entry) o;
+         InternalCacheEntry ice = AbstractSegmentedDataContainer.this.get(e.getKey());
+         if (ice == null) {
+            return false;
+         }
+         return ice.getValue().equals(e.getValue());
+      }
+
+      @Override
+      public Iterator<InternalCacheEntry<K, V>> iterator() {
+         return new ImmutableEntryIterator(AbstractSegmentedDataContainer.this.iteratorIncludingExpired());
+      }
+
+      @Override
+      public int size() {
+         return AbstractSegmentedDataContainer.this.sizeIncludingExpired();
+      }
+
+      @Override
+      public String toString() {
+         return stream()
+               .map(Object::toString)
+               .collect(Collectors.joining(",", "[", "]"));
+      }
+
+      @Override
+      public Spliterator<InternalCacheEntry<K, V>> spliterator() {
+         return Spliterators.spliterator(this, Spliterator.DISTINCT | Spliterator.CONCURRENT);
       }
    }
 }

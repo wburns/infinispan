@@ -57,7 +57,7 @@ public class PersistenceEntryStreamSupplier<K, V> implements AbstractLocalCacheS
    }
 
    @Override
-   public Stream<CacheEntry<K, V>> buildStream(IntSet segmentsToFilter, Set<?> keysToFilter) {
+   public Stream<CacheEntry<K, V>> buildStream(IntSet segmentsToFilter, Set<?> keysToFilter, boolean parallel) {
       Stream<CacheEntry<K, V>> stream;
       if (keysToFilter != null) {
          if (trace) {
@@ -66,7 +66,8 @@ public class PersistenceEntryStreamSupplier<K, V> implements AbstractLocalCacheS
          // Make sure we aren't going remote to retrieve these
          AdvancedCache<K, V> advancedCache = AbstractDelegatingCache.unwrapCache(cache).getAdvancedCache()
                .withFlags(Flag.CACHE_MODE_LOCAL);
-         stream = keysToFilter.stream()
+         Stream<?> keyStream = parallel ? keysToFilter.parallelStream() : keysToFilter.stream();
+         stream = keyStream
                .map(advancedCache::getCacheEntry)
                .filter(Objects::nonNull);
          if (segmentsToFilter != null && toIntFunction != null) {
@@ -104,7 +105,8 @@ public class PersistenceEntryStreamSupplier<K, V> implements AbstractLocalCacheS
          Iterable<CacheEntry<K, V>> iterable = () -> new DoubleIterator<>(localIterator,
                () -> org.infinispan.util.Closeables.iterator(flowable, 128));
 
-         stream = StreamSupport.stream(iterable.spliterator(), false);
+         // TODO: we should change how we access stores based on if parallel or not
+         stream = StreamSupport.stream(iterable.spliterator(), parallel);
       }
       return stream;
    }

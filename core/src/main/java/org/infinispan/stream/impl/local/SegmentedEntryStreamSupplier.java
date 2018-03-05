@@ -1,8 +1,6 @@
 package org.infinispan.stream.impl.local;
 
 import java.lang.invoke.MethodHandles;
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.Objects;
 import java.util.Set;
 import java.util.Spliterator;
@@ -18,13 +16,9 @@ import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.RemovableCloseableIterator;
 import org.infinispan.container.SegmentedDataContainer;
 import org.infinispan.container.entries.CacheEntry;
-import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
-import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
-
-import io.reactivex.Flowable;
 
 /**
  * @author wburns
@@ -49,7 +43,7 @@ public class SegmentedEntryStreamSupplier<K, V> implements AbstractLocalCacheStr
    }
 
    @Override
-   public Stream<CacheEntry<K, V>> buildStream(IntSet segmentsToFilter, Set<?> keysToFilter) {
+   public Stream<CacheEntry<K, V>> buildStream(IntSet segmentsToFilter, Set<?> keysToFilter, boolean parallel) {
       Stream<CacheEntry<K, V>> stream;
       if (keysToFilter != null) {
          if (trace) {
@@ -58,7 +52,13 @@ public class SegmentedEntryStreamSupplier<K, V> implements AbstractLocalCacheStr
          // Make sure we aren't going remote to retrieve these
          AdvancedCache<K, V> advancedCache = AbstractDelegatingCache.unwrapCache(cache).getAdvancedCache()
                .withFlags(Flag.CACHE_MODE_LOCAL);
-         stream = keysToFilter.stream()
+         Stream<?> keyStream;
+         if (parallel) {
+            keyStream = keysToFilter.parallelStream();
+         } else {
+            keyStream = keysToFilter.stream();
+         }
+         stream = keyStream
                .map(advancedCache::getCacheEntry)
                .filter(Objects::nonNull);
          if (segmentsToFilter != null && toIntFunction != null) {
@@ -76,18 +76,9 @@ public class SegmentedEntryStreamSupplier<K, V> implements AbstractLocalCacheStr
          }
       } else {
          if (segmentsToFilter != null) {
-            Flowable<Iterator<InternalCacheEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(segmentsToFilter,
-                  i -> {
-                     Iterator<InternalCacheEntry<K, V>> iter = segmentedDataContainer.iterator(i);
-                     if (iter == null) {
-                        return Collections.emptyIterator();
-                     }
-                     return iter;
-                  });
-            Iterable<InternalCacheEntry<K, V>> iterable = flowable.flatMapIterable(it -> () -> it).blockingIterable();
-            stream = StreamSupport.stream(cast(iterable.spliterator()), false);
+            stream = StreamSupport.stream(cast(segmentedDataContainer.spliterator(segmentsToFilter)), parallel);
          } else {
-            stream = StreamSupport.stream(cast(segmentedDataContainer.spliterator()), false);
+            stream = StreamSupport.stream(cast(segmentedDataContainer.spliterator()), parallel);
          }
       }
       return stream;

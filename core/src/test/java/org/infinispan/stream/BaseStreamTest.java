@@ -96,6 +96,7 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
    protected void createCacheManagers() throws Throwable {
       builderUsed = new ConfigurationBuilder();
       builderUsed.clustering().cacheMode(cacheMode);
+      // TODO: make this an option
       builderUsed.memory().segmented(true);
       if (transactional) {
          builderUsed.transaction().transactionMode(TransactionMode.TRANSACTIONAL);

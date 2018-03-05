@@ -34,7 +34,7 @@ public class KeyStreamSupplier<K, V> implements AbstractLocalCacheStream.StreamS
    }
 
    @Override
-   public Stream<K> buildStream(IntSet segmentsToFilter, Set<?> keysToFilter) {
+   public Stream<K> buildStream(IntSet segmentsToFilter, Set<?> keysToFilter, boolean parallel) {
       Stream<K> stream;
       if (keysToFilter != null) {
          if (trace) {
@@ -43,9 +43,13 @@ public class KeyStreamSupplier<K, V> implements AbstractLocalCacheStream.StreamS
          // Make sure we aren't going remote to retrieve these
          AdvancedCache<K, V> advancedCache = AbstractDelegatingCache.unwrapCache(cache).getAdvancedCache()
                .withFlags(Flag.CACHE_MODE_LOCAL);
-         stream = (Stream<K>) keysToFilter.stream().filter(advancedCache::containsKey);
+         stream = (Stream<K>) (parallel ? keysToFilter.parallelStream() : keysToFilter.stream())
+               .filter(advancedCache::containsKey);
       } else {
          stream = supplier.get();
+         if (parallel) {
+            stream = stream.parallel();
+         }
       }
       if (segmentsToFilter != null && toIntFunction != null) {
          if (trace) {

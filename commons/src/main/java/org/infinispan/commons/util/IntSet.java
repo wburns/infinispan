@@ -78,4 +78,21 @@ public interface IntSet extends Set<Integer> {
     * @return the stream
     */
    IntStream intStream();
+
+   /**
+    * Returns an array containing all of the elements in this set.
+    * If this set makes any guarantees as to what order its elements
+    * are returned by its iterator, this method must return the
+    * elements in the same order.
+    * @return this int set as an array
+    */
+   default int[] toIntArray() {
+      int[] array = new int[size()];
+      PrimitiveIterator.OfInt iter = iterator();
+      int i = 0;
+      while (iter.hasNext()) {
+         array[i] = iter.next();
+      }
+      return array;
+   }
 }

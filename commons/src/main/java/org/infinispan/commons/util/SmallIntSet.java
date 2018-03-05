@@ -170,6 +170,22 @@ public class SmallIntSet implements IntSet {
    }
 
    @Override
+   public int[] toIntArray() {
+      int size = size();
+      int[] dest = new int[size];
+      copyToArray(size, dest);
+      return dest;
+   }
+
+   private void copyToArray(int size, int[] dest) {
+      int lastSetBit = -1;
+      for (int i = 0; i < size; i++) {
+         lastSetBit = bitSet.nextSetBit(lastSetBit + 1);
+         dest[i] = lastSetBit;
+      }
+   }
+
+   @Override
    public Object[] toArray() {
       int size = size();
       Integer[] dest = new Integer[size];
