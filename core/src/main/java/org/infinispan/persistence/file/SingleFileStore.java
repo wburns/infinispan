@@ -104,6 +104,8 @@ public class SingleFileStore<K, V> implements AdvancedLoadWriteStore<K, V> {
          String location = configuration.location();
          if (location == null || location.trim().length() == 0)
             location = "Infinispan-SingleFileStore";
+         // TODO: remove this
+         location = location + "/" + System.identityHashCode(timeService);
 
          file = new File(location, ctx.getCache().getName() + ".dat");
          if (!file.exists()) {

@@ -1,8 +1,6 @@
 package org.infinispan.stream.impl.local;
 
 import java.lang.invoke.MethodHandles;
-import java.util.Collections;
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.ToIntFunction;
@@ -14,17 +12,12 @@ import org.infinispan.Cache;
 import org.infinispan.cache.impl.AbstractDelegatingCache;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.IntSet;
-import org.infinispan.commons.util.IteratorMapper;
 import org.infinispan.commons.util.RemovableCloseableIterator;
 import org.infinispan.commons.util.SpliteratorMapper;
 import org.infinispan.container.SegmentedDataContainer;
-import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
-import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
-
-import io.reactivex.Flowable;
 
 /**
  * @author wburns

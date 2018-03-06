@@ -272,7 +272,7 @@ public class TxInterceptor<K, V> extends DDAsyncInterceptor implements JmxStatis
       return invokeNextThenApply(ctx, command, (rCtx, rCommand, rv) -> {
          if (rCtx.isInTxScope()) {
             CacheSet<K> set = (CacheSet<K>) rv;
-            return new AbstractDelegatingKeyCacheSet(Caches.getCacheWithFlags(cache, (FlagAffectedCommand) rCommand), set) {
+            return new AbstractDelegatingKeyCacheSet<K, V>(Caches.getCacheWithFlags(cache, (FlagAffectedCommand) rCommand), set) {
                @Override
                public CloseableIterator<K> iterator() {
                   return new TransactionAwareKeyCloseableIterator<>(super.iterator(),
@@ -300,6 +300,8 @@ public class TxInterceptor<K, V> extends DDAsyncInterceptor implements JmxStatis
                   }
                   return (int) size;
                }
+
+               // TODO: implement stream(boolean) ??
             };
          }
          return rv;
@@ -341,6 +343,8 @@ public class TxInterceptor<K, V> extends DDAsyncInterceptor implements JmxStatis
                   }
                   return (int) size;
                }
+
+               // TODO: implement stream(boolean) ??
             };
          }
          return rv;
