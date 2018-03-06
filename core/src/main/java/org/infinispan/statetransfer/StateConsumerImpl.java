@@ -63,7 +63,6 @@ import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.annotations.Stop;
 import org.infinispan.filter.KeyFilter;
 import org.infinispan.interceptors.AsyncInterceptorChain;
-import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
 import org.infinispan.persistence.manager.PersistenceManager;
 import org.infinispan.remoting.inboundhandler.DeliverOrder;
@@ -972,7 +971,7 @@ public class StateConsumerImpl implements StateConsumer {
                int keySegment = getSegment(key);
                return (removedSegments.contains(keySegment));
             };
-            Publisher<MarshalledEntry<Object, Object>> publisher = persistenceManager.publishKeys(
+            Publisher<Object> publisher = persistenceManager.publishKeys(
                   filter, PRIVATE);
             Flowable.fromPublisher(publisher).blockingForEach(keysToRemove::add);
          } catch (CacheException e) {
