@@ -102,6 +102,7 @@ public class PersistenceEntryStreamSupplier<K, V> implements AbstractLocalCacheS
          });
          Flowable<CacheEntry<K, V>> flowable = Flowable.fromPublisher(publisher)
                .map(me -> (CacheEntry<K, V>) PersistenceUtil.convert(me, iceFactory));
+         // TODO: need to handle close here
          Iterable<CacheEntry<K, V>> iterable = () -> new DoubleIterator<>(localIterator,
                () -> org.infinispan.util.Closeables.iterator(flowable, 128));
 

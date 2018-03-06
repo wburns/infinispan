@@ -113,6 +113,8 @@ public interface PersistenceManager extends Lifecycle {
     */
    <K> Publisher<K> publishKeys(Predicate<? super K> filter, AccessMode mode);
 
+   <K> Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter, AccessMode mode);
+
    MarshalledEntry loadFromAllStores(Object key, InvocationContext context);
 
    /**

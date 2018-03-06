@@ -87,6 +87,11 @@ public class PersistenceManagerStub implements PersistenceManager {
    }
 
    @Override
+   public <K> Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter, AccessMode mode) {
+      return null;
+   }
+
+   @Override
    public MarshalledEntry loadFromAllStores(Object key, InvocationContext context) {
       return null;
    }

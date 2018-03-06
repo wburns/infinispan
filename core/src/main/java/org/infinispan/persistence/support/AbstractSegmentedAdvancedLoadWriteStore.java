@@ -27,7 +27,7 @@ public abstract class AbstractSegmentedAdvancedLoadWriteStore<K, V> implements S
 
    @Override
    public final boolean contains(Object key) {
-      throw new UnsupportedOperationException();
+      return contains(getKeyMapper().applyAsInt(key), key);
    }
 
    @Override
@@ -37,7 +37,7 @@ public abstract class AbstractSegmentedAdvancedLoadWriteStore<K, V> implements S
 
    @Override
    public final boolean delete(Object key) {
-      throw new UnsupportedOperationException();
+      return delete(getKeyMapper().applyAsInt(key), key);
    }
 
    @Override

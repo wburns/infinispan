@@ -487,8 +487,8 @@ public class PersistenceManagerImpl implements PersistenceManager {
          return segmentedStore.publishEntries(segments, filter, fetchValue, fetchMetadata);
       } else {
          Predicate<Object> segmentFilter = k -> segments.contains(keyPartitioner.getSegment(k));
-         return Flowable.fromPublisher(publishEntries(filter == null ? segmentFilter : filter.and(segmentFilter),
-               fetchValue, fetchMetadata, mode));
+         return publishEntries(filter == null ? segmentFilter : filter.and(segmentFilter), fetchValue, fetchMetadata,
+               mode);
       }
    }
 
@@ -500,6 +500,17 @@ public class PersistenceManagerImpl implements PersistenceManager {
          return advancedCacheLoader.publishKeys(filter);
       }
       return Flowable.empty();
+   }
+
+   @Override
+   public <K> Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter, AccessMode mode) {
+      SegmentedAdvancedLoadWriteStore<K, ?> segmentedStore = getFirstSegmentedStore(mode);
+      if (segmentedStore != null) {
+         return segmentedStore.publishKeys(segments, filter);
+      } else {
+         Predicate<Object> segmentFilter = k -> segments.contains(keyPartitioner.getSegment(k));
+         return publishKeys(filter == null ? segmentFilter : filter.and(segmentFilter), mode);
+      }
    }
 
    @Override

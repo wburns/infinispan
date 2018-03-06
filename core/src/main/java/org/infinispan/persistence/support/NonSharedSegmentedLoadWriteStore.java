@@ -1,5 +1,6 @@
 package org.infinispan.persistence.support;
 
+import java.util.PrimitiveIterator;
 import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -113,8 +114,18 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
    }
 
    @Override
-   public int size(int segment) {
-      return stores.get(segment).size();
+   public int size(IntSet segment) {
+      int count = 0;
+      PrimitiveIterator.OfInt iter = segment.iterator();
+      while (iter.hasNext()) {
+         int val = iter.nextInt();
+         count += stores.get(val).size();
+         // Overflow
+         if (count < 0) {
+            return Integer.MAX_VALUE;
+         }
+      }
+      return count;
    }
 
    @Override
@@ -126,6 +137,25 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
          }
          return Flowable.empty();
       });
+      // Can't chain with this, doesn't like the typing
+      flowable = flowable.filter(f -> f != Flowable.empty());
+      return flowable.parallel()
+            .runOn(scheduler)
+            .flatMap(Flowable::fromPublisher)
+            .sequential();
+   }
+
+   @Override
+   public Publisher<K> publishKeys(Predicate<? super K> filter) {
+      Flowable<Publisher<K>> flowable = Flowable.range(0, stores.length())
+            .map(i -> {
+               AdvancedLoadWriteStore<K, V> alws = stores.get(i);
+               if (alws == null) {
+                  return Flowable.empty();
+               } else {
+                  return alws.publishKeys(filter);
+               }
+            });
       // Can't chain with this, doesn't like the typing
       flowable = flowable.filter(f -> f != Flowable.empty());
       return flowable.parallel()

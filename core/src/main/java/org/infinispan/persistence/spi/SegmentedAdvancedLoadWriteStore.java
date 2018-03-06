@@ -26,7 +26,7 @@ public interface SegmentedAdvancedLoadWriteStore<K, V> extends AdvancedLoadWrite
    boolean delete(int segment, Object key);
 
    // AdvancedCacheLoader methods
-   int size(int segment);
+   int size(IntSet segments);
 
    Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter);
 

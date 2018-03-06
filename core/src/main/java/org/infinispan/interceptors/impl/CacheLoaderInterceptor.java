@@ -38,7 +38,6 @@ import org.infinispan.commands.write.WriteCommand;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.CloseableIteratorMapper;
 import org.infinispan.commons.util.CloseableSpliterator;
-import org.infinispan.commons.util.Closeables;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.EntryFactory;
 import org.infinispan.container.InternalEntryFactory;
@@ -65,6 +64,7 @@ import org.infinispan.persistence.manager.PersistenceManager;
 import org.infinispan.stream.impl.interceptor.AbstractDelegatingEntryCacheSet;
 import org.infinispan.stream.impl.interceptor.AbstractDelegatingKeyCacheSet;
 import org.infinispan.stream.impl.local.LocalCacheStream;
+import org.infinispan.stream.impl.local.PersistencKeyStreamSupplier;
 import org.infinispan.stream.impl.local.PersistenceEntryStreamSupplier;
 import org.infinispan.stream.impl.spliterators.IteratorAsSpliterator;
 import org.infinispan.util.DoubleIterator;
@@ -545,6 +545,13 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
             return Integer.MAX_VALUE;
          }
          return (int) size;
+      }
+
+      @Override
+      protected CacheStream<K> getStream(boolean parallel) {
+         return new LocalCacheStream<>(new PersistencKeyStreamSupplier<>(cache, false,
+               keyPartitioner::getSegment, keySet.stream(), persistenceManager), parallel,
+               cache.getAdvancedCache().getComponentRegistry());
       }
    }
 }

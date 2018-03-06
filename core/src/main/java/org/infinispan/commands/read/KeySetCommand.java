@@ -1,6 +1,5 @@
 package org.infinispan.commands.read;
 
-import java.util.Iterator;
 import java.util.Map;
 import java.util.Set;
 import java.util.Spliterator;
@@ -19,7 +18,6 @@ import org.infinispan.commons.util.EnumUtil;
 import org.infinispan.commons.util.IteratorMapper;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.SegmentedDataContainer;
-import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.distribution.DistributionManager;

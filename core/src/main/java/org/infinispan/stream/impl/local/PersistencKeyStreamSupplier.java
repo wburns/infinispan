@@ -1,7 +1,7 @@
 package org.infinispan.stream.impl.local;
 
 import java.lang.invoke.MethodHandles;
-import java.util.Map;
+import java.util.HashSet;
 import java.util.Set;
 import java.util.function.ToIntFunction;
 import java.util.stream.Stream;
@@ -9,34 +9,41 @@ import java.util.stream.StreamSupport;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.Cache;
+import org.infinispan.CacheStream;
 import org.infinispan.cache.impl.AbstractDelegatingCache;
 import org.infinispan.commons.util.CloseableIterator;
+import org.infinispan.commons.util.CloseableIteratorMapper;
+import org.infinispan.commons.util.Closeables;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.RemovableCloseableIterator;
-import org.infinispan.commons.util.SpliteratorMapper;
-import org.infinispan.container.SegmentedDataContainer;
 import org.infinispan.context.Flag;
+import org.infinispan.persistence.manager.PersistenceManager;
+import org.infinispan.util.DoubleIterator;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.reactivestreams.Publisher;
 
 /**
  * @author wburns
- * @since 9.0
+ * @since 9.3
  */
-public class SegmentedKeyStreamSupplier<K, V> implements AbstractLocalCacheStream.StreamSupplier<K, Stream<K>> {
-   // TODO: make this a component!
+public class PersistencKeyStreamSupplier<K, V> implements AbstractLocalCacheStream.StreamSupplier<K, Stream<K>> {
    private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
    private static final boolean trace = log.isTraceEnabled();
 
    private final Cache<K, V> cache;
+   private final boolean remoteIterator;
    private final ToIntFunction<Object> toIntFunction;
-   private final SegmentedDataContainer<K, V> segmentedDataContainer;
+   private final CacheStream<K> inMemoryStream;
+   private final PersistenceManager persistenceManager;
 
-   public SegmentedKeyStreamSupplier(Cache<K, V> cache, ToIntFunction<Object> toIntFunction,
-         SegmentedDataContainer<K, V> segmentedDataContainer) {
+   public PersistencKeyStreamSupplier(Cache<K, V> cache, boolean remoteIterator, ToIntFunction<Object> toIntFunction,
+         CacheStream<K> inMemoryStream, PersistenceManager persistenceManager) {
       this.cache = cache;
+      this.remoteIterator = remoteIterator;
       this.toIntFunction = toIntFunction;
-      this.segmentedDataContainer = segmentedDataContainer;
+      this.inMemoryStream = inMemoryStream;
+      this.persistenceManager = persistenceManager;
    }
 
    @Override
@@ -64,17 +71,36 @@ public class SegmentedKeyStreamSupplier<K, V> implements AbstractLocalCacheStrea
             });
          }
       } else {
+         Publisher<K> publisher;
+         CacheStream<K> inMemoryStream = this.inMemoryStream;
+         Set<K> seenKeys = new HashSet<>(2048);
          if (segmentsToFilter != null) {
-            stream = StreamSupport.stream(new SpliteratorMapper<>(segmentedDataContainer.spliterator(segmentsToFilter), Map.Entry::getKey), parallel);
+            inMemoryStream = inMemoryStream.filterKeySegments(segmentsToFilter);
+            publisher = persistenceManager.publishKeys(segmentsToFilter, k -> !seenKeys.contains(k),
+                  PersistenceManager.AccessMode.BOTH);
+
          } else {
-            stream = StreamSupport.stream(new SpliteratorMapper<>(segmentedDataContainer.spliterator(), Map.Entry::getKey), parallel);
+            publisher = persistenceManager.publishKeys(k -> !seenKeys.contains(k), PersistenceManager.AccessMode.BOTH);
          }
+         CloseableIterator<K> localIterator = new CloseableIteratorMapper<>(Closeables.iterator(inMemoryStream), k -> {
+            seenKeys.add(k);
+            return k;
+         });
+         // TODO: need to handle close here
+         Iterable<K> iterable = () -> new DoubleIterator<>(localIterator,
+               () -> org.infinispan.util.Closeables.iterator(publisher, 128));
+
+         // TODO: we should change how we access stores based on if parallel or not
+         stream = StreamSupport.stream(iterable.spliterator(), parallel);
       }
       return stream;
    }
 
    @Override
    public CloseableIterator<K> removableIterator(CloseableIterator<K> realIterator) {
+      if (remoteIterator) {
+         return realIterator;
+      }
       return new RemovableCloseableIterator<>(realIterator, cache::remove);
    }
 }
