@@ -1,6 +1,7 @@
 package org.infinispan.commands.read;
 
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
 import java.util.Spliterator;
 import java.util.function.ToIntFunction;
@@ -15,6 +16,7 @@ import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.CloseableSpliterator;
 import org.infinispan.commons.util.Closeables;
 import org.infinispan.commons.util.EnumUtil;
+import org.infinispan.commons.util.IteratorMapper;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.SegmentedDataContainer;
 import org.infinispan.container.entries.CacheEntry;
@@ -79,7 +81,7 @@ public class KeySetCommand<K, V> extends AbstractLocalCommand implements Visitab
 
       @Override
       public CloseableIterator<K> iterator() {
-         return new EntryToKeyIterator(new DataContainerRemoveIterator<>(cache));
+         return new IteratorMapper<>(new DataContainerRemoveIterator<>(cache), Map.Entry::getKey);
       }
 
       @Override
@@ -131,35 +133,6 @@ public class KeySetCommand<K, V> extends AbstractLocalCommand implements Visitab
       @Override
       public CacheStream<K> parallelStream() {
          return stream(true);
-      }
-   }
-
-   private static class EntryToKeyIterator<K, V> implements CloseableIterator<K> {
-
-      private final Iterator<CacheEntry<K, V>> iterator;
-
-      public EntryToKeyIterator(Iterator<CacheEntry<K, V>> iterator) {
-         this.iterator = iterator;
-      }
-
-      @Override
-      public boolean hasNext() {
-         return iterator.hasNext();
-      }
-
-      @Override
-      public K next() {
-         return iterator.next().getKey();
-      }
-
-      @Override
-      public void remove() {
-         iterator.remove();
-      }
-
-      @Override
-      public void close() {
-         // Do nothing as we can't close regular iterator
       }
    }
 }

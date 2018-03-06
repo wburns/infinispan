@@ -465,7 +465,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          // This can be a HashSet since it is only written to from the local iterator which is only invoked
          // from user thread
          Set<K> seenKeys = new HashSet<>(cache.getAdvancedCache().getDataContainer().sizeIncludingExpired());
-         CloseableIterator<CacheEntry<K, V>> localIterator = new CloseableIteratorMapper<>(Closeables.iterator(entrySet.stream()), e -> {
+         CloseableIterator<CacheEntry<K, V>> localIterator = new CloseableIteratorMapper<>(entrySet.iterator(), e -> {
             seenKeys.add(e.getKey());
             return e;
          });
@@ -518,7 +518,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          // This can be a HashSet since it is only written to from the local iterator which is only invoked
          // from user thread
          Set<K> seenKeys = new HashSet<>(cache.getAdvancedCache().getDataContainer().sizeIncludingExpired());
-         CloseableIterator<K> localIterator = new CloseableIteratorMapper<>(Closeables.iterator(keySet.stream()), k -> {
+         CloseableIterator<K> localIterator = new CloseableIteratorMapper<>(keySet.iterator(), k -> {
             seenKeys.add(k);
             return k;
          });

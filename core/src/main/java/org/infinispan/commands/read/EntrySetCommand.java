@@ -92,8 +92,7 @@ public class EntrySetCommand<K, V> extends AbstractLocalCommand implements Visit
       @Override
       public CloseableIterator<CacheEntry<K, V>> iterator() {
          Iterator<CacheEntry<K, V>> iterator = new DataContainerRemoveIterator<>(cache);
-         RemovableIterator<CacheEntry<K, V>> removableIterator = new RemovableIterator<>(iterator, e -> cache.remove(e.getKey(), e.getValue()));
-         return Closeables.iterator(new IteratorMapper<>(removableIterator, e -> new EntryWrapper<>(cache, e)));
+         return new IteratorMapper<>(iterator, e -> new EntryWrapper<>(cache, e));
       }
 
       static <K, V> CloseableSpliterator<CacheEntry<K, V>> closeableCast(Spliterator spliterator) {
