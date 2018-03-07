@@ -32,6 +32,7 @@ import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.annotations.Stop;
 import org.infinispan.marshall.core.MarshalledEntry;
+import org.infinispan.metadata.InternalMetadata;
 import org.infinispan.persistence.manager.OrderedUpdatesManager;
 import org.infinispan.persistence.manager.PersistenceManager;
 import org.infinispan.remoting.responses.Response;
@@ -130,8 +131,8 @@ public class ScatteredVersionManagerImpl<K> implements ScatteredVersionManager<K
       // in ScatteredConsistentHash, but that works only for the orderly shutdown.
       // TODO: implement start after shutdown
       AtomicInteger maxTopologyId = new AtomicInteger(preloadedTopologyId);
-      Publisher<MarshalledEntry<Object, Object>> publisher = persistenceManager.publishEntries(false, true);
-      Flowable.fromPublisher(publisher).map(MarshalledEntry::getMetadata).blockingForEach(metadata -> {
+      Publisher<InternalMetadata> publisher = persistenceManager.publishEntries(MarshalledEntry::getMetadata, false, true);
+      Flowable.fromPublisher(publisher).blockingForEach(metadata -> {
          EntryVersion entryVersion = metadata.version();
          if (entryVersion instanceof SimpleClusteredVersion) {
             int entryTopologyId = ((SimpleClusteredVersion) entryVersion).topologyId;

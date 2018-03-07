@@ -3,6 +3,7 @@ package org.infinispan.persistence.manager;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 import javax.transaction.Transaction;
@@ -71,23 +72,22 @@ public class PersistenceManagerStub implements PersistenceManager {
    }
 
    @Override
-   public <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue,
-         boolean fetchMetadata, AccessMode mode) {
+   public <K, V, R> Publisher<R> publishEntries(Predicate<? super K> filter, Function<? super MarshalledEntry<K, V>, ? extends R> map, boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
       return null;
    }
 
    @Override
-   public <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
+   public <K, V, R> Publisher<R> publishEntries(IntSet segments, Predicate<? super K> filter, Function<? super MarshalledEntry<K, V>, ? extends R> map, boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
       return null;
    }
 
    @Override
-   public <K> Publisher<K> publishKeys(Predicate<? super K> filter, AccessMode mode) {
+   public <K, R> Publisher<R> publishKeys(Predicate<? super K> filter, Function<? super K, ? extends R> map, AccessMode mode) {
       return null;
    }
 
    @Override
-   public <K> Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter, AccessMode mode) {
+   public <K, R> Publisher<R> publishKeys(IntSet segments, Predicate<? super K> filter, Function<? super K, ? extends R> map, AccessMode mode) {
       return null;
    }
 

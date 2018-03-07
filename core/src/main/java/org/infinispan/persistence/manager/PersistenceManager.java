@@ -2,6 +2,7 @@ package org.infinispan.persistence.manager;
 
 import java.util.Collection;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 import javax.transaction.Transaction;
@@ -61,8 +62,9 @@ public interface PersistenceManager extends Lifecycle {
    /**
     * See {@link #publishEntries(Predicate, boolean, boolean, AccessMode)}
     */
-   default <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(boolean fetchValue, boolean fetchMetadata) {
-      return publishEntries(null, fetchValue, fetchMetadata, AccessMode.BOTH);
+   default <K, V, R> Publisher<R> publishEntries(Function<? super MarshalledEntry<K, V>, ? extends R> map,
+         boolean fetchValue, boolean fetchMetadata) {
+      return publishEntries(null, map, fetchValue, fetchMetadata, AccessMode.BOTH);
    }
 
    /**
@@ -80,8 +82,8 @@ public interface PersistenceManager extends Lifecycle {
     * @param <V> value type
     * @return publisher that will publish entries
     */
-   <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue,
-         boolean fetchMetadata, AccessMode mode);
+   <K, V, R> Publisher<R> publishEntries(Predicate<? super K> filter, Function<? super MarshalledEntry<K, V>, ? extends R> map,
+         boolean fetchValue, boolean fetchMetadata, AccessMode mode);
 
    /**
     *
@@ -94,16 +96,17 @@ public interface PersistenceManager extends Lifecycle {
     * @param <V>
     * @return
     */
-   <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean fetchValue,
-         boolean fetchMetadata, AccessMode mode);
+   <K, V, R> Publisher<R> publishEntries(IntSet segments, Predicate<? super K> filter,
+         Function<? super MarshalledEntry<K, V>, ? extends R> map, boolean fetchValue, boolean fetchMetadata,
+         AccessMode mode);
 
    /**
     * Returns a publisher that will publish all keys stored by the underlying cache store. Only the first cache store
     * that implements {@link AdvancedCacheLoader} will be used. Predicate is applied by the underlying
     * loader in a best attempt to improve performance.
     * <p>
-    * This method should be preferred over {@link #publishEntries(Predicate, boolean, boolean, AccessMode)} when only
-    * keys are desired as many stores can do this in a significantly more performant way.
+    * This method should be preferred over {@link #publishEntries(Predicate, Function, boolean, boolean, AccessMode)}
+    * when only keys are desired as many stores can do this in a significantly more performant way.
     * <p>
     * This publisher will never return a key which belongs to an expired entry
     * @param filter filter so that only keys which match are returned
@@ -111,9 +114,10 @@ public interface PersistenceManager extends Lifecycle {
     * @param <K> key type
     * @return publisher that will publish keys
     */
-   <K> Publisher<K> publishKeys(Predicate<? super K> filter, AccessMode mode);
+   <K, R> Publisher<R> publishKeys(Predicate<? super K> filter, Function<? super K, ? extends R> map, AccessMode mode);
 
-   <K> Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter, AccessMode mode);
+   <K, R> Publisher<R> publishKeys(IntSet segments, Predicate<? super K> filter, Function<? super K, ? extends R> map,
+         AccessMode mode);
 
    MarshalledEntry loadFromAllStores(Object key, InvocationContext context);
 

@@ -28,9 +28,9 @@ public interface SegmentedAdvancedLoadWriteStore<K, V> extends AdvancedLoadWrite
    // AdvancedCacheLoader methods
    int size(IntSet segments);
 
-   Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter);
+   Publisher<K> publishKeys(int segment, Predicate<? super K> filter);
 
-   Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean fetchValue,
+   Publisher<MarshalledEntry<K, V>> publishEntries(int segment, Predicate<? super K> filter, boolean fetchValue,
          boolean fetchMetadata);
 
    // AdvancedCacheWriter methods

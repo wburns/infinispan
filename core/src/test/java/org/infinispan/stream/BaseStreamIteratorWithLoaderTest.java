@@ -62,11 +62,11 @@ public abstract class BaseStreamIteratorWithLoaderTest extends MultipleCacheMana
 
    private Map<Object, String> insertDefaultValues(boolean includeLoaderEntry) {
       Cache<Object, String> cache0 = cache(0, cacheName);
+      Cache<Object, String> cache2 = cache(2, cacheName);
       Map<Object, String> originalValues = new HashMap<>();
       Object loaderKey;
       if (cacheMode.needsStateTransfer()) {
          Cache<Object, String> cache1 = cache(1, cacheName);
-         Cache<Object, String> cache2 = cache(2, cacheName);
          originalValues.put(new MagicKey(cache0), "cache0");
          originalValues.put(new MagicKey(cache1), "cache1");
          originalValues.put(new MagicKey(cache2), "cache2");
@@ -80,7 +80,7 @@ public abstract class BaseStreamIteratorWithLoaderTest extends MultipleCacheMana
 
       cache0.putAll(originalValues);
 
-      PersistenceManager persistenceManager = TestingUtil.extractComponent(cache0, PersistenceManager.class);
+      PersistenceManager persistenceManager = TestingUtil.extractComponent(cache2, PersistenceManager.class);
       NonSharedSegmentedLoadWriteStore store = persistenceManager.getStores(NonSharedSegmentedLoadWriteStore.class).iterator().next();
 
       TestObjectStreamMarshaller sm = new TestObjectStreamMarshaller();

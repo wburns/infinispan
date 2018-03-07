@@ -76,11 +76,11 @@ public class PersistencKeyStreamSupplier<K, V> implements AbstractLocalCacheStre
          Set<K> seenKeys = new HashSet<>(2048);
          if (segmentsToFilter != null) {
             inMemoryStream = inMemoryStream.filterKeySegments(segmentsToFilter);
-            publisher = persistenceManager.publishKeys(segmentsToFilter, k -> !seenKeys.contains(k),
+            publisher = persistenceManager.publishKeys(segmentsToFilter, k -> !seenKeys.contains(k), null,
                   PersistenceManager.AccessMode.BOTH);
 
          } else {
-            publisher = persistenceManager.publishKeys(k -> !seenKeys.contains(k), PersistenceManager.AccessMode.BOTH);
+            publisher = persistenceManager.publishKeys(k -> !seenKeys.contains(k), null, PersistenceManager.AccessMode.BOTH);
          }
          CloseableIterator<K> localIterator = new CloseableIteratorMapper<>(Closeables.iterator(inMemoryStream), k -> {
             seenKeys.add(k);

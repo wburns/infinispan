@@ -49,8 +49,8 @@ public class KnownComponentNames {
       DEFAULT_THREAD_COUNT.put(ASYNC_NOTIFICATION_EXECUTOR, 1);
       DEFAULT_THREAD_COUNT.put(ASYNC_TRANSPORT_EXECUTOR, 25);
       DEFAULT_THREAD_COUNT.put(EXPIRATION_SCHEDULED_EXECUTOR, 1);
-      // Persistence Executor default to # of CPUs
-      DEFAULT_THREAD_COUNT.put(PERSISTENCE_EXECUTOR, Runtime.getRuntime().availableProcessors());
+      // Persistence Executor default to # of CPUs + 1
+      DEFAULT_THREAD_COUNT.put(PERSISTENCE_EXECUTOR, Runtime.getRuntime().availableProcessors() + 1);
       DEFAULT_THREAD_COUNT.put(REMOTE_COMMAND_EXECUTOR, 200);
       DEFAULT_THREAD_COUNT.put(STATE_TRANSFER_EXECUTOR, 60);
       DEFAULT_THREAD_COUNT.put(ASYNC_OPERATIONS_EXECUTOR, 25);

@@ -4,6 +4,7 @@ import java.lang.invoke.MethodHandles;
 import java.util.HashSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.function.ToIntFunction;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
@@ -27,8 +28,6 @@ import org.infinispan.util.DoubleIterator;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.reactivestreams.Publisher;
-
-import io.reactivex.Flowable;
 
 /**
  * @author wburns
@@ -84,27 +83,27 @@ public class PersistenceEntryStreamSupplier<K, V> implements AbstractLocalCacheS
             });
          }
       } else {
-         Publisher<MarshalledEntry<K, V>> publisher;
+         Publisher<CacheEntry<K, V>> publisher;
          CacheStream<CacheEntry<K, V>> inMemoryStream = this.inMemoryStream;
          Set<K> seenKeys = new HashSet<>(2048);
+         Function<MarshalledEntry<K, V>, CacheEntry<K, V>> function =
+               me -> (CacheEntry<K, V>) PersistenceUtil.convert(me, iceFactory);
          if (segmentsToFilter != null) {
             inMemoryStream = inMemoryStream.filterKeySegments(segmentsToFilter);
-            publisher = persistenceManager.publishEntries(segmentsToFilter, k -> !seenKeys.contains(k), true, true,
-                  PersistenceManager.AccessMode.BOTH);
+            publisher = persistenceManager.publishEntries(segmentsToFilter, k -> !seenKeys.contains(k), function, true,
+                  true, PersistenceManager.AccessMode.BOTH);
 
          } else {
-            publisher = persistenceManager.publishEntries(k -> !seenKeys.contains(k), true, true,
+            publisher = persistenceManager.publishEntries(k -> !seenKeys.contains(k), function, true, true,
                   PersistenceManager.AccessMode.BOTH);
          }
          CloseableIterator<CacheEntry<K, V>> localIterator = new CloseableIteratorMapper<>(Closeables.iterator(inMemoryStream), e -> {
             seenKeys.add(e.getKey());
             return e;
          });
-         Flowable<CacheEntry<K, V>> flowable = Flowable.fromPublisher(publisher)
-               .map(me -> (CacheEntry<K, V>) PersistenceUtil.convert(me, iceFactory));
          // TODO: need to handle close here
          Iterable<CacheEntry<K, V>> iterable = () -> new DoubleIterator<>(localIterator,
-               () -> org.infinispan.util.Closeables.iterator(flowable, 128));
+               () -> org.infinispan.util.Closeables.iterator(publisher, 128));
 
          // TODO: we should change how we access stores based on if parallel or not
          stream = StreamSupport.stream(iterable.spliterator(), parallel);

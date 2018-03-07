@@ -120,7 +120,7 @@ public class GetGroupKeysTest extends BaseUtilGroupTest {
       interceptor.awaitCommandBlock();
 
       PersistenceManager persistenceManager = TestingUtil.extractComponent(extractTargetCache(testCache), PersistenceManager.class);
-      GroupKey groupKey = (GroupKey) Flowable.fromPublisher(persistenceManager.publishKeys(null, PersistenceManager.AccessMode.BOTH)).take(1).blockingSingle();
+      GroupKey groupKey = (GroupKey) Flowable.fromPublisher(persistenceManager.publishKeys(null, null, PersistenceManager.AccessMode.BOTH)).take(1).blockingSingle();
       AssertJUnit.assertNotNull(extractTargetCache(testCache).get(groupKey)); //activates the key
 
 
@@ -176,7 +176,7 @@ public class GetGroupKeysTest extends BaseUtilGroupTest {
       final Map<GroupKey, String> expectedGroupSet2 = new ConcurrentHashMap<>();
       Flowable<MarshalledEntry<GroupKey, String>> flowable = Flowable.fromPublisher(
             TestingUtil.extractComponent(extractTargetCache(testCache), PersistenceManager.class)
-                  .publishEntries(true, true));
+                  .publishEntries(null, true, true));
       flowable.filter(me -> GROUP.equals(me.getKey().getGroup()))
             .blockingForEach(me -> expectedGroupSet2.put(me.getKey(), me.getValue()));
 

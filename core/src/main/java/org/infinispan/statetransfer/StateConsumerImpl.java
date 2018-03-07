@@ -971,8 +971,7 @@ public class StateConsumerImpl implements StateConsumer {
                int keySegment = getSegment(key);
                return (removedSegments.contains(keySegment));
             };
-            Publisher<Object> publisher = persistenceManager.publishKeys(
-                  filter, PRIVATE);
+            Publisher<Object> publisher = persistenceManager.publishKeys(filter, null, PRIVATE);
             Flowable.fromPublisher(publisher).blockingForEach(keysToRemove::add);
          } catch (CacheException e) {
             log.failedLoadingKeysFromCacheStore(e);

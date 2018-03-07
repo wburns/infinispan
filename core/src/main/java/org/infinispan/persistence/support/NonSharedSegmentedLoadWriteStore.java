@@ -1,5 +1,6 @@
 package org.infinispan.persistence.support;
 
+import java.lang.invoke.MethodHandles;
 import java.util.PrimitiveIterator;
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -10,6 +11,8 @@ import java.util.function.Predicate;
 import java.util.function.ToIntFunction;
 
 import org.infinispan.Cache;
+import org.infinispan.commons.logging.Log;
+import org.infinispan.commons.logging.LogFactory;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.configuration.cache.AbstractNonSharedSegmentedConfiguration;
 import org.infinispan.configuration.cache.CacheMode;
@@ -26,7 +29,6 @@ import org.infinispan.persistence.factory.CacheStoreFactoryRegistry;
 import org.infinispan.persistence.spi.AdvancedLoadWriteStore;
 import org.infinispan.persistence.spi.InitializationContext;
 import org.infinispan.remoting.transport.Address;
-import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
 import org.reactivestreams.Publisher;
 
 import io.reactivex.Flowable;
@@ -39,6 +41,8 @@ import io.reactivex.schedulers.Schedulers;
  */
 @Listener(observation = Listener.Observation.PRE)
 public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedSegmentedConfiguration> extends AbstractSegmentedAdvancedLoadWriteStore<K, V> {
+   private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
+
    private final AbstractNonSharedSegmentedConfiguration<T> configuration;
    Cache<K, V> cache;
    ExecutorService executorService;
@@ -129,20 +133,12 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
    }
 
    @Override
-   public Flowable<K> publishKeys(IntSet segments, Predicate<? super K> filter) {
-      Flowable<Publisher<K>> flowable = new FlowableFromIntSetFunction<>(segments, i -> {
-         AdvancedLoadWriteStore<K, V> alws = stores.get(i);
-         if (alws != null) {
-            return alws.publishKeys(filter);
-         }
-         return Flowable.empty();
-      });
-      // Can't chain with this, doesn't like the typing
-      flowable = flowable.filter(f -> f != Flowable.empty());
-      return flowable.parallel()
-            .runOn(scheduler)
-            .flatMap(Flowable::fromPublisher)
-            .sequential();
+   public Publisher<K> publishKeys(int segment, Predicate<? super K> filter) {
+      AdvancedLoadWriteStore<K, V> alws = stores.get(segment);
+      if (alws != null) {
+         return alws.publishKeys(filter);
+      }
+      return Flowable.empty();
    }
 
    @Override
@@ -165,20 +161,12 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
    }
 
    @Override
-   public Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
-      Flowable<Publisher<MarshalledEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(segments, i -> {
-         AdvancedLoadWriteStore<K, V> alws = stores.get(i);
-         if (alws != null) {
-            return alws.publishEntries(filter, fetchValue, fetchMetadata);
-         }
-         return Flowable.empty();
-      });
-      // Cast is required otherwise it complains I can't use != operator with 2 unlike types.... bug anyone?
-      flowable = flowable.filter(f -> (Object) f != Flowable.empty());
-      return flowable.parallel()
-            .runOn(scheduler)
-            .flatMap(f -> f)
-            .sequential();
+   public Publisher<MarshalledEntry<K, V>> publishEntries(int segment, Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
+      AdvancedLoadWriteStore<K, V> alws = stores.get(segment);
+      if (alws != null) {
+         return alws.publishEntries(filter, fetchValue, fetchMetadata);
+      }
+      return Flowable.empty();
    }
 
    @Override
@@ -197,6 +185,16 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
             .runOn(scheduler)
             .flatMap(f -> f)
             .sequential();
+   }
+
+   @Override
+   public void clear() {
+      for (int i = 0; i < stores.length(); ++i) {
+         AdvancedLoadWriteStore<K, V> store = stores.get(i);
+         if (store != null) {
+            store.clear();
+         }
+      }
    }
 
    @Override

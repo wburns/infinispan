@@ -57,7 +57,6 @@ import org.infinispan.jmx.annotations.ManagedAttribute;
 import org.infinispan.jmx.annotations.ManagedOperation;
 import org.infinispan.jmx.annotations.MeasurementType;
 import org.infinispan.jmx.annotations.Parameter;
-import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
 import org.infinispan.persistence.PersistenceUtil;
 import org.infinispan.persistence.manager.PersistenceManager;
@@ -192,10 +191,9 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
       final Predicate<? super K> keyFilter = new GroupFilter<>(command.getGroupName(), groupManager).and(k ->
             !ctx.getLookedUpEntries().keySet().contains(k));
 
-      Publisher<MarshalledEntry<K, V>> publisher = persistenceManager.publishEntries(keyFilter, true, false,
-            PersistenceManager.AccessMode.BOTH);
+      Publisher<CacheEntry<K, V>> publisher = persistenceManager.publishEntries(keyFilter,
+            me -> (CacheEntry<K, V>) PersistenceUtil.convert(me, iceFactory), true, false, PersistenceManager.AccessMode.BOTH);
       Flowable.fromPublisher(publisher)
-            .map(me -> PersistenceUtil.convert(me, iceFactory))
             .blockingForEach(ice -> entryFactory.wrapExternalEntry(ctx, ice.getKey(), ice, true, false));
       return invokeNext(ctx, command);
    }
@@ -469,10 +467,9 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
             seenKeys.add(e.getKey());
             return e;
          });
-         Flowable<MarshalledEntry<K, V>> flowable = Flowable.fromPublisher(persistenceManager.publishEntries(
-               k -> !seenKeys.contains(k), true, true, PersistenceManager.AccessMode.BOTH));
-         Publisher<CacheEntry<K, V>> publisher = flowable
-               .map(me -> (CacheEntry<K, V>) PersistenceUtil.convert(me, iceFactory));
+         Publisher<CacheEntry<K, V>> publisher = Flowable.fromPublisher(persistenceManager.publishEntries(
+               k -> !seenKeys.contains(k), me -> (CacheEntry<K, V>) PersistenceUtil.convert(me, iceFactory), true, true,
+               PersistenceManager.AccessMode.BOTH));
          // This way we don't subscribe to the flowable until after the first iterator is fully exhausted
          return new DoubleIterator<>(localIterator, () -> org.infinispan.util.Closeables.iterator(publisher, 128));
       }
@@ -523,7 +520,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
             return k;
          });
          Flowable<K> flowable = Flowable.fromPublisher(persistenceManager.publishKeys(
-               k -> !seenKeys.contains(k), PersistenceManager.AccessMode.BOTH));
+               k -> !seenKeys.contains(k), null, PersistenceManager.AccessMode.BOTH));
          // This way we don't subscribe to the flowable until after the first iterator is fully exhausted
          return new DoubleIterator<>(localIterator, () -> org.infinispan.util.Closeables.iterator(flowable, 64));
       }

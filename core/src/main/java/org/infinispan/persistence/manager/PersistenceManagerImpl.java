@@ -28,6 +28,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
+import java.util.function.Function;
 import java.util.function.Predicate;
 
 import javax.transaction.Transaction;
@@ -88,9 +89,12 @@ import org.infinispan.persistence.support.SingletonCacheWriter;
 import org.infinispan.util.TimeService;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
 import org.reactivestreams.Publisher;
 
 import io.reactivex.Flowable;
+import io.reactivex.Scheduler;
+import io.reactivex.schedulers.Schedulers;
 
 public class PersistenceManagerImpl implements PersistenceManager {
 
@@ -116,6 +120,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    private final ReadWriteLock storesMutex = new ReentrantReadWriteLock();
    private final Map<Object, StoreConfiguration> configMap = new HashMap<>();
    private AdvancedPurgeListener advancedListener;
+   private Scheduler scheduler;
 
    /**
     * making it volatile as it might change after @Start, so it needs the visibility.
@@ -132,6 +137,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
       enabled = configuration.persistence().usingStores();
       if (!enabled)
          return;
+      scheduler = Schedulers.from(persistenceExecutor);
       try {
          createLoadersAndWriters();
          Transaction xaTx = null;
@@ -468,48 +474,98 @@ public class PersistenceManagerImpl implements PersistenceManager {
       return null;
    }
 
+   private <A, B> Publisher<B> parallelizeSinglePublisher(Publisher<A> originalPublisher, Function<? super A,
+         ? extends B> mapper) {
+      return Flowable.fromPublisher(originalPublisher)
+            // Start the publisher on the persistence thread
+            .subscribeOn(scheduler)
+            .buffer(512)
+            .parallel()
+            // Now batch up parallel execution of the objects across threads - default is only to use
+            // number of threads equal to CPU
+            .runOn(scheduler)
+            // Not sure why compiler is forcing this cast to be introduced
+            .flatMap(bundle -> Flowable.fromIterable(bundle)
+                  .map(a -> (B) mapper.apply(a)))
+            .sequential();
+   }
+
+   private <A, B> Publisher<B> parallelizeMultiplePublisher(Flowable<Publisher<A>> originalPublishers,
+         Function<? super A, ? extends B> mapper) {
+      // Ignore any empty flowables
+      // Cast is required otherwise it complains I can't use != operator with 2 unlike types.... bug anyone?
+      originalPublishers = originalPublishers.filter(f -> (Object) f != Flowable.empty());
+
+      return originalPublishers.flatMap(f -> {
+         Flowable<A> flowable = Flowable.fromPublisher(f)
+               .subscribeOn(scheduler);
+         if (mapper != null) {
+            return flowable.map(mapper::apply);
+         } else {
+            return (Flowable<B>) flowable;
+         }
+      }, Runtime.getRuntime().availableProcessors());
+   }
+
    @Override
-   public <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(Predicate<? super K> filter, boolean fetchValue,
-         boolean fetchMetadata, AccessMode mode) {
+   public <K, V, R> Publisher<R> publishEntries(Predicate<? super K> filter,
+         Function<? super MarshalledEntry<K, V>, ? extends R> mapper, boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
       AdvancedCacheLoader<K, V> advancedCacheLoader = getFirstAdvancedCacheLoader(mode);
 
       if (advancedCacheLoader != null) {
-         return advancedCacheLoader.publishEntries(filter, fetchValue, fetchMetadata);
+         Flowable<MarshalledEntry<K, V>> flowable = Flowable.fromPublisher(advancedCacheLoader.publishEntries(filter, fetchValue, fetchMetadata));
+         if (mapper == null) {
+            return (Publisher<R>) flowable.subscribeOn(scheduler);
+         } else {
+            return parallelizeSinglePublisher(flowable, mapper);
+         }
       }
       return Flowable.empty();
    }
 
    @Override
-   public <K, V> Publisher<MarshalledEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter,
+   public <K, V, R> Publisher<R> publishEntries(IntSet segments, Predicate<? super K> filter,
+         Function<? super MarshalledEntry<K, V>, ? extends R> mapper,
          boolean fetchValue, boolean fetchMetadata, AccessMode mode) {
       SegmentedAdvancedLoadWriteStore<K, V> segmentedStore = getFirstSegmentedStore(mode);
       if (segmentedStore != null) {
-         return segmentedStore.publishEntries(segments, filter, fetchValue, fetchMetadata);
+         Flowable<Publisher<MarshalledEntry<K, V>>> flowable = new FlowableFromIntSetFunction<>(segments, i ->
+            segmentedStore.publishEntries(i, filter, fetchValue, fetchMetadata));
+         return parallelizeMultiplePublisher(flowable, mapper);
       } else {
          Predicate<Object> segmentFilter = k -> segments.contains(keyPartitioner.getSegment(k));
-         return publishEntries(filter == null ? segmentFilter : filter.and(segmentFilter), fetchValue, fetchMetadata,
-               mode);
+         return publishEntries(filter == null ? segmentFilter : filter.and(segmentFilter), mapper, fetchValue,
+               fetchMetadata, mode);
       }
    }
 
    @Override
-   public <K> Publisher<K> publishKeys(Predicate<? super K> filter, AccessMode mode) {
+   public <K, R> Publisher<R> publishKeys(Predicate<? super K> filter, Function<? super K, ? extends R> mapper,
+         AccessMode mode) {
       AdvancedCacheLoader<K, ?> advancedCacheLoader = getFirstAdvancedCacheLoader(mode);
 
       if (advancedCacheLoader != null) {
-         return advancedCacheLoader.publishKeys(filter);
+         Flowable<K> flowable = Flowable.fromPublisher(advancedCacheLoader.publishKeys(filter));
+         if (mapper == null) {
+            return (Publisher<R>) flowable.subscribeOn(scheduler);
+         } else {
+            return parallelizeSinglePublisher(flowable, mapper);
+         }
       }
       return Flowable.empty();
    }
 
    @Override
-   public <K> Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter, AccessMode mode) {
+   public <K, R> Publisher<R> publishKeys(IntSet segments, Predicate<? super K> filter, Function<? super K, ? extends R> mapper,
+         AccessMode mode) {
       SegmentedAdvancedLoadWriteStore<K, ?> segmentedStore = getFirstSegmentedStore(mode);
       if (segmentedStore != null) {
-         return segmentedStore.publishKeys(segments, filter);
+         Flowable<Publisher<K>> flowable = new FlowableFromIntSetFunction<>(segments, i ->
+               segmentedStore.publishKeys(i, filter));
+         return parallelizeMultiplePublisher(flowable, mapper);
       } else {
          Predicate<Object> segmentFilter = k -> segments.contains(keyPartitioner.getSegment(k));
-         return publishKeys(filter == null ? segmentFilter : filter.and(segmentFilter), mode);
+         return publishKeys(filter == null ? segmentFilter : filter.and(segmentFilter), mapper, mode);
       }
    }
 
