@@ -7,6 +7,7 @@ import static org.testng.AssertJUnit.fail;
 import java.util.Arrays;
 import java.util.Iterator;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import javax.transaction.HeuristicMixedException;
 import javax.transaction.HeuristicRollbackException;
@@ -233,18 +234,26 @@ public class ExceptionEvictionTest extends MultipleCacheManagersTest {
     * @param entryCount
     */
    void assertInterceptorCount(long entryCount) {
-      entryCount = convertAmountForStorage(entryCount);
-      long currentCount = 0;
-      for (Cache cache : caches()) {
-         TransactionalExceptionEvictionInterceptor interceptor = cache.getAdvancedCache().getAsyncInterceptorChain()
-               .findInterceptorWithClass(TransactionalExceptionEvictionInterceptor.class);
-         long size = interceptor.getCurrentSize();
-         log.debugf("Exception eviction size for cache: %s is: %d", cache.getName(), size);
-         currentCount += size;
-         entryCount += interceptor.getMinSize();
-      }
 
-      assertEquals(entryCount, currentCount);
+      AtomicLong expectedCount = new AtomicLong(convertAmountForStorage(entryCount));
+      // We use eventually as waitForNoRebalance does not wait until old entries are removed - causing random failures
+      eventually(() -> {
+         long currentCount = 0;
+         for (Cache cache : caches()) {
+            TransactionalExceptionEvictionInterceptor interceptor = cache.getAdvancedCache().getAsyncInterceptorChain()
+                  .findInterceptorWithClass(TransactionalExceptionEvictionInterceptor.class);
+            long size = interceptor.getCurrentSize();
+            log.debugf("Exception eviction size for cache: %s is: %d", cache.getName(), size);
+            currentCount += size;
+            expectedCount.addAndGet(interceptor.getMinSize());
+         }
+
+         boolean equal = expectedCount.get() == currentCount;
+         if (!equal) {
+            log.warn("Expected: " + expectedCount.get() + " but was: " + currentCount);
+         }
+         return equal;
+      });
    }
 
    public void testExceptionOnInsert() {
