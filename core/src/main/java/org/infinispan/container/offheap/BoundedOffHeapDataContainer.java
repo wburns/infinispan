@@ -29,11 +29,11 @@ import org.infinispan.util.logging.LogFactory;
  */
 public class BoundedOffHeapDataContainer extends OffHeapDataContainer {
    private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
-   protected final long maxSize;
    protected final Lock lruLock;
    protected final LongUnaryOperator sizeCalculator;
    protected final long initialSize;
 
+   protected volatile long maxSize;
    protected long currentSize;
    protected long firstAddress;
    protected long lastAddress;
@@ -209,6 +209,11 @@ public class BoundedOffHeapDataContainer extends OffHeapDataContainer {
       return currentSize;
    }
 
+   @Override
+   public void resize(long newSize) {
+      maxSize = newSize;
+   }
+
    /**
     * This method repeatedly removes the head of the LRU list until there the current size is less than or equal to
     * `maxSize`.
@@ -226,12 +231,14 @@ public class BoundedOffHeapDataContainer extends OffHeapDataContainer {
     */
    private void ensureSize() {
 
+      long existingMaxSize = maxSize;
+
       while (true) {
          long addressToRemove;
          Lock entryWriteLock;
          lruLock.lock();
          try {
-            if (currentSize <= maxSize) {
+            if (currentSize <= existingMaxSize) {
                break;
             }
             int hashCode = offHeapEntryFactory.getHashCode(firstAddress);
@@ -250,7 +257,7 @@ public class BoundedOffHeapDataContainer extends OffHeapDataContainer {
             try {
                lruLock.lock();
                try {
-                  if (currentSize <= maxSize) {
+                  if (currentSize <= existingMaxSize) {
                      break;
                   }
                   int hashCode = offHeapEntryFactory.getHashCode(firstAddress);
@@ -273,7 +280,7 @@ public class BoundedOffHeapDataContainer extends OffHeapDataContainer {
          if (addressToRemove != 0) {
             if (trace) {
                getLog().tracef("Removing entry: 0x%016x due to eviction due to size %d being larger than maximum of %d",
-                          addressToRemove, currentSize, maxSize);
+                          addressToRemove, currentSize, existingMaxSize);
             }
             try {
                InternalCacheEntry<WrappedBytes, WrappedBytes> ice = offHeapEntryFactory.fromMemory(addressToRemove);
