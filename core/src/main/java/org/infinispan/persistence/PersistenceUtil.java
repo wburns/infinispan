@@ -9,6 +9,7 @@ import java.util.function.Predicate;
 import org.infinispan.commons.util.ByRef;
 import org.infinispan.container.DataContainer;
 import org.infinispan.container.InternalEntryFactory;
+import org.infinispan.container.SegmentedDataContainer;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.container.entries.InternalCacheValue;
 import org.infinispan.context.InvocationContext;
@@ -119,11 +120,12 @@ public class PersistenceUtil {
       return icv.getMetadata() == null ? null : new InternalMetadataImpl(icv.getMetadata(), icv.getCreated(), icv.getLastUsed());
    }
 
-   public static <K, V> InternalCacheEntry<K,V> loadAndStoreInDataContainer(DataContainer<K, V> dataContainer, final PersistenceManager persistenceManager,
-                                                         K key, final InvocationContext ctx, final TimeService timeService,
+   // TODO: need to add back in old methods
+   public static <K, V> InternalCacheEntry<K,V> loadAndStoreInDataContainer(DataContainer<K, V> dataContainer, int segment,
+         final PersistenceManager persistenceManager, K key, final InvocationContext ctx, final TimeService timeService,
                                                          final AtomicReference<Boolean> isLoaded) {
       final ByRef<Boolean> expired = new ByRef<>(null);
-      InternalCacheEntry<K,V> entry = dataContainer.compute(key, (k, oldEntry, factory) -> {
+      DataContainer.ComputeAction<K, V> computeAction = (k, oldEntry, factory) -> {
          //under the lock, check if the entry exists in the DataContainer
          if (oldEntry != null) {
             if (isLoaded != null) {
@@ -151,7 +153,15 @@ public class PersistenceUtil {
             isLoaded.set(Boolean.TRUE); //loaded!
          }
          return newEntry;
-      });
+      };
+
+      InternalCacheEntry<K,V> entry;
+      if (segment != -1 && dataContainer instanceof SegmentedDataContainer) {
+         entry = ((SegmentedDataContainer) dataContainer).compute(segment, key, computeAction);
+      } else {
+         entry = dataContainer.compute(key, computeAction);
+      }
+
       if (expired.get() == Boolean.TRUE) {
          return null;
       } else {
@@ -159,11 +169,12 @@ public class PersistenceUtil {
       }
    }
 
-   public static <K, V> InternalCacheEntry<K,V> loadAndComputeInDataContainer(DataContainer<K, V> dataContainer, final PersistenceManager persistenceManager,
-                                                                              K key, final InvocationContext ctx, final TimeService timeService,
-                                                                              DataContainer.ComputeAction<K, V> action) {
+   public static <K, V> InternalCacheEntry<K,V> loadAndComputeInDataContainer(DataContainer<K, V> dataContainer,
+         int segment, final PersistenceManager persistenceManager, K key, final InvocationContext ctx,
+         final TimeService timeService, DataContainer.ComputeAction<K, V> action) {
       final ByRef<Boolean> expired = new ByRef<>(null);
-      InternalCacheEntry<K,V> entry = dataContainer.compute(key, (k, oldEntry, factory) -> {
+
+      DataContainer.ComputeAction<K, V> computeAction = (k, oldEntry, factory) -> {
          //under the lock, check if the entry exists in the DataContainer
          if (oldEntry != null) {
             if (oldEntry.canExpire() && oldEntry.isExpired(timeService.wallClockTime())) {
@@ -181,7 +192,13 @@ public class PersistenceUtil {
 
          InternalCacheEntry<K, V> newEntry = convert(loaded, factory);
          return action.compute(k, newEntry, factory);
-      });
+      };
+      InternalCacheEntry<K,V> entry;
+      if (segment != -1 && dataContainer instanceof SegmentedDataContainer) {
+         entry = ((SegmentedDataContainer<K, V>) dataContainer).compute(segment, key, computeAction);
+      } else {
+         entry = dataContainer.compute(key, computeAction);
+      }
       if (expired.get() == Boolean.TRUE) {
          return null;
       } else {

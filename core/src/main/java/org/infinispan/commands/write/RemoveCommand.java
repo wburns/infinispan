@@ -41,9 +41,9 @@ public class RemoveCommand extends AbstractDataWriteCommand implements MetadataA
     */
    protected Object value;
 
-   public RemoveCommand(Object key, Object value, CacheNotifier notifier, long flagsBitSet,
+   public RemoveCommand(Object key, Object value, CacheNotifier notifier, int segment, long flagsBitSet,
                         CommandInvocationId commandInvocationId) {
-      super(key, flagsBitSet, commandInvocationId);
+      super(key, segment, flagsBitSet, commandInvocationId);
       this.value = value;
       //noinspection unchecked
       this.notifier = notifier;

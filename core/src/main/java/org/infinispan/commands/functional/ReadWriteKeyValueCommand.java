@@ -39,13 +39,13 @@ public final class ReadWriteKeyValueCommand<K, V, T, R> extends AbstractWriteKey
    private Metadata prevMetadata;
 
    public ReadWriteKeyValueCommand(Object key, Object argument, BiFunction<T, ReadWriteEntryView<K, V>, R> f,
-                                   CommandInvocationId id,
+                                   int segment, CommandInvocationId id,
                                    ValueMatcher valueMatcher,
                                    Params params,
                                    DataConversion keyDataConversion,
                                    DataConversion valueDataConversion,
                                    ComponentRegistry componentRegistry) {
-      super(key, valueMatcher, id, params, keyDataConversion, valueDataConversion);
+      super(key, valueMatcher, segment, id, params, keyDataConversion, valueDataConversion);
       this.argument = argument;
       this.f = f;
       init(componentRegistry);

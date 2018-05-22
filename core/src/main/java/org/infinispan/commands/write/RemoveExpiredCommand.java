@@ -39,10 +39,10 @@ public class RemoveExpiredCommand extends RemoveCommand {
       this.valueMatcher = ValueMatcher.MATCH_EXPECTED_OR_NULL;
    }
 
-   public RemoveExpiredCommand(Object key, Object value, Long lifespan, boolean maxIdle, CacheNotifier notifier,
+   public RemoveExpiredCommand(Object key, Object value, Long lifespan, boolean maxIdle, CacheNotifier notifier, int segment,
                                CommandInvocationId commandInvocationId, IncrementableEntryVersion nonExistentVersion) {
       //valueEquivalence can be null because this command never compares values.
-      super(key, value, notifier, EnumUtil.EMPTY_BIT_SET, commandInvocationId);
+      super(key, value, notifier, segment, EnumUtil.EMPTY_BIT_SET, commandInvocationId);
       this.lifespan = lifespan;
       this.maxIdle = maxIdle;
       this.valueMatcher = ValueMatcher.MATCH_EXPECTED_OR_NULL;

@@ -38,9 +38,9 @@ public class PutKeyValueCommand extends AbstractDataWriteCommand implements Meta
    }
 
    public PutKeyValueCommand(Object key, Object value, boolean putIfAbsent,
-                             CacheNotifier notifier, Metadata metadata, long flagsBitSet,
+                             CacheNotifier notifier, Metadata metadata, int segment,long flagsBitSet,
                              CommandInvocationId commandInvocationId) {
-      super(key, flagsBitSet, commandInvocationId);
+      super(key, segment, flagsBitSet, commandInvocationId);
       this.value = value;
       this.putIfAbsent = putIfAbsent;
       this.valueMatcher = putIfAbsent ? ValueMatcher.MATCH_EXPECTED : ValueMatcher.MATCH_ALWAYS;

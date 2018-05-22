@@ -13,6 +13,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.function.BiFunction;
 
 import org.infinispan.commands.FlagAffectedCommand;
+import org.infinispan.commands.SegmentSpecificCommand;
 import org.infinispan.commands.TopologyAffectedCommand;
 import org.infinispan.commands.VisitableCommand;
 import org.infinispan.commands.control.LockControlCommand;
@@ -502,12 +503,17 @@ public class TxDistributionInterceptor extends BaseDistributionInterceptor {
                return asyncInvokeNext(ctx, command, remoteGet(ctx, command, key, true));
             } else {
                LocalizedCacheTopology cacheTopology = checkTopologyId(command);
-               Collection<Address> owners = cacheTopology.getDistribution(key).readOwners();
+               int segment = command.getSegment();
+               if (segment == -1) {
+                  segment = cacheTopology.getSegment(key);
+               }
+               Collection<Address> owners = cacheTopology.getDistributionForSegment(segment).readOwners();
 
                List<Mutation> mutationsOnKey = getMutationsOnKey((TxInvocationContext) ctx, key);
                mutationsOnKey.add(command.toMutation(key));
-               TxReadOnlyKeyCommand remoteRead = new TxReadOnlyKeyCommand(key, mutationsOnKey, command.getParams(),
-                     command.getKeyDataConversion(), command.getValueDataConversion(), componentRegistry);
+               TxReadOnlyKeyCommand remoteRead = new TxReadOnlyKeyCommand(key, mutationsOnKey, segment,
+                     command.getParams(), command.getKeyDataConversion(), command.getValueDataConversion(),
+                     componentRegistry);
                remoteRead.setTopologyId(command.getTopologyId());
 
                CompletionStage<Response> remoteStage =
@@ -569,7 +575,8 @@ public class TxDistributionInterceptor extends BaseDistributionInterceptor {
          return command;
       }
       return new TxReadOnlyKeyCommand(command, getMutationsOnKey((TxInvocationContext) ctx, command.getKey()),
-            command.getParams(), command.getKeyDataConversion(), command.getValueDataConversion(), componentRegistry);
+            command.getSegment(), command.getParams(), command.getKeyDataConversion(), command.getValueDataConversion(),
+            componentRegistry);
    }
 
    @Override
@@ -586,7 +593,13 @@ public class TxDistributionInterceptor extends BaseDistributionInterceptor {
          return cf;
       }
       return cf.thenRun(() -> {
-         entryFactory.wrapEntryForWriting(ctx, key, false, true);
+         int segment;
+         if (command instanceof SegmentSpecificCommand) {
+            segment = ((SegmentSpecificCommand) command).getSegment();
+         } else {
+            segment = -1;
+         }
+         entryFactory.wrapEntryForWriting(ctx, key, segment, false, true);
          MVCCEntry cacheEntry = (MVCCEntry) ctx.lookupEntry(key);
          for (Mutation mutation : mutationsOnKey) {
             EntryView.ReadWriteEntryView readWriteEntryView =
@@ -610,7 +623,7 @@ public class TxDistributionInterceptor extends BaseDistributionInterceptor {
       Iterator<List<Mutation>> mutationsIterator = mutations.iterator();
       for (; keysIterator.hasNext() && mutationsIterator.hasNext(); ) {
          Object key = keysIterator.next();
-         entryFactory.wrapEntryForWriting(ctx, key, false, true);
+         entryFactory.wrapEntryForWriting(ctx, key, -1, false, true);
          MVCCEntry cacheEntry = (MVCCEntry) ctx.lookupEntry(key);
          EntryView.ReadWriteEntryView readWriteEntryView = EntryViews.readWrite(cacheEntry, DataConversion.DEFAULT_KEY, DataConversion.DEFAULT_VALUE);
          for (Mutation mutation : mutationsIterator.next()) {

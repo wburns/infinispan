@@ -180,6 +180,9 @@ public abstract class AbstractSegmentedDataContainer<K, V> implements DataContai
          final ByRef<InternalCacheEntry<K, V>> reference = new ByRef<>(null);
          entries.compute((K) k, (key, entry) -> {
             activator.onRemove(key, entry == null);
+            if (entry != null) {
+               computeEntryRemoved(key, entry);
+            }
             reference.set(entry);
             return null;
          });
@@ -217,6 +220,7 @@ public abstract class AbstractSegmentedDataContainer<K, V> implements DataContai
       if (entries != null) {
          entries.computeIfPresent(key, (o, entry) -> {
             passivator.passivate(entry);
+            computeEntryRemoved(o, entry);
             return null;
          });
       }

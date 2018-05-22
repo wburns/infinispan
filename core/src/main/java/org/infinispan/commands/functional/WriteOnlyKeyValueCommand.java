@@ -30,13 +30,13 @@ public final class WriteOnlyKeyValueCommand<K, V, T> extends AbstractWriteKeyCom
 
    public WriteOnlyKeyValueCommand(Object key, Object argument,
                                    BiConsumer<T, WriteEntryView<K, V>> f,
-                                   CommandInvocationId id,
+                                   int segment, CommandInvocationId id,
                                    ValueMatcher valueMatcher,
                                    Params params,
                                    DataConversion keyDataConversion,
                                    DataConversion valueDataConversion,
                                    ComponentRegistry componentRegistry) {
-      super(key, valueMatcher, id, params, keyDataConversion, valueDataConversion);
+      super(key, valueMatcher, segment, id, params, keyDataConversion, valueDataConversion);
       this.f = f;
       this.argument = argument;
       init(componentRegistry);

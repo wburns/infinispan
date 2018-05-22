@@ -16,7 +16,6 @@ import org.infinispan.commons.util.ComposeArraySpliterator;
 import org.infinispan.commons.util.ConcatIterator;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.container.entries.InternalCacheEntry;
-import org.infinispan.notifications.cachelistener.event.TopologyChangedEvent;
 
 /**
  * @author wburns
@@ -132,11 +131,10 @@ public class L1DefaultSegmentedDataContainer<K, V> extends DefaultSegmentedDataC
    }
 
    @Override
-   public void onTopologyChange(TopologyChangedEvent<K, V> topologyChangedEvent) {
-      // We can safely clear out non owned entries after topology update has completed - these are L1 entries anyways
-      if (!topologyChangedEvent.isPre()) {
+   public void removeSegments(IntSet segments) {
+      if (!segments.isEmpty()) {
          nonOwnedEntries.clear();
       }
-      super.onTopologyChange(topologyChangedEvent);
+      super.removeSegments(segments);
    }
 }

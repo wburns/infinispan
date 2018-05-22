@@ -19,6 +19,7 @@ import org.infinispan.CacheSet;
 import org.infinispan.CacheStream;
 import org.infinispan.cache.impl.Caches;
 import org.infinispan.commands.FlagAffectedCommand;
+import org.infinispan.commands.SegmentSpecificCommand;
 import org.infinispan.commands.VisitableCommand;
 import org.infinispan.commands.functional.ReadOnlyKeyCommand;
 import org.infinispan.commands.functional.ReadOnlyManyCommand;
@@ -306,8 +307,14 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
 
    private Boolean loadInContext(InvocationContext ctx, Object key, FlagAffectedCommand cmd) {
       final AtomicReference<Boolean> isLoaded = new AtomicReference<>();
-      InternalCacheEntry<K, V> entry = PersistenceUtil.loadAndStoreInDataContainer(dataContainer, persistenceManager, (K) key,
-                                                                             ctx, timeService, isLoaded);
+      int segment;
+      if (cmd instanceof SegmentSpecificCommand) {
+         segment = ((SegmentSpecificCommand) cmd).getSegment();
+      } else {
+         segment = -1;
+      }
+      InternalCacheEntry<K, V> entry = PersistenceUtil.loadAndStoreInDataContainer(dataContainer, segment,
+            persistenceManager, (K) key, ctx, timeService, isLoaded);
       Boolean isLoadedValue = isLoaded.get();
       if (trace) {
          log.tracef("Entry was loaded? %s", isLoadedValue);

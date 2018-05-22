@@ -37,9 +37,9 @@ public class ReplaceCommand extends AbstractDataWriteCommand implements Metadata
    }
 
    public ReplaceCommand(Object key, Object oldValue, Object newValue,
-                         CacheNotifier notifier, Metadata metadata, long flagsBitSet,
+                         CacheNotifier notifier, Metadata metadata, int segment, long flagsBitSet,
                          CommandInvocationId commandInvocationId) {
-      super(key, flagsBitSet, commandInvocationId);
+      super(key, segment, flagsBitSet, commandInvocationId);
       this.oldValue = oldValue;
       this.newValue = newValue;
       //noinspection unchecked

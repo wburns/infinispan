@@ -36,13 +36,13 @@ public class ComputeCommand extends AbstractDataWriteCommand implements Metadata
    public ComputeCommand(Object key,
                          BiFunction remappingBiFunction,
                          boolean computeIfPresent,
-                         long flagsBitSet,
+                         int segment, long flagsBitSet,
                          CommandInvocationId commandInvocationId,
                          Metadata metadata,
                          CacheNotifier notifier,
                          ComponentRegistry componentRegistry) {
 
-      super(key, flagsBitSet, commandInvocationId);
+      super(key, segment, flagsBitSet, commandInvocationId);
       this.remappingBiFunction = remappingBiFunction;
       this.computeIfPresent = computeIfPresent;
       this.metadata = metadata;

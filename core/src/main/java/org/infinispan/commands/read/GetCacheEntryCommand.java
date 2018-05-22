@@ -25,8 +25,8 @@ public final class GetCacheEntryCommand extends AbstractDataCommand {
 
    private InternalEntryFactory entryFactory;
 
-   public GetCacheEntryCommand(Object key, long flagsBitSet, InternalEntryFactory entryFactory) {
-      super(key, flagsBitSet);
+   public GetCacheEntryCommand(Object key, int segment, long flagsBitSet, InternalEntryFactory entryFactory) {
+      super(key, segment, flagsBitSet);
       this.entryFactory = entryFactory;
    }
 

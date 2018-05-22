@@ -162,7 +162,15 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
       return stateTransferManager == null || command.hasAnyFlag(FlagBitSets.CACHE_MODE_LOCAL | FlagBitSets.SKIP_OWNERSHIP_CHECK);
    }
 
-   protected boolean canRead(Object key) {
+   protected boolean canRead(DataCommand command) {
+      int segment = command.getSegment();
+      if (segment != -1) {
+         return distributionManager.getCacheTopology().getDistributionForSegment(segment).isReadOwner();
+      }
+      return canReadKey(command);
+   }
+
+   protected boolean canReadKey(Object key) {
       return distributionManager.getCacheTopology().isReadOwner(key);
    }
 
@@ -198,7 +206,7 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
 
    private Object visitDataReadCommand(InvocationContext ctx, AbstractDataCommand command) {
       final Object key = command.getKey();
-      entryFactory.wrapEntryForReading(ctx, key, ignoreOwnership(command) || canRead(key));
+      entryFactory.wrapEntryForReading(ctx, key, command.getSegment(), ignoreOwnership(command) || canRead(command));
       return invokeNextThenAccept(ctx, command, dataReadReturnHandler);
    }
 
@@ -206,7 +214,7 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
    public Object visitGetAllCommand(InvocationContext ctx, GetAllCommand command) throws Throwable {
       boolean ignoreOwnership = ignoreOwnership(command);
       for (Object key : command.getKeys()) {
-         entryFactory.wrapEntryForReading(ctx, key, ignoreOwnership || canRead(key));
+         entryFactory.wrapEntryForReading(ctx, key, -1, ignoreOwnership || canReadKey(key));
       }
       return invokeNextAndFinally(ctx, command, (rCtx, rCommand, rv, t) -> {
          GetAllCommand getAllCommand = (GetAllCommand) rCommand;
@@ -251,7 +259,7 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
             // TODO: move this to distribution interceptors?
             // we need to try to wrap the entry to get it removed
             // for the removal itself, wrapping null would suffice, but listeners need previous value
-            entryFactory.wrapEntryForWriting(ctx, key, true, false);
+            entryFactory.wrapEntryForWriting(ctx, key, -1, true, false);
          }
       }
       return setSkipRemoteGetsAndInvokeNextForManyEntriesCommand(ctx, command);
@@ -286,7 +294,7 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
          // TODO: move to distribution interceptors?
          // we need to try to wrap the entry to get it removed
          // for the removal itself, wrapping null would suffice, but listeners need previous value
-         entryFactory.wrapEntryForWriting(ctx, key, false, false);
+         entryFactory.wrapEntryForWriting(ctx, key, -1, false, false);
          if (trace)
            log.tracef("Entry to be removed: %s", toStr(key));
       }
@@ -304,7 +312,7 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
       if (command.hasAnyFlag(FlagBitSets.COMMAND_RETRY)) {
          removeFromContextOnRetry(ctx, command.getKey());
       }
-      entryFactory.wrapEntryForWriting(ctx, command.getKey(), ignoreOwnership(command) || canRead(command.getKey()), command.loadType() != VisitableCommand.LoadType.DONT_LOAD);
+      entryFactory.wrapEntryForWriting(ctx, command.getKey(), command.getSegment(), ignoreOwnership(command) || canRead(command), command.loadType() != VisitableCommand.LoadType.DONT_LOAD);
    }
 
    private void removeFromContextOnRetry(InvocationContext ctx, Object key) {
@@ -356,7 +364,8 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
 
    @Override
    public Object visitRemoveExpiredCommand(InvocationContext ctx, RemoveExpiredCommand command) throws Throwable {
-      entryFactory.wrapEntryForExpired(ctx, command.getKey(), ignoreOwnership(command) || canRead(command.getKey()));
+      entryFactory.wrapEntryForExpired(ctx, command.getKey(), command.getSegment(),
+            ignoreOwnership(command) || canRead(command));
       return setSkipRemoteGetsAndInvokeNextForDataCommand(ctx, command);
    }
 
@@ -387,7 +396,7 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
       }
       for (Object key : command.getMap().keySet()) {
          // as listeners may need the value, we'll load the previous value
-         entryFactory.wrapEntryForWriting(ctx, key, ignoreOwnership || canRead(key), command.loadType() != VisitableCommand.LoadType.DONT_LOAD);
+         entryFactory.wrapEntryForWriting(ctx, key, -1, ignoreOwnership || canReadKey(key), command.loadType() != VisitableCommand.LoadType.DONT_LOAD);
       }
       return setSkipRemoteGetsAndInvokeNextForManyEntriesCommand(ctx, command);
    }
@@ -437,9 +446,9 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
    public Object visitReadOnlyKeyCommand(InvocationContext ctx, ReadOnlyKeyCommand command) throws Throwable {
       if (command instanceof TxReadOnlyKeyCommand) {
          // TxReadOnlyKeyCommand may apply some mutations on the entry in context so we need to always wrap it
-         entryFactory.wrapEntryForWriting(ctx, command.getKey(), ignoreOwnership(command) || canRead(command.getKey()), true);
+         entryFactory.wrapEntryForWriting(ctx, command.getKey(), command.getSegment(), ignoreOwnership(command) || canRead(command), true);
       } else {
-         entryFactory.wrapEntryForReading(ctx, command.getKey(), ignoreOwnership(command) || canRead(command.getKey()));
+         entryFactory.wrapEntryForReading(ctx, command.getKey(), command.getSegment(), ignoreOwnership(command) || canRead(command));
       }
 
       // Repeatable reads are not achievable with functional commands, as we don't store the value locally
@@ -455,11 +464,11 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
       if (command instanceof TxReadOnlyManyCommand) {
          // TxReadOnlyManyCommand may apply some mutations on the entry in context so we need to always wrap it
          for (Object key : command.getKeys()) {
-            entryFactory.wrapEntryForWriting(ctx, key, ignoreOwnership(command) || canRead(key), true);
+            entryFactory.wrapEntryForWriting(ctx, key, -1, ignoreOwnership(command) || canReadKey(key), true);
          }
       } else {
          for (Object key : command.getKeys()) {
-            entryFactory.wrapEntryForReading(ctx, key, ignoreOwnership || canRead(key));
+            entryFactory.wrapEntryForReading(ctx, key, -1, ignoreOwnership || canReadKey(key));
          }
       }
       // Repeatable reads are not achievable with functional commands, see visitReadOnlyKeyCommand
@@ -496,7 +505,7 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
       boolean ignoreOwnership = ignoreOwnership(command);
       for (Object key : command.getArguments().keySet()) {
          //the put map never reads the keys
-         entryFactory.wrapEntryForWriting(ctx, key, ignoreOwnership || canRead(key), false);
+         entryFactory.wrapEntryForWriting(ctx, key, -1, ignoreOwnership || canReadKey(key), false);
       }
       return setSkipRemoteGetsAndInvokeNextForManyEntriesCommand(ctx, command);
    }
@@ -509,7 +518,7 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
       }
       boolean ignoreOwnership = ignoreOwnership(command);
       for (Object key : command.getAffectedKeys()) {
-         entryFactory.wrapEntryForWriting(ctx, key, ignoreOwnership || canRead(key), false);
+         entryFactory.wrapEntryForWriting(ctx, key, -1, ignoreOwnership || canReadKey(key), false);
       }
       return setSkipRemoteGetsAndInvokeNextForManyEntriesCommand(ctx, command);
    }
@@ -529,7 +538,7 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
       }
       boolean ignoreOwnership = ignoreOwnership(command);
       for (Object key : command.getAffectedKeys()) {
-         entryFactory.wrapEntryForWriting(ctx, key, ignoreOwnership || canRead(key), true);
+         entryFactory.wrapEntryForWriting(ctx, key, -1, ignoreOwnership || canReadKey(key), true);
       }
       return setSkipRemoteGetsAndInvokeNextForManyEntriesCommand(ctx, command);
    }
@@ -542,7 +551,7 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
       }
       boolean ignoreOwnership = ignoreOwnership(command);
       for (Object key : command.getAffectedKeys()) {
-         entryFactory.wrapEntryForWriting(ctx, key, ignoreOwnership || canRead(key), true);
+         entryFactory.wrapEntryForWriting(ctx, key, -1, ignoreOwnership || canReadKey(key), true);
       }
       return setSkipRemoteGetsAndInvokeNextForManyEntriesCommand(ctx, command);
    }
@@ -776,14 +785,14 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
       }
 
       private Object handleWriteCommand(InvocationContext ctx, DataWriteCommand command) throws Throwable {
-         entryFactory.wrapEntryForWriting(ctx, command.getKey(), ignoreOwnership(command) || canRead(command.getKey()), command.loadType() != VisitableCommand.LoadType.DONT_LOAD);
+         entryFactory.wrapEntryForWriting(ctx, command.getKey(), command.getSegment(), ignoreOwnership(command) || canRead(command), command.loadType() != VisitableCommand.LoadType.DONT_LOAD);
          return invokeNext(ctx, command);
       }
 
       private Object handleWriteManyCommand(InvocationContext ctx, WriteCommand command) {
          boolean ignoreOwnership = ignoreOwnership(command);
          for (Object key : command.getAffectedKeys()) {
-            entryFactory.wrapEntryForWriting(ctx, key, ignoreOwnership || canRead(key), command.loadType() != VisitableCommand.LoadType.DONT_LOAD);
+            entryFactory.wrapEntryForWriting(ctx, key, -1, ignoreOwnership || canReadKey(key), command.loadType() != VisitableCommand.LoadType.DONT_LOAD);
          }
          return invokeNext(ctx, command);
       }

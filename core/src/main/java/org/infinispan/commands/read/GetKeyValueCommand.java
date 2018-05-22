@@ -26,8 +26,8 @@ public class GetKeyValueCommand extends AbstractDataCommand {
    private static final Log log = LogFactory.getLog(GetKeyValueCommand.class);
    private static final boolean trace = log.isTraceEnabled();
 
-   public GetKeyValueCommand(Object key, long flagsBitSet) {
-      super(key, flagsBitSet);
+   public GetKeyValueCommand(Object key, int segment, long flagsBitSet) {
+      super(key, segment, flagsBitSet);
    }
 
    public GetKeyValueCommand() {

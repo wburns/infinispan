@@ -8,6 +8,7 @@ import java.util.Set;
 
 import org.infinispan.commands.RemoteCommandsFactory;
 import org.infinispan.commands.ReplicableCommand;
+import org.infinispan.commands.SegmentSpecificCommand;
 import org.infinispan.commands.TopologyAffectedCommand;
 import org.infinispan.commands.functional.ReadOnlyKeyCommand;
 import org.infinispan.commands.functional.ReadOnlyManyCommand;
@@ -36,6 +37,7 @@ import org.infinispan.commands.write.PutMapCommand;
 import org.infinispan.commands.write.RemoveCommand;
 import org.infinispan.commands.write.RemoveExpiredCommand;
 import org.infinispan.commands.write.ReplaceCommand;
+import org.infinispan.commons.io.UnsignedNumeric;
 import org.infinispan.commons.marshall.AbstractExternalizer;
 import org.infinispan.commons.util.Util;
 import org.infinispan.factories.GlobalComponentRegistry;
@@ -72,6 +74,9 @@ public class ReplicableCommandExternalizer extends AbstractExternalizer<Replicab
       if (command instanceof TopologyAffectedCommand) {
          output.writeInt(((TopologyAffectedCommand) command).getTopologyId());
       }
+      if (command instanceof SegmentSpecificCommand) {
+         UnsignedNumeric.writeUnsignedInt(output, ((SegmentSpecificCommand) command).getSegment());
+      }
    }
 
    protected void writeCommandHeader(ObjectOutput output, ReplicableCommand command) throws IOException {
@@ -104,6 +109,9 @@ public class ReplicableCommandExternalizer extends AbstractExternalizer<Replicab
       command.readFrom(input);
       if (command instanceof TopologyAffectedCommand) {
          ((TopologyAffectedCommand) command).setTopologyId(input.readInt());
+      }
+      if (command instanceof SegmentSpecificCommand) {
+         ((SegmentSpecificCommand) command).setSegment(UnsignedNumeric.readUnsignedInt(input));
       }
    }
 

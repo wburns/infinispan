@@ -29,11 +29,11 @@ public class ReadOnlyKeyCommand<K, V, R> extends AbstractDataCommand {
    protected DataConversion keyDataConversion;
    protected DataConversion valueDataConversion;
 
-   public ReadOnlyKeyCommand(Object key, Function<ReadEntryView<K, V>, R> f, Params params,
+   public ReadOnlyKeyCommand(Object key, Function<ReadEntryView<K, V>, R> f, int segment, Params params,
                              DataConversion keyDataConversion,
                              DataConversion valueDataConversion,
                              ComponentRegistry componentRegistry) {
-      super(key, EnumUtil.EMPTY_BIT_SET);
+      super(key, segment, EnumUtil.EMPTY_BIT_SET);
       this.f = f;
       this.params = params;
       this.keyDataConversion = keyDataConversion;

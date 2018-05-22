@@ -34,13 +34,13 @@ public class ComputeIfAbsentCommand extends AbstractDataWriteCommand implements 
 
    public ComputeIfAbsentCommand(Object key,
                                  Function mappingFunction,
-                                 long flagsBitSet,
+                                 int segment, long flagsBitSet,
                                  CommandInvocationId commandInvocationId,
                                  Metadata metadata,
                                  CacheNotifier notifier,
                                  ComponentRegistry componentRegistry) {
 
-      super(key, flagsBitSet, commandInvocationId);
+      super(key, segment, flagsBitSet, commandInvocationId);
       this.mappingFunction = mappingFunction;
       this.metadata = metadata;
       this.notifier = notifier;

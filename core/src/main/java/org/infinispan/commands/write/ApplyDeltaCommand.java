@@ -25,7 +25,7 @@ public class ApplyDeltaCommand extends AbstractDataWriteCommand {
    }
 
    public ApplyDeltaCommand(Object deltaAwareValueKey, Delta delta, Collection<Object> keys, CommandInvocationId commandInvocationId) {
-      super(deltaAwareValueKey, 0, commandInvocationId);
+      super(deltaAwareValueKey, -1, 0, commandInvocationId);
    }
 
    public Delta getDelta(){

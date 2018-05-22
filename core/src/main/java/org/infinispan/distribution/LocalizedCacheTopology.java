@@ -1,5 +1,6 @@
 package org.infinispan.distribution;
 
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -43,10 +44,17 @@ public class LocalizedCacheTopology extends CacheTopology {
    private final IntSet localReadSegments;
 
    public static LocalizedCacheTopology makeSingletonTopology(CacheMode cacheMode, Address localAddress) {
+      return makeSingletonTopology(cacheMode, k -> 0, 1, localAddress);
+   }
+
+   public static LocalizedCacheTopology makeSingletonTopology(CacheMode cacheMode, KeyPartitioner keyPartitioner,
+         int numSegments, Address localAddress) {
       List<Address> members = Collections.singletonList(localAddress);
-      ConsistentHash ch = new ReplicatedConsistentHash(MurmurHash3.getInstance(), members, new int[]{0});
+      int[] owners = new int[numSegments];
+      Arrays.fill(owners, 0);
+      ConsistentHash ch = new ReplicatedConsistentHash(MurmurHash3.getInstance(), members, owners);
       CacheTopology cacheTopology = new CacheTopology(0, 0, ch, null, Phase.NO_REBALANCE, members, null);
-      return new LocalizedCacheTopology(cacheMode, cacheTopology, key -> 0, localAddress);
+      return new LocalizedCacheTopology(cacheMode, cacheTopology, keyPartitioner, localAddress);
    }
 
    public LocalizedCacheTopology(CacheMode cacheMode, CacheTopology cacheTopology, KeyPartitioner keyPartitioner,
