@@ -163,11 +163,7 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
    }
 
    protected boolean canRead(DataCommand command) {
-      int segment = command.getSegment();
-      if (segment != -1) {
-         return distributionManager.getCacheTopology().getDistributionForSegment(segment).isReadOwner();
-      }
-      return canReadKey(command);
+      return distributionManager.getCacheTopology().isReadOwner(command.getSegment());
    }
 
    protected boolean canReadKey(Object key) {

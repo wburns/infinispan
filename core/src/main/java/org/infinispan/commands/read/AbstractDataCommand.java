@@ -23,6 +23,9 @@ public abstract class AbstractDataCommand implements DataCommand, SegmentSpecifi
 
    protected AbstractDataCommand(Object key, int segment, long flagsBitSet) {
       this.key = key;
+      if (segment < 0) {
+         throw new IllegalArgumentException("Segment must be 0 or greater");
+      }
       this.segment = segment;
       this.flags = flagsBitSet;
    }
@@ -32,6 +35,9 @@ public abstract class AbstractDataCommand implements DataCommand, SegmentSpecifi
 
    @Override
    public int getSegment() {
+      if (segment < 0) {
+         throw new IllegalStateException("Segment wasn't initialized!");
+      }
       return segment;
    }
 

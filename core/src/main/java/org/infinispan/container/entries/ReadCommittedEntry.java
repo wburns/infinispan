@@ -122,7 +122,7 @@ public class ReadCommittedEntry implements MVCCEntry {
 
    public final void commit(int segment, DataContainer container) {
       if (segment < 0) {
-         throw new IllegalArgumentException("Segment must be greater than 0");
+         throw new IllegalArgumentException("Segment must be 0 or greater");
       }
       realCommit(segment, container);
    }

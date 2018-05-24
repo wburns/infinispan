@@ -138,6 +138,13 @@ public class LocalizedCacheTopology extends CacheTopology {
       return distributionInfos[segmentId].isReadOwner();
    }
 
+   public boolean isReadOwner(int segment) {
+      if (allLocal) {
+         return true;
+      }
+      return distributionInfos[segment].isReadOwner();
+   }
+
 
    /**
     * @return {@code true} iff writing a value for key {@code key} will update it on the local node.
@@ -148,6 +155,13 @@ public class LocalizedCacheTopology extends CacheTopology {
 
       int segmentId = keyPartitioner.getSegment(key);
       return distributionInfos[segmentId].isWriteOwner();
+   }
+
+   public boolean isWriteOwner(int segment) {
+      if (allLocal) {
+         return true;
+      }
+      return distributionInfos[segment].isWriteOwner();
    }
 
    /**

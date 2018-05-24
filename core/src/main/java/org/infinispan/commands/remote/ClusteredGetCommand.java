@@ -132,12 +132,12 @@ public class ClusteredGetCommand extends BaseClusteredReadCommand implements Seg
 
       ClusteredGetCommand that = (ClusteredGetCommand) o;
 
-      return Objects.equals(key, that.key) && segment == that.segment;
+      return Objects.equals(key, that.key);
    }
 
    @Override
    public int hashCode() {
-      return Objects.hash(key, segment);
+      return Objects.hash(key);
    }
 
    @Override

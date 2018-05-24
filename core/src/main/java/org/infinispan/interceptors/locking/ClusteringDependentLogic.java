@@ -121,7 +121,18 @@ public interface ClusteringDependentLogic {
 
    void commitEntry(CacheEntry entry, FlagAffectedCommand command, InvocationContext ctx, Flag trackFlag, boolean l1Invalidation);
 
-   Commit commitType(FlagAffectedCommand command, InvocationContext ctx, Object key, boolean removed);
+   /**
+    * Determines what type of commit this is. Whether we shouldn't commit, or if this is a commit due to owning the key
+    * or not
+    * @param command
+    * @param ctx
+    * @param key
+    * @param segment if 0 or greater assumes the underlying container is segmented. otherwise inserts into container
+    *                without using segments
+    * @param removed
+    * @return
+    */
+   Commit commitType(FlagAffectedCommand command, InvocationContext ctx, Object key, int segment, boolean removed);
 
    /**
     * @deprecated Since 9.0, please use {@code getCacheTopology().getWriteOwners(keys)} instead.
@@ -195,17 +206,10 @@ public interface ClusteringDependentLogic {
       protected abstract void commitSingleEntry(CacheEntry entry, FlagAffectedCommand command,
                                                 InvocationContext ctx, Flag trackFlag, boolean l1Invalidation);
 
-      protected Commit clusterCommitType(FlagAffectedCommand command, InvocationContext ctx, Object key, boolean removed) {
+      protected Commit clusterCommitType(FlagAffectedCommand command, InvocationContext ctx, Object key, int segment, boolean removed) {
          // ignore locality for removals, even if skipOwnershipCheck is not true
          if (command != null && command.hasAnyFlag(FlagBitSets.SKIP_OWNERSHIP_CHECK)) {
             return Commit.COMMIT_LOCAL;
-         }
-
-         DistributionInfo distributionInfo;
-         if (command instanceof SegmentSpecificCommand) {
-            distributionInfo = getCacheTopology().getDistributionForSegment(((SegmentSpecificCommand) command).getSegment());
-         } else {
-            distributionInfo = getCacheTopology().getDistribution(key);
          }
 
          boolean transactional = ctx.isInTxScope() && (command == null || !command.hasAnyFlag(FlagBitSets.PUT_FOR_EXTERNAL_READ));
@@ -218,21 +222,28 @@ public interface ClusteringDependentLogic {
             // During ST, entries whose ownership is lost are invalidated by InvalidateCommand
             // and at that point we're no longer owners - the only information is that the origin
             // is local and the entry is removed.
-            if (distributionInfo.isWriteOwner()) {
+            if (segment != -1 ? getCacheTopology().isWriteOwner(segment) : getCacheTopology().isWriteOwner(key) ) {
                return Commit.COMMIT_LOCAL;
             } else if (removed) {
                return Commit.COMMIT_NON_LOCAL;
             }
          } else {
+            boolean isPrimary;
             // in non-tx mode, on backup we don't commit in original context, backup command has its own context.
-            return distributionInfo.isPrimary() ? Commit.COMMIT_LOCAL : Commit.NO_COMMIT;
+            if (segment != -1) {
+               isPrimary = getCacheTopology().getDistributionForSegment(segment).isPrimary();
+            } else {
+               isPrimary = getCacheTopology().getDistribution(key).isPrimary();
+            }
+
+            return isPrimary ? Commit.COMMIT_LOCAL : Commit.NO_COMMIT;
          }
          return Commit.NO_COMMIT;
       }
 
       @Override
-      public Commit commitType(FlagAffectedCommand command, InvocationContext ctx, Object key, boolean removed) {
-         return clusterCommitType(command, ctx, key, removed);
+      public Commit commitType(FlagAffectedCommand command, InvocationContext ctx, Object key, int segment, boolean removed) {
+         return clusterCommitType(command, ctx, key, segment, removed);
       }
 
       protected abstract WriteSkewHelper.KeySpecificLogic initKeySpecificLogic(boolean totalOrder);
@@ -316,7 +327,7 @@ public interface ClusteringDependentLogic {
       }
 
       @Override
-      public Commit commitType(FlagAffectedCommand command, InvocationContext ctx, Object key, boolean removed) {
+      public Commit commitType(FlagAffectedCommand command, InvocationContext ctx, Object key, int segment, boolean removed) {
          return Commit.COMMIT_LOCAL;
       }
 
@@ -360,7 +371,7 @@ public interface ClusteringDependentLogic {
    class InvalidationLogic extends AbstractClusteringDependentLogic {
 
       @Override
-      public Commit commitType(FlagAffectedCommand command, InvocationContext ctx, Object key, boolean removed) {
+      public Commit commitType(FlagAffectedCommand command, InvocationContext ctx, Object key, int segment, boolean removed) {
          return Commit.COMMIT_LOCAL;
       }
 
@@ -430,18 +441,27 @@ public interface ClusteringDependentLogic {
       }
 
       @Override
-      public Commit commitType(FlagAffectedCommand command, InvocationContext ctx, Object key, boolean removed) {
-         return clusterCommitType(command, ctx, key, removed);
+      public Commit commitType(FlagAffectedCommand command, InvocationContext ctx, Object key, int segment, boolean removed) {
+         return clusterCommitType(command, ctx, key, segment, removed);
       }
 
       @Override
       protected void commitSingleEntry(CacheEntry entry, FlagAffectedCommand command,
                                        InvocationContext ctx, Flag trackFlag, boolean l1Invalidation) {
+         int segment = -1;
+         Object key = entry.getKey();
+         if (dataContainer instanceof SegmentedDataContainer) {
+            if (command instanceof SegmentSpecificCommand) {
+               segment = ((SegmentSpecificCommand) command).getSegment();
+            } else {
+               segment = distributionManager.getCacheTopology().getSegment(key);
+            }
+         }
          // Don't allow the CH to change (and state transfer to invalidate entries)
          // between the ownership check and the commit
          stateTransferLock.acquireSharedTopologyLock();
          try {
-            Commit doCommit = commitType(command, ctx, entry.getKey(), entry.isRemoved());
+            Commit doCommit = commitType(command, ctx, entry.getKey(), segment, entry.isRemoved());
             if (doCommit.isCommit()) {
                boolean created = false;
                boolean removed = false;
@@ -454,19 +474,12 @@ public interface ClusteringDependentLogic {
                   }
                }
 
-               int segment = -1;
                InternalCacheEntry previousEntry;
-               if (dataContainer instanceof SegmentedDataContainer) {
-                  Object key = entry.getKey();
-                  if (command instanceof SegmentSpecificCommand) {
-                     segment = ((SegmentSpecificCommand) command).getSegment();
-                  } else {
-                     segment = distributionManager.getCacheTopology().getSegment(key);
-                  }
+               if (segment != -1) {
                   previousEntry = ((SegmentedDataContainer) dataContainer).peek(segment, key);
                } else {
                   // TODO use value from the entry
-                  previousEntry = dataContainer.peek(entry.getKey());
+                  previousEntry = dataContainer.peek(key);
                }
                Object previousValue = null;
                Metadata previousMetadata = null;
@@ -527,11 +540,20 @@ public interface ClusteringDependentLogic {
       @Override
       protected void commitSingleEntry(CacheEntry entry, FlagAffectedCommand command,
                                        InvocationContext ctx, Flag trackFlag, boolean l1Invalidation) {
+         int segment = -1;
+         Object key = entry.getKey();
+         if (dataContainer instanceof SegmentedDataContainer) {
+            if (command instanceof SegmentSpecificCommand) {
+               segment = ((SegmentSpecificCommand) command).getSegment();
+            } else {
+               segment = distributionManager.getCacheTopology().getSegment(key);
+            }
+         }
          // Don't allow the CH to change (and state transfer to invalidate entries)
          // between the ownership check and the commit
          stateTransferLock.acquireSharedTopologyLock();
          try {
-            Commit doCommit = commitType(command, ctx, entry.getKey(), entry.isRemoved());
+            Commit doCommit = commitType(command, ctx, entry.getKey(), segment, entry.isRemoved());
 
             boolean isL1Write = false;
             if (!doCommit.isCommit() && configuration.clustering().l1().enabled()) {
@@ -563,19 +585,12 @@ public interface ClusteringDependentLogic {
                   }
                }
 
-               int segment = -1;
                InternalCacheEntry previousEntry;
-               if (dataContainer instanceof SegmentedDataContainer) {
-                  Object key = entry.getKey();
-                  if (command instanceof SegmentSpecificCommand) {
-                     segment = ((SegmentSpecificCommand) command).getSegment();
-                  } else {
-                     segment = distributionManager.getCacheTopology().getSegment(key);
-                  }
+               if (segment != -1) {
                   previousEntry = ((SegmentedDataContainer) dataContainer).peek(segment, key);
                } else {
                   // TODO use value from the entry
-                  previousEntry = dataContainer.peek(entry.getKey());
+                  previousEntry = dataContainer.peek(key);
                }
 
                Object previousValue = null;
