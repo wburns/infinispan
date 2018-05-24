@@ -114,16 +114,22 @@ public class EntryWrappingInterceptor extends DDAsyncInterceptor {
          FlagBitSets.SKIP_OWNERSHIP_CHECK | FlagBitSets.CACHE_MODE_LOCAL;
    private boolean totalOrder;
 
+   private void addVersionRead(InvocationContext rCtx, AbstractDataCommand dataCommand) {
+      // The entry must be in the context
+      CacheEntry cacheEntry = rCtx.lookupEntry(dataCommand.getKey());
+      cacheEntry.setSkipLookup(true);
+      if (isVersioned && ((MVCCEntry) cacheEntry).isRead()) {
+         addVersionRead((TxInvocationContext) rCtx, cacheEntry, dataCommand.getKey());
+      }
+   }
+
    private final InvocationSuccessAction dataReadReturnHandler = (rCtx, rCommand, rv) -> {
       AbstractDataCommand dataCommand = (AbstractDataCommand) rCommand;
 
       if (rCtx.isInTxScope() && useRepeatableRead) {
-         // The entry must be in the context
-         CacheEntry cacheEntry = rCtx.lookupEntry(dataCommand.getKey());
-         cacheEntry.setSkipLookup(true);
-         if (isVersioned && ((MVCCEntry) cacheEntry).isRead()) {
-            addVersionRead((TxInvocationContext) rCtx, cacheEntry, dataCommand.getKey());
-         }
+         // This invokes another method as this is only done with a specific configuration and we want to inline
+         // the notifier below
+         addVersionRead(rCtx, dataCommand);
       }
 
       // Entry visit notifications used to happen in the CallInterceptor

@@ -470,16 +470,21 @@ public final class CacheNotifierImpl<K, V> extends AbstractListenerImpl<Event<K,
       e.setPre(false);
    }
 
+   private void doVisitNotify(K key, V value, boolean pre, InvocationContext ctx) {
+      EventImpl<K, V> e = EventImpl.createEvent(cache, CACHE_ENTRY_VISITED);
+      boolean isLocalNodePrimaryOwner = clusteringDependentLogic.getCacheTopology().getDistribution(key).isPrimary();
+      for (CacheEntryListenerInvocation<K, V> listener : cacheEntryVisitedListeners) {
+         // Need a wrapper per invocation since converter could modify the entry in it
+         configureEvent(listener.getKeyDataConversion(), listener.getValueDataConversion(), e, key, value, pre, ctx);
+         listener.invoke(new EventWrapper<>(key, e), isLocalNodePrimaryOwner);
+      }
+   }
+
    @Override
    public void notifyCacheEntryVisited(K key, V value, boolean pre, InvocationContext ctx, FlagAffectedCommand command) {
       if (isNotificationAllowed(command, cacheEntryVisitedListeners)) {
-         EventImpl<K, V> e = EventImpl.createEvent(cache, CACHE_ENTRY_VISITED);
-         boolean isLocalNodePrimaryOwner = clusteringDependentLogic.getCacheTopology().getDistribution(key).isPrimary();
-         for (CacheEntryListenerInvocation<K, V> listener : cacheEntryVisitedListeners) {
-            // Need a wrapper per invocation since converter could modify the entry in it
-            configureEvent(listener.getKeyDataConversion(), listener.getValueDataConversion(), e, key, value, pre, ctx);
-            listener.invoke(new EventWrapper<>(key, e), isLocalNodePrimaryOwner);
-         }
+         // This is so this method can be inlined easier as we very rarely do listener notifications
+         doVisitNotify(key, value, pre, ctx);
       }
    }
 
