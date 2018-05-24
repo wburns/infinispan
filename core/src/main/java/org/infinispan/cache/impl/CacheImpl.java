@@ -475,7 +475,7 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
 
    final CacheEntry getCacheEntry(Object key, long explicitFlags, InvocationContext ctx) {
       assertKeyNotNull(key);
-      GetCacheEntryCommand command = commandsFactory.buildGetCacheEntryCommand(key, explicitFlags);
+      GetCacheEntryCommand command = commandsFactory.buildGetCacheEntryCommand(key, -1, explicitFlags);
       Object ret = invoker.invoke(ctx, command);
       return (CacheEntry) ret;
    }
@@ -492,7 +492,7 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
 
    final CompletableFuture<CacheEntry<K,V>> getCacheEntryAsync(Object key, long explicitFlags, InvocationContext ctx) {
       assertKeyNotNull(key);
-      GetCacheEntryCommand command = commandsFactory.buildGetCacheEntryCommand(key, explicitFlags);
+      GetCacheEntryCommand command = commandsFactory.buildGetCacheEntryCommand(key, -1, explicitFlags);
       return invoker.invokeAsync(ctx, command).thenApply(CacheEntry.class::cast);
    }
 

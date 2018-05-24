@@ -10,4 +10,18 @@ public interface SegmentSpecificCommand {
    void setSegment(int segment);
 
    Object getKey();
+
+   static final int UNKOWN_SEGMENT = -1;
+
+   /**
+    * Utilit
+    * @param command
+    * @return
+    */
+   static int extractSegment(ReplicableCommand command) {
+      if (command instanceof SegmentSpecificCommand) {
+         return ((SegmentSpecificCommand) command).getSegment();
+      }
+      return UNKOWN_SEGMENT;
+   }
 }

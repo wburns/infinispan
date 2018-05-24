@@ -415,8 +415,12 @@ public class TxDistributionInterceptor extends BaseDistributionInterceptor {
    private Object handleTxWriteCommand(InvocationContext ctx, AbstractDataWriteCommand command,
          Object key) throws Throwable {
       try {
-         if (!ctx.isOriginLocal() && !checkTopologyId(command).isWriteOwner(command.getKey())) {
-            return null;
+         if (!ctx.isOriginLocal()) {
+            LocalizedCacheTopology cacheTopology = checkTopologyId(command);
+            // Ignore any remote command when we aren't the owner
+            if (!retrieveDistributionInfo(cacheTopology, command, key).isWriteOwner()) {
+               return null;
+            }
          }
          CacheEntry entry = ctx.lookupEntry(command.getKey());
          if (entry == null) {

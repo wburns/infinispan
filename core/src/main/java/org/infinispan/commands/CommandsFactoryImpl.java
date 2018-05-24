@@ -223,7 +223,8 @@ public class CommandsFactoryImpl implements CommandsFactory {
       if (cacheMode.needsStateTransfer()) {
          return keyPartitioner.getSegment(key);
       }
-      return -1;
+      // LOCAL and INVAL don't require segments, so just use 0
+      return 0;
    }
 
    @Override
@@ -372,8 +373,11 @@ public class CommandsFactoryImpl implements CommandsFactory {
    }
 
    @Override
-   public ClusteredGetCommand buildClusteredGetCommand(Object key, long flagsBitSet) {
-      return new ClusteredGetCommand(key, cacheName, flagsBitSet);
+   public ClusteredGetCommand buildClusteredGetCommand(Object key, int segment, long flagsBitSet) {
+      if (segment == -1) {
+         segment = getSegment(key);
+      }
+      return new ClusteredGetCommand(key, cacheName, segment, flagsBitSet);
    }
 
    /**
@@ -762,8 +766,11 @@ public class CommandsFactoryImpl implements CommandsFactory {
    }
 
    @Override
-   public GetCacheEntryCommand buildGetCacheEntryCommand(Object key, long flagsBitSet) {
-      return new GetCacheEntryCommand(key, getSegment(key), flagsBitSet, entryFactory);
+   public GetCacheEntryCommand buildGetCacheEntryCommand(Object key, int segment, long flagsBitSet) {
+      if (segment == -1) {
+         segment = getSegment(key);
+      }
+      return new GetCacheEntryCommand(key, segment, flagsBitSet, entryFactory);
    }
 
    @Override

@@ -22,6 +22,7 @@ import java.util.function.Supplier;
 import org.infinispan.commands.CommandInvocationId;
 import org.infinispan.commands.CommandsFactory;
 import org.infinispan.commands.FlagAffectedCommand;
+import org.infinispan.commands.SegmentSpecificCommand;
 import org.infinispan.commands.TopologyAffectedCommand;
 import org.infinispan.commands.VisitableCommand;
 import org.infinispan.commands.functional.ReadWriteKeyCommand;
@@ -571,7 +572,8 @@ public class TriangleDistributionInterceptor extends BaseDistributionInterceptor
       if (command.hasAnyFlag(FlagBitSets.SKIP_REMOTE_LOOKUP | FlagBitSets.CACHE_MODE_LOCAL)) {
          entryFactory.wrapExternalEntry(ctx, key, null, false, true);
       } else {
-         GetCacheEntryCommand fakeGetCommand = cf.buildGetCacheEntryCommand(key, command.getFlagsBitSet());
+         GetCacheEntryCommand fakeGetCommand = cf.buildGetCacheEntryCommand(key,
+               SegmentSpecificCommand.extractSegment(command), command.getFlagsBitSet());
          fakeGetCommand.setTopologyId(command.getTopologyId());
          futureList.add(remoteGet(ctx, fakeGetCommand, key, true).toCompletableFuture());
       }

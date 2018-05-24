@@ -27,6 +27,7 @@ import org.infinispan.commands.AbstractTopologyAffectedCommand;
 import org.infinispan.commands.CommandsFactory;
 import org.infinispan.commands.DataCommand;
 import org.infinispan.commands.FlagAffectedCommand;
+import org.infinispan.commands.SegmentSpecificCommand;
 import org.infinispan.commands.TopologyAffectedCommand;
 import org.infinispan.commands.VisitableCommand;
 import org.infinispan.commands.functional.ReadOnlyKeyCommand;
@@ -149,7 +150,7 @@ public class PrefetchInterceptor<K, V> extends DDAsyncInterceptor {
             }
          case KEY_TRANSFER:
          case VALUE_TRANSFER:
-            return asyncInvokeNext(ctx, command, lookupLocalAndRetrieveRemote(ctx, key, command.getTopologyId()).toCompletableFuture());
+            return asyncInvokeNext(ctx, command, lookupLocalAndRetrieveRemote(ctx, key, command).toCompletableFuture());
          case OWNED:
             break;
          default:
@@ -200,12 +201,13 @@ public class PrefetchInterceptor<K, V> extends DDAsyncInterceptor {
       }
    }
 
-   private InvocationStage lookupLocalAndRetrieveRemote(InvocationContext ctx, Object key, int topologyId) {
+   private InvocationStage lookupLocalAndRetrieveRemote(InvocationContext ctx, Object key, TopologyAffectedCommand command) {
       if (trace) {
          log.tracef("Locally prefetching entry for key %s", key);
       }
-      GetCacheEntryCommand getCacheEntryCommand = commandsFactory.buildGetCacheEntryCommand(key, EnumUtil.bitSetOf(Flag.CACHE_MODE_LOCAL));
-      getCacheEntryCommand.setTopologyId(topologyId);
+      int segment = SegmentSpecificCommand.extractSegment(command);
+      GetCacheEntryCommand getCacheEntryCommand = commandsFactory.buildGetCacheEntryCommand(key, segment, EnumUtil.bitSetOf(Flag.CACHE_MODE_LOCAL));
+      getCacheEntryCommand.setTopologyId(command.getTopologyId());
       return makeStage(invokeNextThenApply(ctx, getCacheEntryCommand, handleLocallyLookedUpEntry));
    }
 
@@ -225,9 +227,9 @@ public class PrefetchInterceptor<K, V> extends DDAsyncInterceptor {
          // The RemoteMetadata is valid only during value transfer - in blocked state there shouldn't be any such
          // entry and during key transfer we could see metadata pointing to a node with outdated information.
          Address backup = ((RemoteMetadata) metadata).getAddress();
-         future = retrieveRemoteValue(Collections.singleton(backup), cmd.getKey(), cmd.getTopologyId());
+         future = retrieveRemoteValue(Collections.singleton(backup), cmd.getKey(), cmd);
       } else {
-         future = retrieveRemoteValue(null, cmd.getKey(), cmd.getTopologyId());
+         future = retrieveRemoteValue(null, cmd.getKey(), cmd);
       }
       return asyncValue(future.thenAccept(maxValue -> {
          if (maxValue == null) {
@@ -242,12 +244,13 @@ public class PrefetchInterceptor<K, V> extends DDAsyncInterceptor {
    }
 
    private CompletionStage<InternalCacheValue> retrieveRemoteValue(Collection<Address> targets, Object key,
-                                                                   int topologyId) {
+                                                                   TopologyAffectedCommand topologyAffectedCommand) {
       if (trace) {
          log.tracef("Prefetching entry for key %s from %s", key, targets);
       }
-      ClusteredGetCommand command = commandsFactory.buildClusteredGetCommand(key, FlagBitSets.SKIP_OWNERSHIP_CHECK);
-      command.setTopologyId(topologyId);
+      int segment = SegmentSpecificCommand.extractSegment(topologyAffectedCommand);
+      ClusteredGetCommand command = commandsFactory.buildClusteredGetCommand(key, segment, FlagBitSets.SKIP_OWNERSHIP_CHECK);
+      command.setTopologyId(topologyAffectedCommand.getTopologyId());
       CompletionStage<Map<Address, Response>> remoteInvocation =
             targets != null ?
             rpcManager.invokeCommand(targets, command, MapResponseCollector.ignoreLeavers(targets.size()),

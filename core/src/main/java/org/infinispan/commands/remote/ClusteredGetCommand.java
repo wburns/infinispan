@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
 import org.infinispan.commands.CommandsFactory;
+import org.infinispan.commands.SegmentSpecificCommand;
 import org.infinispan.commands.read.GetCacheEntryCommand;
 import org.infinispan.commons.util.EnumUtil;
 import org.infinispan.container.InternalEntryFactory;
@@ -30,7 +31,7 @@ import org.infinispan.util.logging.LogFactory;
  * @author Mircea.Markus@jboss.com
  * @since 4.0
  */
-public class ClusteredGetCommand extends BaseClusteredReadCommand {
+public class ClusteredGetCommand extends BaseClusteredReadCommand implements SegmentSpecificCommand {
 
    public static final byte COMMAND_ID = 16;
    private static final Log log = LogFactory.getLog(ClusteredGetCommand.class);
@@ -45,6 +46,7 @@ public class ClusteredGetCommand extends BaseClusteredReadCommand {
    private InternalEntryFactory entryFactory;
    //only used by extended statistics. this boolean is local.
    private boolean isWrite;
+   private int segment = -1;
 
    private ClusteredGetCommand() {
       super(null, EnumUtil.EMPTY_BIT_SET); // For command id uniqueness test
@@ -54,10 +56,14 @@ public class ClusteredGetCommand extends BaseClusteredReadCommand {
       super(cacheName, EnumUtil.EMPTY_BIT_SET);
    }
 
-   public ClusteredGetCommand(Object key, ByteString cacheName, long flags) {
+   public ClusteredGetCommand(Object key, ByteString cacheName, int segment, long flags) {
       super(cacheName, flags);
       this.key = key;
       this.isWrite = false;
+      if (segment < 0) {
+         throw new IllegalArgumentException("Segment must be a positive number!");
+      }
+      this.segment = segment;
    }
 
    public void initialize(InvocationContextFactory icf, CommandsFactory commandsFactory,
@@ -77,7 +83,8 @@ public class ClusteredGetCommand extends BaseClusteredReadCommand {
       // as our caller is already calling the ClusteredGetCommand on all the relevant nodes
       // CACHE_MODE_LOCAL is not used as it can be used when we want to ignore the ownership with respect to reads
       long flagBitSet = EnumUtil.bitSetOf(Flag.SKIP_REMOTE_LOOKUP);
-      GetCacheEntryCommand command = commandsFactory.buildGetCacheEntryCommand(key, EnumUtil.mergeBitSets(flagBitSet, getFlagsBitSet()));
+      GetCacheEntryCommand command = commandsFactory.buildGetCacheEntryCommand(key, segment,
+            EnumUtil.mergeBitSets(flagBitSet, getFlagsBitSet()));
       command.setTopologyId(topologyId);
       InvocationContext invocationContext = icf.createRemoteInvocationContextForCommand(command, getOrigin());
       CompletableFuture<Object> future = invoker.invokeAsync(invocationContext, command);
@@ -125,12 +132,12 @@ public class ClusteredGetCommand extends BaseClusteredReadCommand {
 
       ClusteredGetCommand that = (ClusteredGetCommand) o;
 
-      return Objects.equals(key, that.key);
+      return Objects.equals(key, that.key) && segment == that.segment;
    }
 
    @Override
    public int hashCode() {
-      return Objects.hashCode(key);
+      return Objects.hash(key, segment);
    }
 
    @Override
@@ -150,6 +157,16 @@ public class ClusteredGetCommand extends BaseClusteredReadCommand {
 
    public void setWrite(boolean write) {
       isWrite = write;
+   }
+
+   @Override
+   public int getSegment() {
+      return segment;
+   }
+
+   @Override
+   public void setSegment(int segment) {
+      this.segment = segment;
    }
 
    public Object getKey() {

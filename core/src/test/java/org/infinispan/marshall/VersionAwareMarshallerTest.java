@@ -59,6 +59,7 @@ import org.infinispan.commons.marshall.StreamingMarshaller;
 import org.infinispan.commons.util.EnumUtil;
 import org.infinispan.commons.util.FastCopyHashMap;
 import org.infinispan.commons.util.Immutables;
+import org.infinispan.commons.util.SmallIntSet;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
@@ -94,7 +95,6 @@ import org.infinispan.test.fwk.TestInternalCacheEntryFactory;
 import org.infinispan.transaction.xa.GlobalTransaction;
 import org.infinispan.transaction.xa.TransactionFactory;
 import org.infinispan.util.ByteString;
-import org.infinispan.commons.util.SmallIntSet;
 import org.infinispan.util.concurrent.TimeoutException;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
@@ -217,8 +217,7 @@ public class VersionAwareMarshallerTest extends AbstractInfinispanTest {
 
    public void testReplicableCommandsMarshalling() throws Exception {
       ByteString cacheName = ByteString.fromString(EmbeddedCacheManager.DEFAULT_CACHE_NAME);
-      ClusteredGetCommand c2 = new ClusteredGetCommand("key", cacheName,
-                                                       EnumUtil.EMPTY_BIT_SET);
+      ClusteredGetCommand c2 = new ClusteredGetCommand("key", cacheName, 0, EnumUtil.EMPTY_BIT_SET);
       marshallAndAssertEquality(c2);
 
       // SizeCommand does not have an empty constructor, so doesn't look to be one that is marshallable.

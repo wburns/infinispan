@@ -67,6 +67,7 @@ import org.infinispan.Version;
 import org.infinispan.cache.impl.AbstractDelegatingCache;
 import org.infinispan.cache.impl.CacheImpl;
 import org.infinispan.commands.CommandsFactory;
+import org.infinispan.commands.SegmentSpecificCommand;
 import org.infinispan.commands.VisitableCommand;
 import org.infinispan.commons.api.Lifecycle;
 import org.infinispan.commons.marshall.StreamingMarshaller;
@@ -82,6 +83,7 @@ import org.infinispan.context.InvocationContextFactory;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.distribution.ch.ConsistentHashFactory;
+import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.distribution.group.impl.PartitionerConsistentHash;
 import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.factories.GlobalComponentRegistry;
@@ -336,6 +338,14 @@ public class TestingUtil {
          Class<T> interceptorToFind) {
       return cache.getAdvancedCache().getAsyncInterceptorChain()
             .findInterceptorExtending(interceptorToFind);
+   }
+
+   public static int getSegmentForKey(Object key, Cache cache) {
+      KeyPartitioner keyPartitioner = extractComponent(cache, KeyPartitioner.class);
+      if (keyPartitioner != null) {
+         return keyPartitioner.getSegment(key);
+      }
+      return SegmentSpecificCommand.UNKOWN_SEGMENT;
    }
 
    /**
