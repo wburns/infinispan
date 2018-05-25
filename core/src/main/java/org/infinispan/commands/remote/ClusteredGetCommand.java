@@ -137,7 +137,7 @@ public class ClusteredGetCommand extends BaseClusteredReadCommand implements Seg
 
    @Override
    public int hashCode() {
-      return Objects.hash(key);
+      return Objects.hashCode(key);
    }
 
    @Override

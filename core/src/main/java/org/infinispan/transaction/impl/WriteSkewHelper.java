@@ -48,14 +48,9 @@ public class WriteSkewHelper {
       for (WriteCommand c : prepareCommand.getModifications()) {
          for (Object k : c.getAffectedKeys()) {
             boolean shouldPerformCheck;
-            int segment;
-            if (c instanceof SegmentSpecificCommand) {
-               segment = ((SegmentSpecificCommand) c).getSegment();
-            } else {
-               segment = -1;
-            }
+            int segment = SegmentSpecificCommand.extractSegment(c);
             if (segment != -1) {
-               shouldPerformCheck = ksl.performCheckOnSegment(((SegmentSpecificCommand) c).getSegment());
+               shouldPerformCheck = ksl.performCheckOnSegment(segment);
             } else {
                shouldPerformCheck = ksl.performCheckOnKey(k);
             }

@@ -483,7 +483,7 @@ public final class CacheNotifierImpl<K, V> extends AbstractListenerImpl<Event<K,
    @Override
    public void notifyCacheEntryVisited(K key, V value, boolean pre, InvocationContext ctx, FlagAffectedCommand command) {
       if (isNotificationAllowed(command, cacheEntryVisitedListeners)) {
-         // This is so this method can be inlined easier as we very rarely do listener notifications
+         // This is so this method can be inlined easier as we very rarely do listener visit notifications
          doVisitNotify(key, value, pre, ctx);
       }
    }

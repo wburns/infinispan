@@ -386,13 +386,7 @@ public class TriangleDistributionInterceptor extends BaseDistributionInterceptor
          return invokeNext(context, command);
       }
       LocalizedCacheTopology topology = checkTopologyId(command);
-      DistributionInfo distributionInfo;
-      int segment = command.getSegment();
-      if (segment != -1) {
-         distributionInfo = topology.getDistributionForSegment(segment);
-      } else {
-         distributionInfo = topology.getDistribution(command.getKey());
-      }
+      DistributionInfo distributionInfo = topology.getDistributionForSegment(command.getSegment());
 
       if (distributionInfo.isPrimary()) {
          assert context.lookupEntry(command.getKey()) != null;

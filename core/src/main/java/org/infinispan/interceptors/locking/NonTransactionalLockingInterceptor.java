@@ -29,7 +29,7 @@ public class NonTransactionalLockingInterceptor extends AbstractLockingIntercept
    }
 
    @Override
-   protected final Object  visitDataReadCommand(InvocationContext ctx, DataCommand command) throws Throwable {
+   protected final Object visitDataReadCommand(InvocationContext ctx, DataCommand command) throws Throwable {
       assertNonTransactional(ctx);
       return invokeNext(ctx, command);
    }

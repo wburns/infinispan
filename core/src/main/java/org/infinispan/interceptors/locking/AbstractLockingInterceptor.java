@@ -243,11 +243,7 @@ public abstract class AbstractLockingInterceptor extends DDAsyncInterceptor {
    }
 
    final boolean shouldLockKey(DataWriteCommand command) {
-      int segment = command.getSegment();
-      if (segment != -1) {
-         return shouldLockKey(segment);
-      }
-      return shouldLockKey(command.getKey());
+      return shouldLockKey(command.getSegment());
    }
 
    final boolean shouldLockKey(Object key) {

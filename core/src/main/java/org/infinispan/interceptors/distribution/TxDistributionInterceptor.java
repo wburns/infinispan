@@ -418,7 +418,7 @@ public class TxDistributionInterceptor extends BaseDistributionInterceptor {
          if (!ctx.isOriginLocal()) {
             LocalizedCacheTopology cacheTopology = checkTopologyId(command);
             // Ignore any remote command when we aren't the owner
-            if (!retrieveDistributionInfo(cacheTopology, command, key).isWriteOwner()) {
+            if (!cacheTopology.isWriteOwner(command.getSegment())) {
                return null;
             }
          }
@@ -508,9 +508,6 @@ public class TxDistributionInterceptor extends BaseDistributionInterceptor {
             } else {
                LocalizedCacheTopology cacheTopology = checkTopologyId(command);
                int segment = command.getSegment();
-               if (segment == -1) {
-                  segment = cacheTopology.getSegment(key);
-               }
                Collection<Address> owners = cacheTopology.getDistributionForSegment(segment).readOwners();
 
                List<Mutation> mutationsOnKey = getMutationsOnKey((TxInvocationContext) ctx, key);
@@ -597,12 +594,7 @@ public class TxDistributionInterceptor extends BaseDistributionInterceptor {
          return cf;
       }
       return cf.thenRun(() -> {
-         int segment;
-         if (command instanceof SegmentSpecificCommand) {
-            segment = ((SegmentSpecificCommand) command).getSegment();
-         } else {
-            segment = -1;
-         }
+         int segment = SegmentSpecificCommand.extractSegment(command);
          entryFactory.wrapEntryForWriting(ctx, key, segment, false, true);
          MVCCEntry cacheEntry = (MVCCEntry) ctx.lookupEntry(key);
          for (Mutation mutation : mutationsOnKey) {
