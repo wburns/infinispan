@@ -18,7 +18,9 @@ public interface ExternalStore<K, V> extends CacheLoader<K, V>, CacheWriter<K, V
    /**
     * Method to be used to destroy and clean up any resources associated with this store. This is normally only
     * useful for non shared stores.
-    * @implSpec Default implementation does nothing
+    * <p>
+    * This method will ensure the store is stopped and properly cleans up all resources for it.
+    * @implSpec Default implementation just invokes {@link #stop()}
     */
-   default void destroy() { }
+   default void destroy() { stop(); }
 }

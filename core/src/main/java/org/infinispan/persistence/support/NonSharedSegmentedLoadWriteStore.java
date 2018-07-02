@@ -296,6 +296,13 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
       }
    }
 
+   private void destroyStore(int segment) {
+      AdvancedLoadWriteStore<K, V> store = stores.getAndSet(segment, null);
+      if (store != null) {
+         store.destroy();
+      }
+   }
+
    @Override
    public void stop() {
       for (int i = 0; i < stores.length(); ++i) {
@@ -311,7 +318,7 @@ public class NonSharedSegmentedLoadWriteStore<K, V, T extends AbstractNonSharedS
    @Override
    public void removeSegments(IntSet segments) {
       if (shouldStopSegments) {
-         segments.forEach((IntConsumer) this::stopStoreForSegment);
+         segments.forEach((IntConsumer) this::destroyStore);
       } else {
          clear(segments);
       }
