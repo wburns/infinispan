@@ -26,8 +26,10 @@ public class RehashWithSharedStoreTest extends BaseDistStoreTest<Object, String,
    @Override
    public Object[] factory() {
       return new Object[] {
-         new RehashWithSharedStoreTest().segmented(false).shared(true),
-         new RehashWithSharedStoreTest().segmented(true).shared(true).numOwners(1).l1(false).cacheMode(CacheMode.SCATTERED_SYNC).transactional(false)
+         new RehashWithSharedStoreTest().segmented(false),
+         new RehashWithSharedStoreTest().segmented(true),
+         new RehashWithSharedStoreTest().segmented(false).numOwners(1).l1(false).cacheMode(CacheMode.SCATTERED_SYNC).transactional(false),
+         new RehashWithSharedStoreTest().segmented(true).numOwners(1).l1(false).cacheMode(CacheMode.SCATTERED_SYNC).transactional(false),
       };
    }
 
@@ -35,6 +37,7 @@ public class RehashWithSharedStoreTest extends BaseDistStoreTest<Object, String,
       INIT_CLUSTER_SIZE = 3;
       testRetVals = true;
       performRehashing = true;
+      shared = true;
    }
 
    @BeforeMethod
