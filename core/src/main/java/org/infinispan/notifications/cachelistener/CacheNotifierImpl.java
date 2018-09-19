@@ -291,6 +291,7 @@ public final class CacheNotifierImpl<K, V> extends AbstractListenerImpl<Event<K,
       Object unwrappedKey = wrp.unwrap(key);
       CacheEventFilter filter = listenerInvocation.getFilter();
       CacheEventConverter converter = listenerInvocation.getConverter();
+      // TODO: this should be where it is done!
       if (filter == null && converter == null) {
          if (listenerInvocation.useStorageFormat()) {
             return (K) unwrappedKey;

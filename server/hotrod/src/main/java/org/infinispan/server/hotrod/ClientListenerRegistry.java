@@ -200,13 +200,17 @@ class ClientListenerRegistry {
 
       // If no filter or converter are supplied, we can apply a converter so we don't have to return the value - since
       // events will only use the key
-      if (converter == null && filter == null) {
+      /*if (converter == null && filter == null) {
          converter = new KeyValueFilterConverterAsCacheEventFilterConverter<>(HotRodServer.ToEmptyBytesKeyValueFilterConverter.INSTANCE);
          // We have to use storage format - otherwise passing converer will force it to change to incorrect format
-         cache.addStorageFormatFilteredListener(clientEventSender, filter, converter, filterAnnotations);
-      } else if (useRawData) {
+         cache.addStorageFormatFilteredListener(clientEventSender, null, converter, filterAnnotations);
+      } else */
+      if (useRawData) {
          cache.addStorageFormatFilteredListener(clientEventSender, filter, converter, filterAnnotations);
       } else {
+         if (converter == null && filter == null) {
+            converter = new KeyValueFilterConverterAsCacheEventFilterConverter<>(HotRodServer.ToEmptyBytesKeyValueFilterConverter.INSTANCE);
+         }
          cache.addFilteredListener(clientEventSender, filter, converter, filterAnnotations);
       }
    }

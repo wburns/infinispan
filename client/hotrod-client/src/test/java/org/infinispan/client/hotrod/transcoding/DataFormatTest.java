@@ -260,6 +260,8 @@ public class DataFormatTest extends SingleHotRodServerTest {
    public void testListenersWithDifferentFormats() {
       remoteCache.clear();
 
+      cacheManager.getClassWhiteList().addClasses(ComplexKey.class);
+
       ComplexKey complexKey = new ComplexKey("Key-1", 89.88f);
 
       // Receive events as JSON Strings
