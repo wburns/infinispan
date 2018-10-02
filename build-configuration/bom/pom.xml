@@ -104,6 +104,7 @@
         <versionx.com.fasterxml.jackson.core.jackson-databind>${version.jackson}</versionx.com.fasterxml.jackson.core.jackson-databind>
         <versionx.com.fasterxml.jackson.module.jackson-module-paranamer>2.7.9</versionx.com.fasterxml.jackson.module.jackson-module-paranamer>
         <versionx.com.fasterxml.jackson.module.jackson-module-scala_2.11>2.6.7.1</versionx.com.fasterxml.jackson.module.jackson-module-scala_2.11>
+        <versionx.com.github.akarnokd.rxjava2-jdk8>${version.rxjava-jdk8}</versionx.com.github.akarnokd.rxjava2-jdk8>
         <versionx.com.github.ben-manes.caffeine.caffeine>${version.caffeine}</versionx.com.github.ben-manes.caffeine.caffeine>
         <versionx.com.github.javaparser.javaparser-symbol-solver-core>3.5.17</versionx.com.github.javaparser.javaparser-symbol-solver-core>
         <versionx.com.github.jbellis.jamm>0.3.0</versionx.com.github.jbellis.jamm>
@@ -1659,6 +1660,11 @@
                 <groupId>io.reactivex.rxjava2</groupId>
                 <artifactId>rxjava</artifactId>
                 <version>${versionx.io.reactivex.rxjava2.rxjava}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.github.akarnokd</groupId>
+                <artifactId>rxjava2-jdk8-interop</artifactId>
+                <version>${versionx.com.github.akarnokd.rxjava2-jdk8}</version>
             </dependency>
             <dependency>
                 <groupId>io.undertow</groupId>
