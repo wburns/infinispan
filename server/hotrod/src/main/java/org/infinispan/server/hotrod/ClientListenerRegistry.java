@@ -54,6 +54,7 @@ import org.infinispan.util.KeyValuePair;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
+import io.netty.channel.EventLoop;
 
 /**
  * @author Galder Zamarreño
@@ -388,16 +389,37 @@ class ClientListenerRegistry {
          if (isTrace)
             log.tracef("Queue event %s, before queuing event queue size is %d", remoteEvent, eventQueue.size());
 
-         boolean waitingForFlush = !ch.isWritable();
-         try {
-            eventQueue.put(remoteEvent);
-         } catch (InterruptedException e) {
-            throw new CacheException(e);
-         }
+         EventLoop loop = ch.eventLoop();
+         if (loop.inEventLoop()) {
+            while (true) {
+               if (!eventQueue.offer(remoteEvent)) {
+                  // If the event queue is full, we have to try to write some events to free up space since we are in the
+                  // event loop and no other thread can drain this queue
+                  writeEventsIfPossible();
+                  // We again try to offer, but if we weren't able to write any events this will not offer - so we
+                  // have to wait for the client to catch up to us
+                  if (!eventQueue.offer(remoteEvent)) {
+                     try {
+                        Thread.sleep(5);
+                     } catch (InterruptedException e) {
+                        throw new CacheException(e);
+                     }
+                     continue;
+                  }
+               }
+               // Now that the entry is finally in eventQueue, submit the events to be written at a later point
+               loop.submit(writeEventsIfPossible);
+               break;
+            }
+         } else {
+            try {
+               eventQueue.put(remoteEvent);
+            } catch (InterruptedException e) {
+               throw new CacheException(e);
+            }
 
-         if (!waitingForFlush) {
             // Make sure we write any event in main event loop
-            ch.eventLoop().submit(writeEventsIfPossible);
+            loop.submit(writeEventsIfPossible);
          }
       }
 

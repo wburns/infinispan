@@ -1,7 +1,9 @@
 package org.infinispan.util;
 
 import java.util.Iterator;
+import java.util.function.Consumer;
 
+import org.infinispan.InfinispanPublisher;
 import org.infinispan.commons.util.CloseableIterator;
 import org.reactivestreams.Publisher;
 
@@ -44,5 +46,22 @@ public class Closeables {
             return iterator.next();
          }
       };
+   }
+
+   public static AutoCloseable autoCloseable(Disposable disposable) {
+      return new DisposableAsAutoCloseable(disposable);
+   }
+
+   private static class DisposableAsAutoCloseable implements AutoCloseable {
+      private final Disposable disposable;
+
+      private DisposableAsAutoCloseable(Disposable disposable) {
+         this.disposable = disposable;
+      }
+
+      @Override
+      public void close() throws Exception {
+         disposable.dispose();
+      }
    }
 }

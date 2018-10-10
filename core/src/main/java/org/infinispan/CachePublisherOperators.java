@@ -10,6 +10,7 @@ import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collector;
 
+import org.infinispan.util.Closeables;
 import org.reactivestreams.Publisher;
 
 import hu.akarnokd.rxjava2.interop.FlowableInterop;
@@ -126,18 +127,21 @@ public class CachePublisherOperators {
       return infinispanPublisher.compose(transformer, intermediate, finalizer);
    }
 
-   public static <E> void subscribe(InfinispanPublisher<E> infinispanPublisher, Consumer<? super E> onNext) {
-      Flowable.fromPublisher(infinispanPublisher.asPublisher()).subscribe(onNext::accept);
+   public static <E> AutoCloseable subscribe(InfinispanPublisher<E> infinispanPublisher, Consumer<? super E> onNext) {
+      return Closeables.autoCloseable(Flowable.fromPublisher(infinispanPublisher.asPublisher())
+            .subscribe(onNext::accept));
    }
 
-   public static <E> void subscribe(InfinispanPublisher<E> infinispanPublisher, Consumer<? super E> onNext,
+   public static <E> AutoCloseable subscribe(InfinispanPublisher<E> infinispanPublisher, Consumer<? super E> onNext,
          Consumer<? super Throwable> onError) {
-      Flowable.fromPublisher(infinispanPublisher.asPublisher()).subscribe(onNext::accept, onError::accept);
+      return Closeables.autoCloseable(Flowable.fromPublisher(infinispanPublisher.asPublisher())
+            .subscribe(onNext::accept, onError::accept));
    }
 
-   public static <E> void subscribe(InfinispanPublisher<E> infinispanPublisher, Consumer<? super E> onNext,
+   public static <E> AutoCloseable subscribe(InfinispanPublisher<E> infinispanPublisher, Consumer<? super E> onNext,
          Consumer<? super Throwable> onError, Runnable onComplete) {
-      Flowable.fromPublisher(infinispanPublisher.asPublisher()).subscribe(onNext::accept, onError::accept, onComplete::run);
+      return Closeables.autoCloseable(Flowable.fromPublisher(infinispanPublisher.asPublisher())
+            .subscribe(onNext::accept, onError::accept, onComplete::run));
    }
 
    public static <E> Publisher<E> asPublisher(InfinispanPublisher<E> infinispanPublisher) {

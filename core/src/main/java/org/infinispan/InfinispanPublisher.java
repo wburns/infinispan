@@ -131,8 +131,8 @@ public interface InfinispanPublisher<T> {
     * Note that the consumer does not need to be marshallable and all invocations upon it will be done in this node.
     * @param consumer callback to be notified of all elements published
     */
-   default void subscribe(Consumer<? super T> consumer) {
-      CachePublisherOperators.subscribe(this, consumer);
+   default AutoCloseable subscribe(Consumer<? super T> consumer) {
+      return CachePublisherOperators.subscribe(this, consumer);
    }
 
    /**
@@ -140,8 +140,8 @@ public interface InfinispanPublisher<T> {
     * @param onNext
     * @param onError
     */
-   default void subscribe(Consumer<? super T> onNext, Consumer<? super Throwable> onError) {
-      CachePublisherOperators.subscribe(this, onNext, onError);
+   default AutoCloseable subscribe(Consumer<? super T> onNext, Consumer<? super Throwable> onError) {
+      return CachePublisherOperators.subscribe(this, onNext, onError);
    }
 
    /**
@@ -150,8 +150,8 @@ public interface InfinispanPublisher<T> {
     * @param onError
     * @param onComplete
     */
-   default void subscribe(Consumer<? super T> onNext, Consumer<? super Throwable> onError, Runnable onComplete) {
-      CachePublisherOperators.subscribe(this, onNext, onError, onComplete);
+   default AutoCloseable subscribe(Consumer<? super T> onNext, Consumer<? super Throwable> onError, Runnable onComplete) {
+      return CachePublisherOperators.subscribe(this, onNext, onError, onComplete);
    }
 
    /**
