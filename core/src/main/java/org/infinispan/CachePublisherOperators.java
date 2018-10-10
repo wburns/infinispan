@@ -128,19 +128,19 @@ public class CachePublisherOperators {
    }
 
    public static <E> AutoCloseable subscribe(InfinispanPublisher<E> infinispanPublisher, Consumer<? super E> onNext) {
-      return Closeables.autoCloseable(Flowable.fromPublisher(infinispanPublisher.asPublisher())
+      return Closeables.autoCloseable(Flowable.fromPublisher(infinispanPublisher.asRsPublisher())
             .subscribe(onNext::accept));
    }
 
    public static <E> AutoCloseable subscribe(InfinispanPublisher<E> infinispanPublisher, Consumer<? super E> onNext,
          Consumer<? super Throwable> onError) {
-      return Closeables.autoCloseable(Flowable.fromPublisher(infinispanPublisher.asPublisher())
+      return Closeables.autoCloseable(Flowable.fromPublisher(infinispanPublisher.asRsPublisher())
             .subscribe(onNext::accept, onError::accept));
    }
 
    public static <E> AutoCloseable subscribe(InfinispanPublisher<E> infinispanPublisher, Consumer<? super E> onNext,
          Consumer<? super Throwable> onError, Runnable onComplete) {
-      return Closeables.autoCloseable(Flowable.fromPublisher(infinispanPublisher.asPublisher())
+      return Closeables.autoCloseable(Flowable.fromPublisher(infinispanPublisher.asRsPublisher())
             .subscribe(onNext::accept, onError::accept, onComplete::run));
    }
 

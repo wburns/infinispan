@@ -5,6 +5,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
+import org.infinispan.client.hotrod.event.ClientEvent;
 import org.infinispan.client.hotrod.jmx.RemoteCacheClientStatisticsMXBean;
 import org.infinispan.commons.api.BasicCache;
 import org.infinispan.commons.api.TransactionalCache;
@@ -480,6 +481,8 @@ public interface RemoteCache<K, V> extends BasicCache<K, V>, TransactionalCache 
     * Returns the HotRod protocol version supported by this RemoteCache implementation
     */
    String getProtocolVersion();
+
+   EventPublisher<ClientEvent> listen();
 
    /**
     * Add a client listener to receive events that happen in the remote cache.

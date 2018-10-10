@@ -14,6 +14,7 @@ import org.infinispan.util.function.SerializablePredicate;
 import org.reactivestreams.Publisher;
 
 /**
+ * TODO: need to mention issues with CompletionStage (ie. toCompletableFuture().join() and also async without Executor
  * @author wburns
  * @since 10.0
  */
@@ -158,7 +159,7 @@ public interface InfinispanPublisher<T> {
     *
     * @return
     */
-   default Publisher<T> asPublisher() {
+   default Publisher<T> asRsPublisher() {
       return CachePublisherOperators.asPublisher(this);
    }
 
