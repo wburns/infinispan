@@ -53,6 +53,7 @@ public interface InfinispanPublisher<T> {
 
    // Terminal Operations
 
+   // TODO: do we want CompletionStage<List<T>> ?
    default Publisher<T> min(Comparator<? super T> comparator, int amountToReturn) {
       return CachePublisherOperators.min(this, comparator, amountToReturn);
    }
@@ -179,7 +180,7 @@ public interface InfinispanPublisher<T> {
     * segment that node is a primary owner of. The results from the Publishers are then sent downstream to the
     * <b>finalizer</b> on each node to be processed further to create a single Publisher response. This result is fully
     * consume
-    * @param transformer
+    * @param transformer transforms the stream of data into a reduced single value
     * @param finalizer
     * @param <R>
     * @return

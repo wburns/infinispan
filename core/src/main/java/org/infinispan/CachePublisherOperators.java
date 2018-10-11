@@ -14,6 +14,7 @@ import org.infinispan.util.Closeables;
 import org.reactivestreams.Publisher;
 
 import hu.akarnokd.rxjava2.interop.FlowableInterop;
+import hu.akarnokd.rxjava2.interop.MaybeInterop;
 import hu.akarnokd.rxjava2.interop.SingleInterop;
 import io.reactivex.Flowable;
 import io.reactivex.Single;
@@ -30,22 +31,29 @@ public class CachePublisherOperators {
 
    public static CompletionStage<Long> count(InfinispanPublisher<?> infinispanPublisher) {
       Function<Single<Long>, CompletionStage<Long>> interop = SingleInterop.get();
-      InfinispanPublisher.CachePublisherTransformer<Object, Long> transformer =
-            cp -> Flowable.fromPublisher(cp).count().to(interop);
+      InfinispanPublisher.CachePublisherTransformer<Object, Long> transformer = cp ->
+            Flowable.fromPublisher(cp)
+                  .count()
+                  .to(interop);
       InfinispanPublisher.CachePublisherTransformer<Long, Long> finalizer = results ->
-            Flowable.fromPublisher(results).reduce((long) 0, Long::sum).to(interop);
+            Flowable.fromPublisher(results)
+                  .reduce((long) 0, Long::sum)
+                  .to(interop);
       return infinispanPublisher.compose(transformer, finalizer);
    }
 
    public static <E> CompletionStage<Boolean> allMatch(InfinispanPublisher<E> infinispanPublisher, Predicate<? super E> predicate) {
       Function<Single<Boolean>, CompletionStage<Boolean>> interop = SingleInterop.get();
-      InfinispanPublisher.CachePublisherTransformer<E, Boolean> transformer =
-            cp -> Flowable.fromPublisher(cp).all(predicate::test).to(interop);
+      InfinispanPublisher.CachePublisherTransformer<E, Boolean> transformer = cp ->
+            Flowable.fromPublisher(cp)
+                  .all(predicate::test)
+                  .to(interop);
 
       InfinispanPublisher.CachePublisherTransformer<Boolean, Boolean> finalizer = results ->
-         Flowable.fromPublisher(results)
-               .filter(b -> b == Boolean.FALSE)
-               .first(Boolean.TRUE).to(interop);
+            Flowable.fromPublisher(results)
+                  .filter(b -> b == Boolean.FALSE)
+                  .first(Boolean.TRUE)
+                  .to(interop);
 
       return infinispanPublisher.compose(transformer, finalizer);
    }
@@ -57,13 +65,16 @@ public class CachePublisherOperators {
 
    public static <E> CompletionStage<Boolean> anyMatch(InfinispanPublisher<E> infinispanPublisher, Predicate<? super E> predicate) {
       Function<Single<Boolean>, CompletionStage<Boolean>> interop = SingleInterop.get();
-      InfinispanPublisher.CachePublisherTransformer<E, Boolean> transformer =
-            cp -> Flowable.fromPublisher(cp).any(predicate::test).to(interop);
+      InfinispanPublisher.CachePublisherTransformer<E, Boolean> transformer = cp ->
+            Flowable.fromPublisher(cp)
+                  .any(predicate::test)
+                  .to(interop);
 
       InfinispanPublisher.CachePublisherTransformer<Boolean, Boolean> finalizer = results ->
             Flowable.fromPublisher(results)
                   .filter(b -> b == Boolean.TRUE)
-                  .first(Boolean.FALSE).to(interop);
+                  .first(Boolean.FALSE)
+                  .to(interop);
 
       return infinispanPublisher.compose(transformer, finalizer);
    }
@@ -82,8 +93,21 @@ public class CachePublisherOperators {
 
    public static <E, A> CompletionStage<A> collect(InfinispanPublisher<E> infinispanPublisher,
          Supplier<A> supplier, BiConsumer<A,? super E> accumulator, BiConsumer<A, A> combiner) {
-      // TODO: do this
-      return null;
+      InfinispanPublisher.CachePublisherTransformer<E, A> transformer = cp ->
+            Flowable.fromPublisher(cp)
+                  .collect(supplier::get, accumulator::accept)
+                  .to(SingleInterop.get());
+
+      InfinispanPublisher.CachePublisherTransformer<A, A> finalizer = results ->
+            Flowable.fromPublisher(results)
+                  .reduce((first, second) -> {
+                     combiner.accept(first, second);
+                     return first;
+                  })
+                  // The provided publisher is always > 0, so this cannot return a null value
+                  .to(MaybeInterop.get());
+
+      return infinispanPublisher.compose(transformer, finalizer);
    }
 
    public static <E, A, R> CompletionStage<R> collect(InfinispanPublisher<E> infinispanPublisher,
