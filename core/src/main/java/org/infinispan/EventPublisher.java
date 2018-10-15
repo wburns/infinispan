@@ -16,11 +16,10 @@ import org.reactivestreams.Publisher;
  * @since 10.0
  */
 public interface EventPublisher<K, V> {
-   EventPublisher<K, V> filter(Predicate<? super CacheEntryEvent<K, V>> filter);
 
-   <R> Publisher<R> map(Function<? super CacheEntryEvent<K, V>, ? extends R> function);
+   <R> Publisher<R> filterAndMap(String ickleQuery);
 
-   <R> Publisher<R> flatMap(Function<? super CacheEntryEvent<K, V>, ? extends Publisher<? extends R>> function);
+   <R> Publisher<R> filterAndMap(Query ickleQuery);
 
    Publisher<CacheEntryCreatedEvent<K, V>> onlyCreatedEvents();
 

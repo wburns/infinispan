@@ -135,7 +135,9 @@ public interface InternalDataContainer<K, V> extends DataContainer<K, V> {
     * returned via this spliterator. The spliterator will not return expired entries.
     * @param segments segments of entries to return
     * @return spliterator containing entries mapping to those segments that aren't expired
+    * @deprecated since 10.0, now with segmented container there is no need for this method
     */
+   @Deprecated
    Spliterator<InternalCacheEntry<K, V>> spliterator(IntSet segments);
 
    /**
@@ -143,8 +145,12 @@ public interface InternalDataContainer<K, V> extends DataContainer<K, V> {
     * segments are returned via this spliterator. The spliterator will return expired entries as well.
     * @param segments segments of entries to use
     * @return spliterator containing entries mapping to those segments that could be expired
+    * @deprecated since 10.0, now with segmented container there is no need for this method
     */
+   @Deprecated
    Spliterator<InternalCacheEntry<K, V>> spliteratorIncludingExpired(IntSet segments);
+
+   Iterator<InternalCacheEntry<K, V>> iterator(int segment);
 
    /**
     * Same as {@link DataContainer#iterator()} except that only entries that map to the provided segments are

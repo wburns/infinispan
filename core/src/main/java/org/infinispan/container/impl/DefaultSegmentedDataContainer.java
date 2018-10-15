@@ -84,6 +84,11 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractInternalDataCon
    }
 
    @Override
+   public Iterator<InternalCacheEntry<K, V>> iterator(int segment) {
+      return new EntryIterator();
+   }
+
+   @Override
    public Iterator<InternalCacheEntry<K, V>> iterator(IntSet segments) {
       return new EntryIterator(iteratorIncludingExpired(segments));
    }
