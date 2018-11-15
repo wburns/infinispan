@@ -21,11 +21,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Future;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -95,12 +96,16 @@ import org.infinispan.persistence.support.DelegatingCacheLoader;
 import org.infinispan.persistence.support.DelegatingCacheWriter;
 import org.infinispan.persistence.support.SingletonCacheWriter;
 import org.infinispan.remoting.transport.Transport;
+import org.infinispan.util.concurrent.CompletableFutures;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.infinispan.util.rxjava.RxJavaInterop;
 import org.reactivestreams.Publisher;
 
 import io.reactivex.Flowable;
+import io.reactivex.Scheduler;
 import io.reactivex.internal.functions.Functions;
+import io.reactivex.schedulers.Schedulers;
 import net.jcip.annotations.GuardedBy;
 
 public class PersistenceManagerImpl implements PersistenceManager {
@@ -137,6 +142,8 @@ public class PersistenceManagerImpl implements PersistenceManager {
    private AdvancedPurgeListener<Object, Object> advancedListener;
    private final Callable<Semaphore> publisherSemaphoreCallable = Functions.justCallable(publisherSemaphore);
 
+   private Scheduler persistenceScheduler;
+
    /**
     * making it volatile as it might change after @Start, so it needs the visibility.
     */
@@ -152,6 +159,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
       advancedListener = new AdvancedPurgeListener<>(expirationManager.wired());
       preloaded = false;
       enabled = configuration.persistence().usingStores();
+      persistenceScheduler = Schedulers.from(persistenceExecutor);
       if (!enabled)
          return;
       try {
@@ -281,47 +289,53 @@ public class PersistenceManagerImpl implements PersistenceManager {
    }
 
    @Override
-   public void preload() {
+   public CompletionStage<Void> preload() {
       if (!enabled)
-         return;
-      AdvancedCacheLoader<Object, Object> preloadCl = null;
+         return CompletableFutures.completedNull();
 
-      storesMutex.readLock().lock();
-      try {
-         for (CacheLoader l : loaders) {
-            if (getStoreConfig(l).preload()) {
-               if (!(l instanceof AdvancedCacheLoader)) {
-                  throw new PersistenceException("Cannot preload from cache loader '" + l.getClass().getName()
-                        + "' as it doesn't implement '" + AdvancedCacheLoader.class.getName() + "'");
+      return CompletableFuture.supplyAsync(() -> {
+         AdvancedCacheLoader<Object, Object> preloadCl = null;
+
+         storesMutex.readLock().lock();
+         try {
+            for (CacheLoader l : loaders) {
+               if (getStoreConfig(l).preload()) {
+                  if (!(l instanceof AdvancedCacheLoader)) {
+                     throw new PersistenceException("Cannot preload from cache loader '" + l.getClass().getName()
+                           + "' as it doesn't implement '" + AdvancedCacheLoader.class.getName() + "'");
+                  }
+                  preloadCl = (AdvancedCacheLoader) l;
+                  if (preloadCl instanceof AdvancedAsyncCacheLoader)
+                     preloadCl = (AdvancedCacheLoader) ((AdvancedAsyncCacheLoader) preloadCl).undelegate();
+                  break;
                }
-               preloadCl = (AdvancedCacheLoader) l;
-               if (preloadCl instanceof AdvancedAsyncCacheLoader)
-                  preloadCl = (AdvancedCacheLoader) ((AdvancedAsyncCacheLoader) preloadCl).undelegate();
-               break;
             }
+         } finally {
+            storesMutex.readLock().unlock();
          }
-      } finally {
-         storesMutex.readLock().unlock();
-      }
-      if (preloadCl == null)
-         return;
+         return preloadCl;
+      }, persistenceExecutor).thenCompose(preloadCl -> {
+         long start = timeService.time();
 
-      long start = timeService.time();
-
-
-      final long maxEntries = getMaxEntries();
-      final AtomicInteger loadedEntries = new AtomicInteger(0);
-      final AdvancedCache<Object, Object> flaggedCache = getCacheForStateInsertion();
-      Long insertAmount = Flowable.fromPublisher(preloadCl.publishEntries(null, true, true))
-            .take(maxEntries)
-            .doOnNext(me -> {
-               //the downcast will go away with ISPN-3460
-               Metadata metadata = me.getMetadata() != null ? ((InternalMetadataImpl) me.getMetadata()).actual() : null;
-               preloadKey(flaggedCache, me.getKey(), me.getValue(), metadata);
-            }).count().blockingGet();
-      this.preloaded = insertAmount < maxEntries;
-
-      log.debugf("Preloaded %d keys in %s", loadedEntries.get(), Util.prettyPrintTime(timeService.timeDuration(start, MILLISECONDS)));
+         final long maxEntries = getMaxEntries();
+         final AdvancedCache<Object, Object> flaggedCache = getCacheForStateInsertion();
+         // This will be on a persistence executor thread and subscribe will be on that thread
+         return Flowable.fromPublisher(preloadCl.publishEntries(null, true, true))
+               .take(maxEntries)
+               .doOnNext(me -> {
+                  //the downcast will go away with ISPN-3460
+                  Metadata metadata = me.getMetadata() != null ? ((InternalMetadataImpl) me.getMetadata()).actual() : null;
+                  preloadKey(flaggedCache, me.getKey(), me.getValue(), metadata);
+               })
+               .count()
+               // Need to make sure this is non blocking so we don't waste this persistence thread if the
+               // store changes what thread the entry was observed on
+               .to(RxJavaInterop.singleToStage())
+               .thenAccept(insertAmount -> {
+                  this.preloaded = insertAmount < maxEntries;
+                  log.debugf("Preloaded %d keys in %s", insertAmount, Util.prettyPrintTime(timeService.timeDuration(start, MILLISECONDS)));
+               });
+      });
    }
 
    @Override
@@ -475,44 +489,48 @@ public class PersistenceManagerImpl implements PersistenceManager {
    }
 
    @Override
-   public void clearAllStores(AccessMode mode) {
-      storesMutex.readLock().lock();
-      try {
-         checkStoreAvailability();
-         // Apply to txWriters as well as clear does not happen in a Tx context
-         Consumer<CacheWriter> clearWriter = writer -> {
-            if (writer instanceof AdvancedCacheWriter) {
-               if (mode.canPerform(getStoreConfig(writer))) {
-                  ((AdvancedCacheWriter) writer).clear();
+   public CompletionStage<Void> clearAllStores(AccessMode mode) {
+      return CompletableFuture.runAsync(() -> {
+         storesMutex.readLock().lock();
+         try {
+            checkStoreAvailability();
+            // Apply to txWriters as well as clear does not happen in a Tx context
+            Consumer<CacheWriter> clearWriter = writer -> {
+               if (writer instanceof AdvancedCacheWriter) {
+                  if (mode.canPerform(getStoreConfig(writer))) {
+                     ((AdvancedCacheWriter) writer).clear();
+                  }
                }
-            }
-         };
-         nonTxWriters.forEach(clearWriter);
-         txWriters.forEach(clearWriter);
-      } finally {
-         storesMutex.readLock().unlock();
-      }
+            };
+            nonTxWriters.forEach(clearWriter);
+            txWriters.forEach(clearWriter);
+         } finally {
+            storesMutex.readLock().unlock();
+         }
+      }, persistenceExecutor);
    }
 
    @Override
-   public boolean deleteFromAllStores(Object key, int segment, AccessMode mode) {
-      storesMutex.readLock().lock();
-      try {
-         checkStoreAvailability();
-         boolean removed = false;
-         for (CacheWriter w : nonTxWriters) {
-            if (mode.canPerform(getStoreConfig(w))) {
-               if (w instanceof SegmentedAdvancedLoadWriteStore) {
-                  removed |= ((SegmentedAdvancedLoadWriteStore) w).delete(segment, key);
-               } else {
-                  removed |= w.delete(key);
+   public CompletionStage<Boolean> deleteFromAllStores(Object key, int segment, AccessMode mode) {
+      return CompletableFuture.supplyAsync(() -> {
+         storesMutex.readLock().lock();
+         try {
+            checkStoreAvailability();
+            boolean removed = false;
+            for (CacheWriter w : nonTxWriters) {
+               if (mode.canPerform(getStoreConfig(w))) {
+                  if (w instanceof SegmentedAdvancedLoadWriteStore) {
+                     removed |= ((SegmentedAdvancedLoadWriteStore) w).delete(segment, key);
+                  } else {
+                     removed |= w.delete(key);
+                  }
                }
             }
+            return removed;
+         } finally {
+            storesMutex.readLock().unlock();
          }
-         return removed;
-      } finally {
-         storesMutex.readLock().unlock();
-      }
+      }, persistenceExecutor);
    }
 
    <K, V> AdvancedCacheLoader<K, V> getFirstAdvancedCacheLoader(AccessMode mode) {
@@ -600,53 +618,57 @@ public class PersistenceManagerImpl implements PersistenceManager {
          return Flowable.using(publisherSemaphoreCallable, semaphore -> {
             semaphore.acquire();
             return segmentedStore.publishKeys(segments, filter);
-         }, Semaphore::release);
+         }, Semaphore::release).subscribeOn(persistenceScheduler);
       }
 
       return publishKeys(PersistenceUtil.combinePredicate(segments, keyPartitioner, filter), mode);
    }
 
    @Override
-   public MarshalledEntry loadFromAllStores(Object key, boolean localInvocation, boolean includeStores) {
-      storesMutex.readLock().lock();
-      try {
-         checkStoreAvailability();
-         for (CacheLoader l : loaders) {
-            if (allowLoad(l, localInvocation, includeStores)) {
-               MarshalledEntry load = l.load(key);
-               if (load != null)
-                  return load;
+   public CompletionStage<MarshalledEntry> loadFromAllStores(Object key, boolean localInvocation, boolean includeStores) {
+      return CompletableFuture.supplyAsync(() -> {
+         storesMutex.readLock().lock();
+         try {
+            checkStoreAvailability();
+            for (CacheLoader l : loaders) {
+               if (allowLoad(l, localInvocation, includeStores)) {
+                  MarshalledEntry load = l.load(key);
+                  if (load != null)
+                     return load;
+               }
             }
+            return null;
+         } finally {
+            storesMutex.readLock().unlock();
          }
-         return null;
-      } finally {
-         storesMutex.readLock().unlock();
-      }
+      }, persistenceExecutor);
    }
 
    @Override
-   public MarshalledEntry loadFromAllStores(Object key, int segment, boolean localInvocation, boolean includeStores) {
-      storesMutex.readLock().lock();
-      try {
-         checkStoreAvailability();
-         for (CacheLoader l : loaders) {
-            if (allowLoad(l, localInvocation, includeStores) && l instanceof SegmentedAdvancedLoadWriteStore) {
-               MarshalledEntry load = ((SegmentedAdvancedLoadWriteStore) l).load(segment, key);
-               if (load != null)
-                  return load;
+   public CompletionStage<MarshalledEntry> loadFromAllStores(Object key, int segment, boolean localInvocation, boolean includeStores) {
+      return CompletableFuture.supplyAsync(() -> {
+         storesMutex.readLock().lock();
+         try {
+            checkStoreAvailability();
+            for (CacheLoader l : loaders) {
+               if (allowLoad(l, localInvocation, includeStores) && l instanceof SegmentedAdvancedLoadWriteStore) {
+                  MarshalledEntry load = ((SegmentedAdvancedLoadWriteStore) l).load(segment, key);
+                  if (load != null)
+                     return load;
+               }
             }
-         }
-         for (CacheLoader l : loaders) {
-            if (allowLoad(l, localInvocation, includeStores)) {
-               MarshalledEntry load = l.load(key);
-               if (load != null)
-                  return load;
+            for (CacheLoader l : loaders) {
+               if (allowLoad(l, localInvocation, includeStores)) {
+                  MarshalledEntry load = l.load(key);
+                  if (load != null)
+                     return load;
+               }
             }
+            return null;
+         } finally {
+            storesMutex.readLock().unlock();
          }
-         return null;
-      } finally {
-         storesMutex.readLock().unlock();
-      }
+      }, persistenceExecutor);
    }
 
    private boolean allowLoad(CacheLoader loader, boolean localInvocation, boolean includeStores) {
@@ -663,90 +685,93 @@ public class PersistenceManagerImpl implements PersistenceManager {
    }
 
    @Override
-   public void writeToAllNonTxStores(MarshalledEntry marshalledEntry, int segment, AccessMode accessMode) {
-      writeToAllNonTxStores(marshalledEntry, segment, accessMode, 0L);
-   }
-
-   @Override
-   public void writeToAllNonTxStores(MarshalledEntry marshalledEntry, int segment, AccessMode accessMode, long flags) {
-      storesMutex.readLock().lock();
-      try {
-         checkStoreAvailability();
-         //noinspection unchecked
-         nonTxWriters.stream()
-               .filter(writer -> !(writer instanceof FlagAffectedStore) || FlagAffectedStore.class.cast(writer).shouldWrite(flags))
-               .filter(writer -> accessMode.canPerform(getStoreConfig(writer)))
-               .forEach(writer -> {
-                  if (writer instanceof SegmentedAdvancedLoadWriteStore) {
-                     ((SegmentedAdvancedLoadWriteStore) writer).write(segment, marshalledEntry);
-                  } else {
-                     writer.write(marshalledEntry);
-                  }
-               });
-      } finally {
-         storesMutex.readLock().unlock();
-      }
-   }
-
-   @Override
-   public void writeBatchToAllNonTxStores(Iterable<MarshalledEntry> entries, AccessMode accessMode, long flags) {
-      if (!entries.iterator().hasNext())
-         return;
-
-      storesMutex.readLock().lock();
-      try {
-         checkStoreAvailability();
-         //noinspection unchecked
-         nonTxWriters.stream()
-               .filter(writer -> !(writer instanceof FlagAffectedStore) || FlagAffectedStore.class.cast(writer).shouldWrite(flags))
-               .filter(writer -> accessMode.canPerform(getStoreConfig(writer)))
-               .forEach(writer -> writer.writeBatch(entries));
-      } finally {
-         storesMutex.readLock().unlock();
-      }
-   }
-
-   @Override
-   public void deleteBatchFromAllNonTxStores(Iterable<Object> keys, AccessMode accessMode, long flags) {
-      if (!keys.iterator().hasNext())
-         return;
-
-      storesMutex.readLock().lock();
-      try {
-         checkStoreAvailability();
-         nonTxWriters.stream()
-               .filter(writer -> accessMode.canPerform(getStoreConfig(writer)))
-               .forEach(writer -> writer.deleteBatch(keys));
-      } finally {
-         storesMutex.readLock().unlock();
-      }
-   }
-
-   @Override
-   public void prepareAllTxStores(Transaction transaction, BatchModification batchModification,
-                                  AccessMode accessMode) throws PersistenceException {
-      storesMutex.readLock().lock();
-      try {
-         checkStoreAvailability();
-         for (CacheWriter writer : txWriters) {
-            if (accessMode.canPerform(getStoreConfig(writer)) || configuration.clustering().cacheMode().equals(CacheMode.LOCAL)) {
-               TransactionalCacheWriter txWriter = (TransactionalCacheWriter) undelegate(writer);
-               txWriter.prepareWithModifications(transaction, batchModification);
-            }
+   public CompletionStage<Void> writeToAllNonTxStores(MarshalledEntry marshalledEntry, int segment, AccessMode accessMode, long flags) {
+      return CompletableFuture.runAsync(() -> {
+         storesMutex.readLock().lock();
+         try {
+            checkStoreAvailability();
+            //noinspection unchecked
+            nonTxWriters.stream()
+                  .filter(writer -> !(writer instanceof FlagAffectedStore) || FlagAffectedStore.class.cast(writer).shouldWrite(flags))
+                  .filter(writer -> accessMode.canPerform(getStoreConfig(writer)))
+                  .forEach(writer -> {
+                     if (writer instanceof SegmentedAdvancedLoadWriteStore) {
+                        ((SegmentedAdvancedLoadWriteStore) writer).write(segment, marshalledEntry);
+                     } else {
+                        writer.write(marshalledEntry);
+                     }
+                  });
+         } finally {
+            storesMutex.readLock().unlock();
          }
-      } finally {
-         storesMutex.readLock().unlock();
-      }
+      }, persistenceExecutor);
    }
 
    @Override
-   public void commitAllTxStores(Transaction transaction, AccessMode accessMode) {
-      performOnAllTxStores(accessMode, writer -> writer.commit(transaction));
+   public CompletionStage<Void> writeBatchToAllNonTxStores(Iterable<MarshalledEntry> entries, AccessMode accessMode, long flags) {
+      if (!entries.iterator().hasNext())
+         return CompletableFutures.completedNull();
+
+      return CompletableFuture.runAsync(() -> {
+         storesMutex.readLock().lock();
+         try {
+            checkStoreAvailability();
+            //noinspection unchecked
+            nonTxWriters.stream()
+                  .filter(writer -> !(writer instanceof FlagAffectedStore) || FlagAffectedStore.class.cast(writer).shouldWrite(flags))
+                  .filter(writer -> accessMode.canPerform(getStoreConfig(writer)))
+                  .forEach(writer -> writer.writeBatch(entries));
+         } finally {
+            storesMutex.readLock().unlock();
+         }
+      }, persistenceExecutor);
    }
 
    @Override
-   public void rollbackAllTxStores(Transaction transaction, AccessMode accessMode) {
-      performOnAllTxStores(accessMode, writer -> writer.rollback(transaction));
+   public CompletionStage<Void> deleteBatchFromAllNonTxStores(Iterable<Object> keys, AccessMode accessMode, long flags) {
+      if (!keys.iterator().hasNext())
+         return CompletableFutures.completedNull();
+
+      return CompletableFuture.runAsync(() -> {
+         storesMutex.readLock().lock();
+         try {
+            checkStoreAvailability();
+            nonTxWriters.stream()
+                  .filter(writer -> accessMode.canPerform(getStoreConfig(writer)))
+                  .forEach(writer -> writer.deleteBatch(keys));
+         } finally {
+            storesMutex.readLock().unlock();
+         }
+      }, persistenceExecutor);
+   }
+
+   @Override
+   public CompletionStage<Void> prepareAllTxStores(Transaction transaction, BatchModification batchModification,
+                                  AccessMode accessMode) throws PersistenceException {
+      return CompletableFuture.runAsync(() -> {
+         storesMutex.readLock().lock();
+         try {
+            checkStoreAvailability();
+            for (CacheWriter writer : txWriters) {
+               if (accessMode.canPerform(getStoreConfig(writer)) || configuration.clustering().cacheMode().equals(CacheMode.LOCAL)) {
+                  TransactionalCacheWriter txWriter = (TransactionalCacheWriter) undelegate(writer);
+                  txWriter.prepareWithModifications(transaction, batchModification);
+               }
+            }
+         } finally {
+            storesMutex.readLock().unlock();
+         }
+      }, persistenceExecutor);
+   }
+
+   @Override
+   public CompletionStage<Void> commitAllTxStores(Transaction transaction, AccessMode accessMode) {
+      return performOnAllTxStores(accessMode, writer -> writer.commit(transaction));
+   }
+
+   @Override
+   public CompletionStage<Void> rollbackAllTxStores(Transaction transaction, AccessMode accessMode) {
+      return performOnAllTxStores(accessMode, writer -> writer.rollback(transaction));
    }
 
    @Override
@@ -766,41 +791,45 @@ public class PersistenceManagerImpl implements PersistenceManager {
    }
 
    @Override
-   public int size() {
-      storesMutex.readLock().lock();
-      try {
-         checkStoreAvailability();
-         for (CacheLoader l : loaders) {
-            if (l instanceof AdvancedCacheLoader)
-               return ((AdvancedCacheLoader) l).size();
+   public CompletionStage<Integer> size() {
+      return CompletableFuture.supplyAsync(() -> {
+         storesMutex.readLock().lock();
+         try {
+            checkStoreAvailability();
+            for (CacheLoader l : loaders) {
+               if (l instanceof AdvancedCacheLoader)
+                  return ((AdvancedCacheLoader) l).size();
+            }
+         } finally {
+            storesMutex.readLock().unlock();
          }
-      } finally {
-         storesMutex.readLock().unlock();
-      }
-      return 0;
+         return 0;
+      }, persistenceExecutor);
    }
 
    @Override
-   public int size(IntSet segments) {
-      storesMutex.readLock().lock();
-      try {
-         checkStoreAvailability();
-         for (CacheLoader l : loaders) {
-            StoreConfiguration storeConfiguration;
-            if (l instanceof SegmentedAdvancedLoadWriteStore &&
-                  ((storeConfiguration = getStoreConfig(l)) != null && storeConfiguration.segmented())) {
-               return ((SegmentedAdvancedLoadWriteStore) l).size(segments);
+   public CompletionStage<Integer> size(IntSet segments) {
+      return CompletableFuture.supplyAsync(() -> {
+         storesMutex.readLock().lock();
+         try {
+            checkStoreAvailability();
+            for (CacheLoader l : loaders) {
+               StoreConfiguration storeConfiguration;
+               if (l instanceof SegmentedAdvancedLoadWriteStore &&
+                     ((storeConfiguration = getStoreConfig(l)) != null && storeConfiguration.segmented())) {
+                  return ((SegmentedAdvancedLoadWriteStore) l).size(segments);
+               }
             }
+            long count = Flowable.fromPublisher(publishKeys(segments, null, AccessMode.BOTH))
+                  .count().blockingGet();
+            if (count > Integer.MAX_VALUE) {
+               return Integer.MAX_VALUE;
+            }
+            return (int) count;
+         } finally {
+            storesMutex.readLock().unlock();
          }
-         long count = Flowable.fromPublisher(publishKeys(segments, null, AccessMode.BOTH))
-               .count().blockingGet();
-         if (count > Integer.MAX_VALUE) {
-            return Integer.MAX_VALUE;
-         }
-         return (int) count;
-      } finally {
-         storesMutex.readLock().unlock();
-      }
+      }, persistenceExecutor);
    }
 
    @Override
@@ -809,43 +838,47 @@ public class PersistenceManagerImpl implements PersistenceManager {
    }
 
    @Override
-   public boolean addSegments(IntSet segments) {
-      boolean allSegmented = true;
-      storesMutex.readLock().lock();
-      try {
-         for (CacheLoader loader : loaders) {
-            if (AccessMode.PRIVATE.canPerform(getStoreConfig(loader))) {
-               if (loader instanceof SegmentedAdvancedLoadWriteStore) {
-                  ((SegmentedAdvancedLoadWriteStore) loader).addSegments(segments);
-               } else if (loader instanceof CacheWriter) {
-                  allSegmented = false;
+   public CompletionStage<Boolean> addSegments(IntSet segments) {
+      return CompletableFuture.supplyAsync(() -> {
+         boolean allSegmented = true;
+         storesMutex.readLock().lock();
+         try {
+            for (CacheLoader loader : loaders) {
+               if (AccessMode.PRIVATE.canPerform(getStoreConfig(loader))) {
+                  if (loader instanceof SegmentedAdvancedLoadWriteStore) {
+                     ((SegmentedAdvancedLoadWriteStore) loader).addSegments(segments);
+                  } else if (loader instanceof CacheWriter) {
+                     allSegmented = false;
+                  }
                }
             }
+         } finally {
+            storesMutex.readLock().unlock();
          }
-      } finally {
-         storesMutex.readLock().unlock();
-      }
-      return allSegmented;
+         return allSegmented;
+      }, persistenceExecutor);
    }
 
    @Override
-   public boolean removeSegments(IntSet segments) {
-      boolean allSegmented = true;
-      storesMutex.readLock().lock();
-      try {
-         for (CacheLoader loader : loaders) {
-            if (AccessMode.PRIVATE.canPerform(getStoreConfig(loader))) {
-               if (loader instanceof SegmentedAdvancedLoadWriteStore) {
-                  ((SegmentedAdvancedLoadWriteStore) loader).removeSegments(segments);
-               } else if (loader instanceof CacheWriter) {
-                  allSegmented = false;
+   public CompletionStage<Boolean> removeSegments(IntSet segments) {
+      return CompletableFuture.supplyAsync(() -> {
+         boolean allSegmented = true;
+         storesMutex.readLock().lock();
+         try {
+            for (CacheLoader loader : loaders) {
+               if (AccessMode.PRIVATE.canPerform(getStoreConfig(loader))) {
+                  if (loader instanceof SegmentedAdvancedLoadWriteStore) {
+                     ((SegmentedAdvancedLoadWriteStore) loader).removeSegments(segments);
+                  } else if (loader instanceof CacheWriter) {
+                     allSegmented = false;
+                  }
                }
             }
+         } finally {
+            storesMutex.readLock().unlock();
          }
-      } finally {
-         storesMutex.readLock().unlock();
-      }
-      return allSegmented;
+         return allSegmented;
+      }, persistenceExecutor);
    }
 
    public List<CacheLoader> getAllLoaders() {
@@ -1205,16 +1238,18 @@ public class PersistenceManagerImpl implements PersistenceManager {
       }
    }
 
-   private void performOnAllTxStores(AccessMode accessMode, Consumer<TransactionalCacheWriter> action) {
-      storesMutex.readLock().lock();
-      try {
-         checkStoreAvailability();
-         txWriters.stream()
-               .filter(writer -> accessMode.canPerform(getStoreConfig(writer)))
-               .forEach(action);
-      } finally {
-         storesMutex.readLock().unlock();
-      }
+   private CompletionStage<Void> performOnAllTxStores(AccessMode accessMode, Consumer<TransactionalCacheWriter> action) {
+      return CompletableFuture.runAsync(() -> {
+         storesMutex.readLock().lock();
+         try {
+            checkStoreAvailability();
+            txWriters.stream()
+                  .filter(writer -> accessMode.canPerform(getStoreConfig(writer)))
+                  .forEach(action);
+         } finally {
+            storesMutex.readLock().unlock();
+         }
+      }, persistenceExecutor);
    }
 
    private StoreConfiguration getStoreConfig(Object store) {

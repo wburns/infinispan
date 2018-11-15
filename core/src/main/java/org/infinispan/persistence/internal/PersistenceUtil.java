@@ -18,6 +18,7 @@ import org.infinispan.metadata.Metadata;
 import org.infinispan.metadata.impl.InternalMetadataImpl;
 import org.infinispan.persistence.manager.PersistenceManager;
 import org.infinispan.commons.time.TimeService;
+import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.infinispan.util.rxjava.FlowableFromIntSetFunction;
@@ -136,9 +137,9 @@ public class PersistenceUtil {
          int segment, InvocationContext context, boolean includeStores) {
       final MarshalledEntry<K, V> loaded;
       if (segment != SEGMENT_NOT_PROVIDED) {
-         loaded = persistenceManager.loadFromAllStores(key, segment, context.isOriginLocal(), includeStores);
+         loaded = CompletionStages.join(persistenceManager.loadFromAllStores(key, segment, context.isOriginLocal(), includeStores));
       } else {
-         loaded = persistenceManager.loadFromAllStores(key, context.isOriginLocal(), includeStores);
+         loaded = CompletionStages.join(persistenceManager.loadFromAllStores(key, context.isOriginLocal(), includeStores));
       }
       if (trace) {
          log.tracef("Loaded %s for key %s from persistence.", loaded, key);

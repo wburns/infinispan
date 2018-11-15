@@ -79,6 +79,7 @@ import org.infinispan.stream.impl.spliterators.IteratorAsSpliterator;
 import org.infinispan.util.EntryWrapper;
 import org.infinispan.util.LazyConcatIterator;
 import org.infinispan.commons.time.TimeService;
+import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.reactivestreams.Publisher;
@@ -592,7 +593,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
             if (!contains) {
                Map.Entry<K, V> entry = toEntry(o);
                if (entry != null) {
-                  MarshalledEntry<K, V> me = persistenceManager.loadFromAllStores(entry.getKey(), true, true);
+                  MarshalledEntry<K, V> me = CompletionStages.join(persistenceManager.loadFromAllStores(entry.getKey(), true, true));
                   if (me != null) {
                      contains = entry.getValue().equals(me.getValue());
                   }
@@ -661,7 +662,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          if (o != null) {
             contains = cacheSet.contains(o);
             if (!contains) {
-               MarshalledEntry<K, V> me = persistenceManager.loadFromAllStores(o, true, true);
+               MarshalledEntry<K, V> me = CompletionStages.join(persistenceManager.loadFromAllStores(o, true, true));
                contains = me != null;
             }
          }

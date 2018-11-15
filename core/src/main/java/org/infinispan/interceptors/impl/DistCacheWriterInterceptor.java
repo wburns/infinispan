@@ -3,6 +3,8 @@ package org.infinispan.interceptors.impl;
 import static org.infinispan.persistence.manager.PersistenceManager.AccessMode.BOTH;
 import static org.infinispan.persistence.manager.PersistenceManager.AccessMode.PRIVATE;
 
+import java.util.concurrent.CompletionStage;
+
 import org.infinispan.commands.FlagAffectedCommand;
 import org.infinispan.commands.VisitableCommand;
 import org.infinispan.commands.write.ComputeCommand;
@@ -16,6 +18,7 @@ import org.infinispan.context.impl.FlagBitSets;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
+import org.infinispan.util.concurrent.CompletableFutures;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 
@@ -112,12 +115,13 @@ public class DistCacheWriterInterceptor extends CacheWriterInterceptor {
          if (!isProperWriter(rCtx, removeCommand, key))
             return rv;
 
-         boolean resp = persistenceManager
-               .deleteFromAllStores(key, command.getSegment(), skipSharedStores(rCtx, key, removeCommand) ? PRIVATE : BOTH);
-         if (trace)
-            log.tracef("Removed entry under key %s and got response %s from CacheStore", key, resp);
-
-         return rv;
+         CompletionStage<?> stage = persistenceManager.deleteFromAllStores(key, command.getSegment(),
+               skipSharedStores(rCtx, key, removeCommand) ? PRIVATE : BOTH);
+         if (trace) {
+            stage = stage.thenAccept(removed ->
+                  getLog().tracef("Removed entry under key %s and got response %s from CacheStore", key, removed));
+         }
+         return stageOrSyncValue(stage, rv);
       });
    }
 
@@ -150,17 +154,22 @@ public class DistCacheWriterInterceptor extends CacheWriterInterceptor {
          if (!isProperWriter(rCtx, computeCommand, computeCommand.getKey()))
             return rv;
 
+         CompletionStage<?> stage;
          if (command.isSuccessful() && rv == null) {
-            boolean resp = persistenceManager
-                  .deleteFromAllStores(key, command.getSegment(), skipSharedStores(rCtx, key, command) ? PRIVATE : BOTH);
-            if (trace)
-               log.tracef("Removed entry under key %s and got response %s from CacheStore", key, resp);
+             stage = persistenceManager.deleteFromAllStores(key, command.getSegment(),
+                  skipSharedStores(rCtx, key, command) ? PRIVATE : BOTH);
+            if (trace) {
+               stage = stage.thenAccept(removed ->
+                     getLog().tracef("Removed entry under key %s and got response %s from CacheStore", key, removed));
+            }
          } else if (command.isSuccessful()) {
-            storeEntry(rCtx, key, computeCommand);
+            stage = storeEntry(rCtx, key, computeCommand);
             if (getStatisticsEnabled())
                cacheStores.incrementAndGet();
+         } else {
+            stage = CompletableFutures.completedNull();
          }
-         return rv;
+         return stageOrSyncValue(stage, rv);
       });
    }
 

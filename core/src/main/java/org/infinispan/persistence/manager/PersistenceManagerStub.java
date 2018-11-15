@@ -3,6 +3,8 @@ package org.infinispan.persistence.manager;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.function.Predicate;
 
 import javax.transaction.Transaction;
@@ -13,6 +15,7 @@ import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.persistence.spi.AdvancedCacheLoader;
 import org.infinispan.persistence.spi.PersistenceException;
 import org.infinispan.persistence.support.BatchModification;
+import org.infinispan.util.concurrent.CompletableFutures;
 import org.reactivestreams.Publisher;
 
 /**
@@ -39,7 +42,8 @@ public class PersistenceManagerStub implements PersistenceManager {
    }
 
    @Override
-   public void preload() {
+   public CompletionStage<Void> preload() {
+      return CompletableFutures.completedNull();
    }
 
    @Override
@@ -61,12 +65,13 @@ public class PersistenceManagerStub implements PersistenceManager {
    }
 
    @Override
-   public void clearAllStores(AccessMode mode) {
+   public CompletionStage<Void> clearAllStores(AccessMode mode) {
+      return CompletableFutures.completedNull();
    }
 
    @Override
-   public boolean deleteFromAllStores(Object key, int segment, AccessMode mode) {
-      return false;
+   public CompletionStage<Boolean> deleteFromAllStores(Object key, int segment, AccessMode mode) {
+      return CompletableFutures.completedFalse();
    }
 
    @Override
@@ -91,21 +96,18 @@ public class PersistenceManagerStub implements PersistenceManager {
    }
 
    @Override
-   public MarshalledEntry loadFromAllStores(Object key, boolean localInvocation, boolean includeStores) {
-      return null;
+   public CompletionStage<MarshalledEntry> loadFromAllStores(Object key, boolean localInvocation, boolean includeStores) {
+      return CompletableFutures.completedNull();
    }
 
    @Override
-   public MarshalledEntry loadFromAllStores(Object key, int segment, boolean localInvocation, boolean includeStores) {
-      return null;
+   public CompletionStage<MarshalledEntry> loadFromAllStores(Object key, int segment, boolean localInvocation, boolean includeStores) {
+      return CompletableFutures.completedNull();
    }
 
    @Override
-   public void writeToAllNonTxStores(MarshalledEntry marshalledEntry, int segment, AccessMode modes) {
-   }
-
-   @Override
-   public void writeToAllNonTxStores(MarshalledEntry marshalledEntry, int segment, AccessMode modes, long flags) {
+   public CompletionStage<Void> writeToAllNonTxStores(MarshalledEntry marshalledEntry, int segment, AccessMode modes, long flags) {
+      return CompletableFutures.completedNull();
    }
 
    @Override
@@ -114,13 +116,13 @@ public class PersistenceManagerStub implements PersistenceManager {
    }
 
    @Override
-   public int size() {
-      return 0;
+   public CompletionStage<Integer> size() {
+      return CompletableFuture.completedFuture(0);
    }
 
    @Override
-   public int size(IntSet segments) {
-      return 0;
+   public CompletionStage<Integer> size(IntSet segments) {
+      return CompletableFuture.completedFuture(0);
    }
 
    @Override
@@ -128,23 +130,28 @@ public class PersistenceManagerStub implements PersistenceManager {
    }
 
    @Override
-   public void prepareAllTxStores(Transaction transaction, BatchModification batchModification, AccessMode accessMode) throws PersistenceException {
+   public CompletionStage<Void> prepareAllTxStores(Transaction transaction, BatchModification batchModification, AccessMode accessMode) throws PersistenceException {
+      return CompletableFutures.completedNull();
    }
 
    @Override
-   public void commitAllTxStores(Transaction transaction, AccessMode accessMode) {
+   public CompletionStage<Void> commitAllTxStores(Transaction transaction, AccessMode accessMode) {
+      return CompletableFutures.completedNull();
    }
 
    @Override
-   public void rollbackAllTxStores(Transaction transaction, AccessMode accessMode) {
+   public CompletionStage<Void> rollbackAllTxStores(Transaction transaction, AccessMode accessMode) {
+      return CompletableFutures.completedNull();
    }
 
    @Override
-   public void writeBatchToAllNonTxStores(Iterable<MarshalledEntry> entries, AccessMode accessMode, long flags) {
+   public CompletionStage<Void> writeBatchToAllNonTxStores(Iterable<MarshalledEntry> entries, AccessMode accessMode, long flags) {
+      return CompletableFutures.completedNull();
    }
 
    @Override
-   public void deleteBatchFromAllNonTxStores(Iterable<Object> keys, AccessMode accessMode, long flags) {
+   public CompletionStage<Void> deleteBatchFromAllNonTxStores(Iterable<Object> keys, AccessMode accessMode, long flags) {
+      return CompletableFutures.completedNull();
    }
 
    @Override

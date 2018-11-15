@@ -87,6 +87,7 @@ import org.infinispan.transaction.xa.GlobalTransaction;
 import org.infinispan.util.concurrent.BlockingTaskAwareExecutorService;
 import org.infinispan.util.concurrent.CommandAckCollector;
 import org.infinispan.util.concurrent.CompletableFutures;
+import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.concurrent.TimeoutException;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
@@ -975,7 +976,7 @@ public class StateConsumerImpl implements StateConsumer {
          return;
 
       // If there are no stores that couldn't remove segments, we don't have to worry about invaliding entries
-      if (!persistenceManager.removeSegments(removedSegments)) {
+      if (!CompletionStages.join(persistenceManager.removeSegments(removedSegments))) {
          return;
       }
 

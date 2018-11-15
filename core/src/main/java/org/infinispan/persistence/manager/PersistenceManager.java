@@ -2,6 +2,7 @@ package org.infinispan.persistence.manager;
 
 import java.util.Collection;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 import java.util.function.Predicate;
 
 import javax.transaction.Transaction;
@@ -13,6 +14,7 @@ import org.infinispan.marshall.core.MarshalledEntry;
 import org.infinispan.persistence.spi.AdvancedCacheLoader;
 import org.infinispan.persistence.spi.PersistenceException;
 import org.infinispan.persistence.support.BatchModification;
+import org.infinispan.util.concurrent.CompletableFutures;
 import org.reactivestreams.Publisher;
 
 /**
@@ -34,7 +36,7 @@ public interface PersistenceManager extends Lifecycle {
    /**
     * Loads the data from the external store into memory during cache startup.
     */
-   void preload();
+   CompletionStage<Void> preload();
 
    /**
     * Marks the given storage as disabled.
@@ -53,9 +55,9 @@ public interface PersistenceManager extends Lifecycle {
    /**
     * Invokes {@link org.infinispan.persistence.spi.AdvancedCacheWriter#clear()} on all the stores that aloes it.
     */
-   void clearAllStores(AccessMode mode);
+   CompletionStage<Void> clearAllStores(AccessMode mode);
 
-   boolean deleteFromAllStores(Object key, int segment, AccessMode mode);
+   CompletionStage<Boolean> deleteFromAllStores(Object key, int segment, AccessMode mode);
 
    /**
     * See {@link #publishEntries(Predicate, boolean, boolean, AccessMode)}
@@ -139,7 +141,7 @@ public interface PersistenceManager extends Lifecycle {
     * @param includeStores if a loader that is also a store can be loaded from
     * @return entry that maps to the key
     */
-   MarshalledEntry loadFromAllStores(Object key, boolean localInvocation, boolean includeStores);
+   CompletionStage<MarshalledEntry> loadFromAllStores(Object key, boolean localInvocation, boolean includeStores);
 
    /**
     * Same as {@link #loadFromAllStores(Object, boolean, boolean)} except that the segment of the key is also
@@ -151,7 +153,7 @@ public interface PersistenceManager extends Lifecycle {
     * @return entry that maps to the key
     * @implSpec default implementation invokes {@link #loadFromAllStores(Object, boolean, boolean)} ignoring the segment
     */
-   default MarshalledEntry loadFromAllStores(Object key, int segment, boolean localInvocation, boolean includeStores) {
+   default CompletionStage<MarshalledEntry> loadFromAllStores(Object key, int segment, boolean localInvocation, boolean includeStores) {
       return loadFromAllStores(key, localInvocation, includeStores);
    }
 
@@ -160,13 +162,13 @@ public interface PersistenceManager extends Lifecycle {
     */
    AdvancedCacheLoader getStateTransferProvider();
 
-   int size();
+   CompletionStage<Integer> size();
 
    /**
     * @param segments which segments to count entries from
     * @return how many entries are in the store which map to the given segments
     */
-   int size(IntSet segments);
+   CompletionStage<Integer> size(IntSet segments);
 
    enum AccessMode {
       /**
@@ -225,14 +227,16 @@ public interface PersistenceManager extends Lifecycle {
     * @param segment         the segment the entry maps to
     * @param modes           the type of access to the underlying store.
     */
-   void writeToAllNonTxStores(MarshalledEntry marshalledEntry, int segment, AccessMode modes);
+   default CompletionStage<Void> writeToAllNonTxStores(MarshalledEntry marshalledEntry, int segment, AccessMode modes) {
+      return writeToAllNonTxStores(marshalledEntry, segment, modes, 0);
+   }
 
    /**
     * @see #writeToAllNonTxStores(MarshalledEntry, int, AccessMode)
     *
     * @param flags Flags used during command invocation
     */
-   void writeToAllNonTxStores(MarshalledEntry marshalledEntry, int segment, AccessMode modes, long flags);
+   CompletionStage<Void> writeToAllNonTxStores(MarshalledEntry marshalledEntry, int segment, AccessMode modes, long flags);
 
    /**
     * Perform the prepare phase of 2PC on all Tx stores.
@@ -242,7 +246,7 @@ public interface PersistenceManager extends Lifecycle {
     * @param accessMode the type of access to the underlying store.
     * @throws PersistenceException if an error is encountered at any of the underlying stores.
     */
-   void prepareAllTxStores(Transaction transaction, BatchModification batchModification,
+   CompletionStage<Void> prepareAllTxStores(Transaction transaction, BatchModification batchModification,
                            AccessMode accessMode) throws PersistenceException;
 
    /**
@@ -251,7 +255,7 @@ public interface PersistenceManager extends Lifecycle {
     * @param transaction the transactional context to be committed.
     * @param accessMode the type of access to the underlying store.
     */
-   void commitAllTxStores(Transaction transaction, AccessMode accessMode);
+   CompletionStage<Void> commitAllTxStores(Transaction transaction, AccessMode accessMode);
 
    /**
     * Perform the rollback operation for the provided transaction on all Tx stores.
@@ -259,7 +263,7 @@ public interface PersistenceManager extends Lifecycle {
     * @param transaction the transactional context to be rolledback.
     * @param accessMode the type of access to the underlying store.
     */
-   void rollbackAllTxStores(Transaction transaction, AccessMode accessMode);
+   CompletionStage<Void> rollbackAllTxStores(Transaction transaction, AccessMode accessMode);
 
    /**
     * Write all entries to the underlying non-transactional stores as a single batch.
@@ -268,7 +272,7 @@ public interface PersistenceManager extends Lifecycle {
     * @param accessMode the type of access to the underlying store.
     * @param flags Flags used during command invocation
     */
-   void writeBatchToAllNonTxStores(Iterable<MarshalledEntry> entries, AccessMode accessMode, long flags);
+   CompletionStage<Void> writeBatchToAllNonTxStores(Iterable<MarshalledEntry> entries, AccessMode accessMode, long flags);
 
    /**
     * Remove all entries from the underlying non-transactional stores as a single batch.
@@ -277,7 +281,7 @@ public interface PersistenceManager extends Lifecycle {
     * @param accessMode the type of access to the underlying store.
     * @param flags Flags used during command invocation
     */
-   void deleteBatchFromAllNonTxStores(Iterable<Object> keys, AccessMode accessMode, long flags);
+   CompletionStage<Void> deleteBatchFromAllNonTxStores(Iterable<Object> keys, AccessMode accessMode, long flags);
 
 
    /**
@@ -297,8 +301,8 @@ public interface PersistenceManager extends Lifecycle {
     * @param segments segments this cache owns
     * @return false if a configured store couldn't configure newly added segments
     */
-   default boolean addSegments(IntSet segments) {
-      return true;
+   default CompletionStage<Boolean> addSegments(IntSet segments) {
+      return CompletableFutures.completedTrue();
    }
 
    /**
@@ -313,7 +317,7 @@ public interface PersistenceManager extends Lifecycle {
     * @param segments segments this cache no longer owns
     * @return false if a configured store couldn't remove configured segments
     */
-   default boolean removeSegments(IntSet segments) {
-      return true;
+   default CompletionStage<Boolean> removeSegments(IntSet segments) {
+      return CompletableFutures.completedTrue();
    }
 }
