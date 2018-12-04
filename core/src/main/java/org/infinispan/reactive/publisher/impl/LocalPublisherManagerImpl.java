@@ -24,6 +24,7 @@ import org.infinispan.context.Flag;
 import org.infinispan.factories.annotations.ComponentName;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
+import org.infinispan.factories.impl.ComponentRef;
 import org.infinispan.stream.StreamMarshalling;
 import org.infinispan.util.concurrent.CompletableFutures;
 import org.infinispan.util.logging.Log;
@@ -44,6 +45,7 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
    private final static Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
    private static final boolean trace = log.isTraceEnabled();
 
+   @Inject private ComponentRef<Cache<K, V>> cacheComponentRef;
    // This cache should only be used for retrieving entries via Cache#get
    private AdvancedCache<K, V> remoteCache;
    // This cache should be used for iteration purposes or Cache#get that are local only
@@ -60,18 +62,18 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
     * method and add @Inject to the variable.
     */
    @Inject
-   public void inject(Cache<K, V> cache, @ComponentName(ASYNC_OPERATIONS_EXECUTOR) ExecutorService asyncOperationsExecutor) {
-      // We need to unwrap the cache as a local stream should only deal with BOXED values
-      // Any mappings will be provided by the originator node in their intermediate operation stack in the operation itself.
-      this.remoteCache = AbstractDelegatingCache.unwrapCache(cache).getAdvancedCache();
-      // The iteration caches should only deal with local entries.
-      // Also the iterations here are always remote initiated
-      this.cache = remoteCache.withFlags(Flag.CACHE_MODE_LOCAL, Flag.REMOTE_ITERATION);
+   public void inject(@ComponentName(ASYNC_OPERATIONS_EXECUTOR) ExecutorService asyncOperationsExecutor) {
       this.asyncScheduler = Schedulers.from(asyncOperationsExecutor);
    }
 
    @Start
    public void start() {
+      // We need to unwrap the cache as a local stream should only deal with BOXED values
+      // Any mappings will be provided by the originator node in their intermediate operation stack in the operation itself.
+      this.remoteCache = AbstractDelegatingCache.unwrapCache(cacheComponentRef.running()).getAdvancedCache();
+      // The iteration caches should only deal with local entries.
+      // Also the iterations here are always remote initiated
+      this.cache = remoteCache.withFlags(Flag.CACHE_MODE_LOCAL, Flag.REMOTE_ITERATION);
       hasLoader = cache.getCacheConfiguration().persistence().usingStores();
       ClusteringConfiguration clusteringConfiguration = cache.getCacheConfiguration().clustering();
       this.maxSegment = clusteringConfiguration.hash().numSegments();

@@ -11,6 +11,7 @@ import java.util.function.BiConsumer;
 import java.util.function.Function;
 
 import org.infinispan.commands.CommandsFactory;
+import org.infinispan.commons.CacheException;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.IntSets;
 import org.infinispan.container.entries.CacheEntry;
@@ -179,6 +180,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
             IntSet remoteSegments = remoteTarget.getValue();
             PublisherRequestCommand<K> command = composedType.remoteInvocation(parallelStream, remoteSegments, keysToInclude,
                   keysToExclude, includeLoader, deliveryGuarantee, transformer, finalizer);
+            command.setTopologyId(topology.getTopologyId());
             Address remoteAddress = remoteTarget.getKey();
             CompletionStage<PublisherResultCollector<R>> stage = rpcManager.invokeCommand(remoteAddress, command,
                   new PublisherResultCollector<>(remoteSegments), rpcManager.getSyncRpcOptions());
@@ -218,7 +220,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
          } else if (response instanceof ExceptionResponse) {
             handleException(((ExceptionResponse) response).getException());
          } else if (response instanceof CacheNotFoundResponse) {
-            handleException(new SuspectException());
+            handleSuspect();
          } else {
             handleException(new RpcException("Unknown response type: " + response));
          }
@@ -226,8 +228,22 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       }
 
       void handleException(Throwable t) {
+         if (!(t instanceof SuspectException)) {
+            if (trace) {
+               log.tracef(t, "Exception encountered while requesting segments %s from %s", targetSegments, address);
+            }
+            // Throw the exception so it is propagated to caller
+            if (t instanceof CacheException) {
+               throw (CacheException) t;
+            }
+            throw new CacheException(t);
+         }
+         handleSuspect();
+      }
+
+      void handleSuspect() {
          if (trace) {
-            log.tracef(t, "Exception encountered while requesting segments %s from %s", targetSegments, address);
+            log.tracef("Cache is no longer running for segments %s from %s - must retry", targetSegments, address);
          }
          results = new SimplePublisherResult<>(targetSegments, null);
       }
