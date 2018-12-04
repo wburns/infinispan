@@ -28,5 +28,13 @@ public class SimplePublisherResult<R> implements PublisherResult<R>, Serializabl
       return result;
    }
 
-   // TODO: have to implement externalizer
+   @Override
+   public String toString() {
+      return "SimplePublisherResult{" +
+            "result=" + result +
+            ", suspectedSegments=" + suspectedSegments +
+            '}';
+   }
+
+// TODO: have to implement externalizer
 }

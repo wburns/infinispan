@@ -100,9 +100,9 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
          builderUsed.transaction().transactionMode(TransactionMode.TRANSACTIONAL);
       }
       if (cacheMode.isClustered()) {
-         builderUsed.clustering().stateTransfer().chunkSize(50);
+         builderUsed.clustering().stateTransfer().chunkSize(50).hash().numSegments(20);
          enhanceConfiguration(builderUsed);
-         createClusteredCaches(3, CACHE_NAME, builderUsed);
+         createClusteredCaches(6, CACHE_NAME, builderUsed);
       } else {
          enhanceConfiguration(builderUsed);
          EmbeddedCacheManager cm = TestCacheManagerFactory.createCacheManager(builderUsed);

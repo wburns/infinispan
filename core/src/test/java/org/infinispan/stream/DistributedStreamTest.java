@@ -41,7 +41,7 @@ public class DistributedStreamTest extends BaseStreamTest {
 
    public void testCount() throws InterruptedException, ExecutionException, TimeoutException {
       Cache<Integer, String> cache = getCache(0);
-      int range = 10;
+      int range = 100;
       // First populate the cache with a bunch of values
       IntStream.range(0, range).boxed().forEach(i -> cache.put(i, i + "-value"));
 

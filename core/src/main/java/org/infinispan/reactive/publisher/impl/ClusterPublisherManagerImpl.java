@@ -33,6 +33,7 @@ import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.reactivestreams.Publisher;
 
+import io.reactivex.processors.FlowableProcessor;
 import io.reactivex.processors.PublishProcessor;
 
 /**
@@ -73,7 +74,8 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
          Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
          Function<? super Publisher<K>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
-      PublishProcessor<R> publishProcessor = PublishProcessor.create();
+      // Needs to be serialized processor as we can write to it from different threads
+      FlowableProcessor<R> publishProcessor = PublishProcessor.<R>create().toSerialized();
       // We apply the finalizer first to ensure they can subscribe to the PublishProcessor before we emit any items
       CompletionStage<R> stage = finalizer.apply(publishProcessor);
       IntSet segmentsToComplete = concurrentIntSetFrom(segments, maxSegment);
@@ -87,7 +89,8 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
          Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
          Function<? super Publisher<CacheEntry<K, V>>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
-      PublishProcessor<R> publishProcessor = PublishProcessor.create();
+      // Needs to be serialized processor as we can write to it from different threads
+      FlowableProcessor<R> publishProcessor = PublishProcessor.<R>create().toSerialized();
       // We apply the finalizer first to ensure they can subscribe to the PublishProcessor before we emit any items
       CompletionStage<R> stage = finalizer.apply(publishProcessor);
       IntSet segmentsToComplete = concurrentIntSetFrom(segments, maxSegment);
@@ -112,7 +115,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
          Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee, ComposedType<K, I, R> composedType,
          Function<? super Publisher<I>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer,
-         PublishProcessor<R> publishProcessor) {
+         FlowableProcessor<R> publishProcessor) {
       LocalizedCacheTopology topology = distributionManager.getCacheTopology();
       Address localAddress = topology.getLocalAddress();
       Map<Address, IntSet> targets = determineTargets(topology, segments, localAddress);
@@ -143,7 +146,12 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
 
             R actualValue = result.getResult();
             if (actualValue != null) {
+               if (trace) {
+                  log.tracef("Result result was: %s for segments %s from %s", result, resultCollector.targetSegments, resultCollector.address);
+               }
                publishProcessor.onNext(actualValue);
+            } else if (trace) {
+               log.tracef("Result contained no results, just suspected segments %s from %s", resultCollector.targetSegments, resultCollector.address);
             }
 
             // We were the last one to complete if zero, so we have to either complete or retry remaining segments again
