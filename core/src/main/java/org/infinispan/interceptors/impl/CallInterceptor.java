@@ -1099,6 +1099,7 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
 
       @Override
       public Publisher<CacheEntry<K, V>> localPublisher(IntSet segments) {
+         // Cast required as it won't let me cast from ICE to CE
          return Flowable.fromIterable(() -> (Iterator) dataContainer.iterator(segments));
       }
    }

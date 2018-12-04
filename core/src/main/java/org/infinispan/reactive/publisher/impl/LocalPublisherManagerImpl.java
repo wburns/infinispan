@@ -54,10 +54,6 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
 
    private final Set<SegmentListener> changeListener = ConcurrentHashMap.newKeySet();
 
-   // We use our own cached instance to symbolize that a stage was suspected - We don't want to use
-   // a shared instance because it could be a valid value for a given segment
-   private static final CompletionStage<?> suspectedStage = CompletableFuture.completedFuture(null);
-
    /**
     * Injects the cache - unfortunately this cannot be in start. Tests will rewire certain components which will in
     * turn reinject the cache, but they won't call the start method! If the latter is fixed we can add this to start

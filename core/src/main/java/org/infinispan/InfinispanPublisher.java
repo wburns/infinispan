@@ -180,6 +180,9 @@ public interface InfinispanPublisher<T> {
     * segment that node is a primary owner of. The results from the Publishers are then sent downstream to the
     * <b>finalizer</b> on each node to be processed further to create a single Publisher response. This result is fully
     * consume
+    * <p>
+    * The finalizer is required to consume the Publisher in an unbounded manner. Failure to do so can cause a backflow
+    * exception to be propagated to the returned CompletionStage.
     * @param transformer transforms the stream of data into a reduced single value
     * @param finalizer
     * @param <R>

@@ -23,4 +23,11 @@ public enum DeliveryGuarantee {
     * value is not returned more than once for a given key.
     */
    EXACTLY_ONCE,
+   ;
+
+   private static final DeliveryGuarantee[] CACHED_VALUES = DeliveryGuarantee.values();
+
+   public static DeliveryGuarantee valueOf(int index) {
+      return CACHED_VALUES[index];
+   }
 }

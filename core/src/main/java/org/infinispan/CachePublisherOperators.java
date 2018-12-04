@@ -28,15 +28,15 @@ public class CachePublisherOperators {
 
    public static CompletionStage<Long> count(InfinispanPublisher<?> infinispanPublisher) {
       Function<Single<Long>, CompletionStage<Long>> interop = RxJavaInterop.singleToCompletionStage();
-      InfinispanPublisher.CachePublisherTransformer<Object, Long> transformer = cp ->
+      java.util.function.Function<Publisher<?>, CompletionStage<Long>> transformer = cp ->
             Flowable.fromPublisher(cp)
                   .count()
                   .to(interop);
-      InfinispanPublisher.CachePublisherTransformer<Long, Long> finalizer = results ->
+      java.util.function.Function<Publisher<Long>, CompletionStage<Long>> finalizer = results ->
             Flowable.fromPublisher(results)
                   .reduce((long) 0, Long::sum)
                   .to(interop);
-      return infinispanPublisher.compose(transformer, finalizer);
+      return infinispanPublisher.compose2(transformer, finalizer);
    }
 
    public static <E> CompletionStage<Boolean> allMatch(InfinispanPublisher<E> infinispanPublisher, Predicate<? super E> predicate) {
@@ -143,7 +143,7 @@ public class CachePublisherOperators {
                            .toSortedList(comparator)
                            .to(RxJavaInterop.singleToCompletionStage());
 
-      java.util.function.Function<Publisher<List<E>>, CompletionStage<List<E>>> intermediate =
+      java.util.function.Function<Publisher<List<E>>, CompletionStage<List<E>>> finalizer =
             // We use new ParallelSortedJoin directly, since the lists were presorted in the transformer
             publisherLists -> new ParallelSortedJoin<>(ParallelFlowable.from(publisherLists), comparator)
                   // Turn it back into a list for our consumption
@@ -151,7 +151,7 @@ public class CachePublisherOperators {
                   .to(RxJavaInterop.singleToCompletionStage());
 
       return RxJavaInterop.<List<E>>completionStageToPublisher().apply(
-            infinispanPublisher.compose2(transformer, intermediate))
+            infinispanPublisher.compose2(transformer, finalizer))
             .flatMapIterable(Functions.identity());
    }
 
