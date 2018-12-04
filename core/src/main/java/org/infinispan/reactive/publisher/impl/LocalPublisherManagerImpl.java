@@ -10,12 +10,10 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.function.Function;
 import java.util.function.IntConsumer;
-import java.util.function.Supplier;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.Cache;
 import org.infinispan.CacheSet;
-import org.infinispan.CacheStream;
 import org.infinispan.cache.impl.AbstractDelegatingCache;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.IntSets;
@@ -103,8 +101,7 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
          case AT_LEAST_ONCE:
             return atLeastOnce(parallelStream, cache.keySet(), keysToExclude, toKeyFunction, segments, transformer, finalizer);
          case EXACTLY_ONCE:
-            return exactlyOnce(parallelStream, () -> streamExcluding(cache.keySet(), keysToExclude, toKeyFunction),
-                  segments, transformer, finalizer);
+            return exactlyOnce(parallelStream, cache.keySet(), keysToExclude, toKeyFunction, segments, transformer, finalizer);
          default:
             throw new UnsupportedOperationException("Unsupported delivery guarantee: " + deliveryGuarantee);
       }
@@ -131,8 +128,7 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
          case AT_LEAST_ONCE:
             return atLeastOnce(parallelStream, cache.cacheEntrySet(), keysToExclude, toKeyFunction, segments, transformer, finalizer);
          case EXACTLY_ONCE:
-            return exactlyOnce(parallelStream, () -> streamExcluding(cache.cacheEntrySet(), keysToExclude, toKeyFunction),
-                  segments, transformer, finalizer);
+            return exactlyOnce(parallelStream, cache.cacheEntrySet(), keysToExclude, toKeyFunction, segments, transformer, finalizer);
          default:
             throw new UnsupportedOperationException("Unsupported delivery guarantee: " + deliveryGuarantee);
       }
@@ -153,8 +149,9 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
       return (Function) ignoreSegmentsFunction;
    }
 
-   private <I, R> CompletionStage<PublisherResult<R>> exactlyOnce(boolean parallelStream, Supplier<CacheStream<I>> function,
-         IntSet segments, Function<? super Publisher<I>, ? extends CompletionStage<R>> transformer,
+   private <I, R> CompletionStage<PublisherResult<R>> exactlyOnce(boolean parallelStream, CacheSet<I> set,
+         Set<K> keysToExclude, Function<I, K> toKeyFunction, IntSet segments,
+         Function<? super Publisher<I>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
       // This has to be concurrent to allow for different threads to update it (ie. parallel) or even ensure
       // that a state transfer segment lost can see completed
@@ -167,11 +164,15 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
          if (listener.segmentsLost.contains(segment)) {
             return CompletableFutures.completedNull();
          }
-         Flowable<I> innerFlowable = Flowable.fromIterable(() -> function.get().filterKeySegments(IntSets.immutableSet(segment)).iterator())
+         Flowable<I> innerFlowable = Flowable.fromPublisher(set.localPublisher(segment))
                // If we complete the iteration try to remove the segment - so it can't be suspected
                .doOnComplete(() -> concurrentSegments.remove(segment));
          if (parallelStream) {
             innerFlowable = innerFlowable.subscribeOn(asyncScheduler);
+         }
+
+         if (keysToExclude != null) {
+            innerFlowable = innerFlowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
          }
 
          return transformer.apply(innerFlowable).thenCompose(value -> {
@@ -238,20 +239,16 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
       }
    }
 
-   private <I> CacheStream<I> streamExcluding(CacheSet<I> set, Set<K> excludedKeys, Function<I, K> toKeyFunction) {
-      CacheStream<I> setStream = set.stream();
-      if (excludedKeys != null) {
-         setStream = setStream.filter(i -> !excludedKeys.contains(toKeyFunction.apply(i)));
-      }
-      return setStream;
-   }
-
-   private <I, R> CompletionStage<R> parallelAtMostOnce(CacheStream<I> cacheStream, IntSet segments,
+   private <I, R> CompletionStage<R> parallelAtMostOnce(CacheSet<I> cacheSet, Set<K> keysToExclude,
+         Function<I, K> toKeyFunction, IntSet segments,
          Function<? super Publisher<I>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
       Flowable<CompletionStage<R>> flowable = new FlowableFromIntSetFunction<>(segments, segment -> {
-         Flowable<I> innerFlowable = Flowable.fromIterable(() -> cacheStream.filterKeySegments(IntSets.immutableSet(segment)).iterator())
+         Flowable<I> innerFlowable = Flowable.fromPublisher(cacheSet.localPublisher(segment))
                .subscribeOn(asyncScheduler);
+         if (keysToExclude != null) {
+            innerFlowable = innerFlowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
+         }
          return transformer.apply(innerFlowable);
       });
       return combineStages(flowable, finalizer);
@@ -261,13 +258,14 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
          Function<I, K> toKeyFunction, IntSet segments,
          Function<? super Publisher<I>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
-      CacheStream<I> stream = streamExcluding(set, keysToExclude, toKeyFunction);
       if (parallel) {
-         // TODO: need to make a cache stream per thread
-         return parallelAtMostOnce(stream, segments, transformer, finalizer);
+         return parallelAtMostOnce(set, keysToExclude, toKeyFunction, segments, transformer, finalizer);
       } else {
-         return Flowable.fromIterable(() -> stream.filterKeySegments(segments).iterator())
-               .to(transformer::apply);
+         Flowable<I> flowable = Flowable.fromPublisher(set.localPublisher(segments));
+         if (keysToExclude != null) {
+            flowable = flowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
+         }
+         return transformer.apply(flowable);
       }
    }
 

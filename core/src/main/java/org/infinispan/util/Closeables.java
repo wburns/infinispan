@@ -45,4 +45,21 @@ public class Closeables {
          }
       };
    }
+
+   public static AutoCloseable autoCloseable(Disposable disposable) {
+      return new DisposableAsAutoCloseable(disposable);
+   }
+
+   private static class DisposableAsAutoCloseable implements AutoCloseable {
+      private final Disposable disposable;
+
+      private DisposableAsAutoCloseable(Disposable disposable) {
+         this.disposable = disposable;
+      }
+
+      @Override
+      public void close() throws Exception {
+         disposable.dispose();
+      }
+   }
 }

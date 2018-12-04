@@ -68,6 +68,7 @@ import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.CloseableSpliterator;
 import org.infinispan.commons.util.Closeables;
 import org.infinispan.commons.util.EnumUtil;
+import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.IteratorMapper;
 import org.infinispan.commons.util.SpliteratorMapper;
 import org.infinispan.container.entries.CacheEntry;
@@ -105,6 +106,9 @@ import org.infinispan.util.EntryWrapper;
 import org.infinispan.util.UserRaisedFunctionalException;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.reactivestreams.Publisher;
+
+import io.reactivex.Flowable;
 
 /**
  * Always at the end of the chain, directly in front of the cache. Simply calls into the cache using reflection. If the
@@ -1091,6 +1095,11 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
       @Override
       public CacheStream<CacheEntry<K, V>> parallelStream() {
          return doStream(true);
+      }
+
+      @Override
+      public Publisher<CacheEntry<K, V>> localPublisher(IntSet segments) {
+         return Flowable.fromIterable(() -> (Iterator) dataContainer.iterator(segments));
       }
    }
 
