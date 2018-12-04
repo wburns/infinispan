@@ -108,8 +108,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
    }
 
    private <I, R> void startRequestChain(boolean parallelStream, IntSet segments, Set<K> keysToInclude,
-         Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
-         ComposedType<K, I, R> composedType,
+         Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee, ComposedType<K, I, R> composedType,
          Function<? super Publisher<I>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer,
          PublishProcessor<R> publishProcessor) {
