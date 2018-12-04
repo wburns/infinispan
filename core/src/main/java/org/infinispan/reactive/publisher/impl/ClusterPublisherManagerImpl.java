@@ -297,23 +297,23 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       }
    }
 
-   private class EntryComposedType<R> implements ComposedType<K, K, R> {
+   private class EntryComposedType<R> implements ComposedType<K, CacheEntry<K, V>, R> {
 
       @Override
       public CompletionStage<PublisherResult<R>> localInvocation(boolean parallelStream, IntSet segments, Set<K> keysToInclude,
             Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
-            Function<? super Publisher<K>, ? extends CompletionStage<R>> transformer,
+            Function<? super Publisher<CacheEntry<K, V>>, ? extends CompletionStage<R>> transformer,
             Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
-         return localPublisherManager.keyPublisherOperation(parallelStream, segments, keysToInclude, keysToExclude,
+         return localPublisherManager.entryPublisherOperation(parallelStream, segments, keysToInclude, keysToExclude,
                includeLoader, deliveryGuarantee, transformer, finalizer);
       }
 
       @Override
       public PublisherRequestCommand<K> remoteInvocation(boolean parallelStream, IntSet segments, Set<K> keysToInclude,
             Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
-            Function<? super Publisher<K>, ? extends CompletionStage<R>> transformer,
+            Function<? super Publisher<CacheEntry<K, V>>, ? extends CompletionStage<R>> transformer,
             Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
-         return commandsFactory.buildKeyPublisherCommand(parallelStream, deliveryGuarantee, segments, keysToExclude,
+         return commandsFactory.buildEntryPublisherCommand(parallelStream, deliveryGuarantee, segments, keysToExclude,
                keysToExclude, includeLoader, transformer, finalizer);
       }
    }

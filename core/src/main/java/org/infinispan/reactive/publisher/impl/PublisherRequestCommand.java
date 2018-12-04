@@ -22,7 +22,7 @@ import org.infinispan.util.ByteString;
  * @param <K> the key type
  */
 public class PublisherRequestCommand<K> extends BaseRpcCommand implements TopologyAffectedCommand {
-   public static final byte COMMAND_ID = 47;
+   public static final byte COMMAND_ID = 31;
 
    @Inject private LocalPublisherManager lpm;
 
@@ -49,6 +49,10 @@ public class PublisherRequestCommand<K> extends BaseRpcCommand implements Topolo
 
    // Only here for CommandIdUniquenessTest
    private PublisherRequestCommand() { super(null); }
+
+   public PublisherRequestCommand(ByteString cacheName) {
+      super(cacheName);
+   }
 
    public PublisherRequestCommand(ByteString cacheName, boolean parallelStream, DeliveryGuarantee deliveryGuarantee,
          IntSet segments, Set<K> keys, Set<K> excludedKeys, boolean includeLoader, boolean entryStream,

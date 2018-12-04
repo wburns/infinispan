@@ -122,6 +122,7 @@ import org.infinispan.metadata.Metadata;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
 import org.infinispan.persistence.manager.OrderedUpdatesManager;
 import org.infinispan.reactive.publisher.impl.DeliveryGuarantee;
+import org.infinispan.reactive.publisher.impl.LocalPublisherManager;
 import org.infinispan.reactive.publisher.impl.PublisherRequestCommand;
 import org.infinispan.remoting.rpc.RpcManager;
 import org.infinispan.remoting.transport.Address;
@@ -193,6 +194,7 @@ public class CommandsFactoryImpl implements CommandsFactory {
    @Inject private ComponentRef<XSiteStateTransferManager> xSiteStateTransferManager;
    @Inject private GroupManager groupManager;
    @Inject private ComponentRef<LocalStreamManager> localStreamManager;
+   @Inject private ComponentRef<LocalPublisherManager> localPublisherManager;
    @Inject private IteratorHandler iteratorHandler;
    @Inject private ComponentRef<ClusterStreamManager> clusterStreamManager;
    @Inject private ClusteringDependentLogic clusteringDependentLogic;
@@ -532,6 +534,9 @@ public class CommandsFactoryImpl implements CommandsFactory {
             InvalidateVersionsCommand invalidateVersionsCommand = (InvalidateVersionsCommand) c;
             invalidateVersionsCommand.init(dataContainer, orderedUpdatesManager, stateTransferLock, distributionManager, biasManager.running());
             break;
+         case PublisherRequestCommand.COMMAND_ID:
+            PublisherRequestCommand publisherRequestCommand = (PublisherRequestCommand) c;
+            publisherRequestCommand.inject(localPublisherManager.running());
 
          // === Functional commands ====
          case ReadOnlyKeyCommand.COMMAND_ID:
