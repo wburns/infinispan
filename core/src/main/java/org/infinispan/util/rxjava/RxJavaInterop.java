@@ -1,5 +1,6 @@
 package org.infinispan.util.rxjava;
 
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 
@@ -42,6 +43,8 @@ public class RxJavaInterop {
       return asyncProcessor;
    };
 
+   private static final Function<Map.Entry<Object, Object>, Object> entryToKeyFunction = Map.Entry::getKey;
+
    /**
     * Provides an interop function that can be used to convert a Single into a CompletionStage. Note that this function
     * is not from the standard java.util.function package, but rather {@link Function} to interop better with the
@@ -74,5 +77,9 @@ public class RxJavaInterop {
     */
    public static <E> java.util.function.Function<CompletionStage<E>, Flowable<E>> completionStageToPublisher() {
       return (java.util.function.Function) completionStageToPublisher;
+   }
+
+   public static <K, V> Function<Map.Entry<K, V>, K> entryToKeyFunction() {
+      return (Function) entryToKeyFunction;
    }
 }

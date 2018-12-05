@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 import java.util.function.Function;
 import java.util.function.Predicate;
 
@@ -17,6 +18,10 @@ import org.infinispan.commons.util.Util;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.marshall.core.Ids;
+import org.infinispan.util.rxjava.RxJavaInterop;
+import org.reactivestreams.Publisher;
+
+import io.reactivex.Flowable;
 
 /**
  * Static factory class containing methods that will provide marshallable instances for very common use cases.
@@ -91,6 +96,36 @@ public class StreamMarshalling {
     */
    public static <K, V> Function<K, CacheEntry<K, V>> keyToEntryFunction() {
       return new KeyToEntryFunction<>();
+   }
+
+   public static Function<Publisher<?>, CompletionStage<Long>> countPublisherTransformer() {
+      return CountPublisherFunction.INSTANCE;
+   }
+
+   public static Function<Publisher<Long>, CompletionStage<Long>> countPublisherFinalizer() {
+      return CountPublisherFinalizerFunction.INSTANCE;
+   }
+
+   private static final class CountPublisherFunction implements Function<Publisher<?>, CompletionStage<Long>> {
+      private static final CountPublisherFunction INSTANCE = new CountPublisherFunction();
+
+      @Override
+      public CompletionStage<Long> apply(Publisher<?> publisher) {
+         return Flowable.fromPublisher(publisher)
+               .count()
+               .to(RxJavaInterop.singleToCompletionStage());
+      }
+   }
+
+   private static final class CountPublisherFinalizerFunction implements Function<Publisher<Long>, CompletionStage<Long>> {
+      private static final CountPublisherFinalizerFunction INSTANCE = new CountPublisherFinalizerFunction();
+
+      @Override
+      public CompletionStage<Long> apply(Publisher<Long> longPublisher) {
+         return Flowable.fromPublisher(longPublisher)
+               .reduce((long) 0, Long::sum)
+               .to(RxJavaInterop.singleToCompletionStage());
+      }
    }
 
    private static final class EqualityPredicate implements Predicate<Object> {
@@ -188,6 +223,8 @@ public class StreamMarshalling {
          ALWAYS_TRUE_PREDICATE(AlwaysTruePredicate.class),
          KEY_ENTRY_FUNCTION(KeyToEntryFunction.class),
          IDENTITY_FUNCTION(IdentityFunction.class),
+         COUNT_PUBLISHER_FUNCTION(CountPublisherFunction.class),
+         COUNT_PUBLISHER_FINALIZER_FUNCTION(CountPublisherFinalizerFunction.class),
          ;
 
          private final Class<? extends Object> marshalledClass;
@@ -209,7 +246,8 @@ public class StreamMarshalling {
       public Set<Class<?>> getTypeClasses() {
          return Util.<Class<? extends Object>>asSet(EqualityPredicate.class, EntryToKeyFunction.class,
                EntryToValueFunction.class, NonNullPredicate.class, AlwaysTruePredicate.class,
-               KeyToEntryFunction.class, IdentityFunction.class);
+               KeyToEntryFunction.class, IdentityFunction.class, CountPublisherFunction.class,
+               CountPublisherFinalizerFunction.class);
       }
 
       @Override
@@ -254,6 +292,10 @@ public class StreamMarshalling {
                return new KeyToEntryFunction<>();
             case IDENTITY_FUNCTION:
                return IdentityFunction.getInstance();
+            case COUNT_PUBLISHER_FUNCTION:
+               return CountPublisherFunction.INSTANCE;
+            case COUNT_PUBLISHER_FINALIZER_FUNCTION:
+               return CountPublisherFinalizerFunction.INSTANCE;
             default:
                throw new IllegalArgumentException("ExternalizerId not supported: " + id);
          }

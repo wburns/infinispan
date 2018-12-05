@@ -27,15 +27,14 @@ import io.reactivex.parallel.ParallelFlowable;
 public class CachePublisherOperators {
 
    public static CompletionStage<Long> count(InfinispanPublisher<?> infinispanPublisher) {
-      Function<Single<Long>, CompletionStage<Long>> interop = RxJavaInterop.singleToCompletionStage();
       java.util.function.Function<Publisher<?>, CompletionStage<Long>> transformer = cp ->
             Flowable.fromPublisher(cp)
                   .count()
-                  .to(interop);
+                  .to(RxJavaInterop.singleToCompletionStage());
       java.util.function.Function<Publisher<Long>, CompletionStage<Long>> finalizer = results ->
             Flowable.fromPublisher(results)
                   .reduce((long) 0, Long::sum)
-                  .to(interop);
+                  .to(RxJavaInterop.singleToCompletionStage());
       return infinispanPublisher.compose2(transformer, finalizer);
    }
 

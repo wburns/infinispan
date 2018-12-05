@@ -27,6 +27,9 @@ import org.infinispan.commons.util.IntSet;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.annotations.Stop;
+import org.reactivestreams.Publisher;
+
+import io.reactivex.Flowable;
 
 /**
  * DataContainer implementation that internally stores entries in an array of maps. This array is indexed by
@@ -45,6 +48,10 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractInternalDataCon
    protected final AtomicReferenceArray<ConcurrentMap<K, InternalCacheEntry<K, V>>> maps;
    protected final Supplier<ConcurrentMap<K, InternalCacheEntry<K, V>>> mapSupplier;
    protected boolean shouldStopSegments;
+
+   protected final io.reactivex.functions.Predicate<InternalCacheEntry<K, V>> NOT_EXPIRED_PREDICATE = ice ->
+         // TODO: do we we care about multiple time invocations for expirable entries?
+         !ice.canExpire() || !ice.isExpired(timeService.wallClockTime());
 
 
    public DefaultSegmentedDataContainer(Supplier<ConcurrentMap<K, InternalCacheEntry<K, V>>> mapSupplier, int numSegments) {
@@ -81,6 +88,15 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractInternalDataCon
    @Override
    public ConcurrentMap<K, InternalCacheEntry<K, V>> getMapForSegment(int segment) {
       return maps.get(segment);
+   }
+
+   @Override
+   public Publisher<InternalCacheEntry<K, V>> publisher(int segment) {
+      ConcurrentMap<K, InternalCacheEntry<K, V>> mapForSegment = maps.get(segment);
+      if (mapForSegment == null) {
+         return Flowable.empty();
+      }
+      return Flowable.fromIterable(mapForSegment.values()).filter(NOT_EXPIRED_PREDICATE);
    }
 
    @Override
