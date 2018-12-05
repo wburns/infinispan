@@ -173,7 +173,16 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
             innerFlowable = innerFlowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
          }
 
-         return transformer.apply(innerFlowable).thenCompose(value -> {
+         CompletionStage<R> stage = transformer.apply(innerFlowable);
+         CompletableFuture<R> future = stage.toCompletableFuture();
+         if (future.isDone()) {
+            if (listener.segmentsLost.contains(segment)) {
+               return CompletableFutures.completedNull();
+            }
+            return future;
+         }
+
+         return stage.thenCompose(value -> {
             // This means the segment was lost in the middle of processing
             if (listener.segmentsLost.contains(segment)) {
                return CompletableFutures.<R>completedNull();
@@ -294,7 +303,12 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
          if (stage == CompletableFutures.completedNull()) {
             return Flowable.empty();
          }
-         // TODO: do optimization check if stage is already complete - which is guaranteed without a loader
+
+         CompletableFuture<R> future = stage.toCompletableFuture();
+         if (future.isDone()) {
+            R value = future.join();
+            return Flowable.just(value);
+         }
          return RxJavaInterop.<R>completionStageToPublisher().apply(stage);
       });
       return finalizer.apply(resultPublisher);
