@@ -4,6 +4,8 @@ import java.util.stream.BaseStream;
 
 import org.infinispan.factories.ComponentRegistry;
 
+import io.reactivex.Flowable;
+
 /**
  * Intermediate operation that can be applied to a stream to change its processing.
  * @param <InputType> the type of the input stream
@@ -19,6 +21,8 @@ public interface IntermediateOperation<InputType, InputStream extends BaseStream
     * @return the resulting stream after the operation was applied
     */
    OutputStream perform(InputStream stream);
+
+   Flowable<OutputType> performPublisher(Flowable<InputType> publisher);
 
    /**
     * Handles injection of components for various dependencies that the intermediate operation has

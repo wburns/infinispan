@@ -6,6 +6,8 @@ import java.util.stream.Stream;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs boxed operation on a {@link DoubleStream}
  * @param <R> the type of the output stream
@@ -20,6 +22,11 @@ public class MapToObjDoubleOperation<R> implements IntermediateOperation<Double,
    @Override
    public Stream<R> perform(DoubleStream stream) {
       return stream.mapToObj(function);
+   }
+
+   @Override
+   public Flowable<R> performPublisher(Flowable<Double> publisher) {
+      return publisher.map(function::apply);
    }
 
    public DoubleFunction<? extends R> getFunction() {

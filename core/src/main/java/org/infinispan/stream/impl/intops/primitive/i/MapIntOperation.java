@@ -5,6 +5,8 @@ import java.util.stream.IntStream;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs map operation on a {@link IntStream}
  */
@@ -18,6 +20,11 @@ public class MapIntOperation implements IntermediateOperation<Integer, IntStream
    @Override
    public IntStream perform(IntStream stream) {
       return stream.map(operator);
+   }
+
+   @Override
+   public Flowable<Integer> performPublisher(Flowable<Integer> publisher) {
+      return publisher.map(operator::applyAsInt);
    }
 
    public IntUnaryOperator getOperator() {

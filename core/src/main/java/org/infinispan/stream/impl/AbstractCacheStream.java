@@ -3,6 +3,7 @@ package org.infinispan.stream.impl;
 import java.io.IOException;
 import java.io.ObjectInput;
 import java.io.ObjectOutput;
+import java.io.Serializable;
 import java.util.AbstractMap;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -14,6 +15,7 @@ import java.util.List;
 import java.util.PrimitiveIterator;
 import java.util.Queue;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -42,6 +44,8 @@ import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.partitionhandling.impl.PartitionHandlingManager;
+import org.infinispan.reactive.publisher.impl.ClusterPublisherManager;
+import org.infinispan.reactive.publisher.impl.DeliveryGuarantee;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.statetransfer.StateTransferLock;
 import org.infinispan.stream.StreamMarshalling;
@@ -71,6 +75,7 @@ public abstract class AbstractCacheStream<Original, T, S extends BaseStream<T, S
    protected final DistributionManager dm;
    protected final Supplier<CacheStream<Original>> supplier;
    protected final ClusterStreamManager csm;
+   protected final ClusterPublisherManager<Original, Object> cpm;
    protected final Executor executor;
    protected final ComponentRegistry registry;
    protected final PartitionHandlingManager partition;
@@ -99,6 +104,7 @@ public abstract class AbstractCacheStream<Original, T, S extends BaseStream<T, S
 
    protected AbstractCacheStream(Address localAddress, boolean parallel, DistributionManager dm,
            Supplier<CacheStream<Original>> supplier, ClusterStreamManager<Original, Object> csm,
+         ClusterPublisherManager<Original, Object> cpm,
            boolean includeLoader, int distributedBatchSize, Executor executor,
          ComponentRegistry registry, Function<? super Original, ?> toKeyFunction) {
       this.localAddress = localAddress;
@@ -106,6 +112,7 @@ public abstract class AbstractCacheStream<Original, T, S extends BaseStream<T, S
       this.dm = dm;
       this.supplier = supplier;
       this.csm = csm;
+      this.cpm = cpm;
       this.includeLoader = includeLoader;
       this.distributedBatchSize = distributedBatchSize;
       this.executor = executor;
@@ -123,6 +130,7 @@ public abstract class AbstractCacheStream<Original, T, S extends BaseStream<T, S
       this.dm = other.dm;
       this.supplier = other.supplier;
       this.csm = other.csm;
+      this.cpm = other.cpm;
       this.includeLoader = other.includeLoader;
       this.executor = other.executor;
       this.registry = other.registry;
@@ -220,6 +228,46 @@ public abstract class AbstractCacheStream<Original, T, S extends BaseStream<T, S
    public void close() {
       if (closeRunnable != null) {
          closeRunnable.run();
+      }
+   }
+
+   static class CombinedTransformer implements Function<Publisher, CompletionStage>, Serializable {
+      private final Queue<IntermediateOperation> intermediateOperations;
+      private final Function<Publisher, CompletionStage> mainTransformer;
+
+      CombinedTransformer(Queue<IntermediateOperation> intermediateOperations, Function<Publisher, CompletionStage> mainTransformer) {
+         this.intermediateOperations = intermediateOperations;
+         this.mainTransformer = mainTransformer;
+      }
+
+      @Override
+      public CompletionStage apply(Publisher publisher) {
+         Flowable resulting = Flowable.fromPublisher(publisher);
+         for (IntermediateOperation intermediateOperation : intermediateOperations) {
+            resulting = intermediateOperation.performPublisher(resulting);
+         }
+         return mainTransformer.apply(resulting);
+      }
+   }
+
+   <R> CompletionStage<R> publisherBased(Function<? super Publisher<T>, ? extends CompletionStage<R>> transformer,
+         Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
+      Function combinedTransformer;
+
+      if (intermediateOperations.isEmpty()) {
+         combinedTransformer = transformer;
+      } else {
+         combinedTransformer = new CombinedTransformer(intermediateOperations, (Function) transformer);
+      }
+
+      if (toKeyFunction == null) {
+         return cpm.keyComposition(parallel, segmentsToFilter, (Set) keysToFilter, null, includeLoader,
+               rehashAware ? DeliveryGuarantee.EXACTLY_ONCE : DeliveryGuarantee.AT_MOST_ONCE, combinedTransformer,
+               (Function) finalizer);
+      } else {
+         return cpm.entryComposition(parallel, segmentsToFilter, (Set) keysToFilter, null, includeLoader,
+               rehashAware ? DeliveryGuarantee.EXACTLY_ONCE : DeliveryGuarantee.AT_MOST_ONCE, combinedTransformer,
+               (Function) finalizer);
       }
    }
 
@@ -702,6 +750,12 @@ public abstract class AbstractCacheStream<Original, T, S extends BaseStream<T, S
          // changes we need to change this code to handle primitives as well (most likely add MAP_DOUBLE etc.)
          return (OutputStream) ((Stream) stream).map(r -> new KeyValuePair<>(key.get(), r));
       }
+
+      @Override
+      public Flowable<OutputType> performPublisher(Flowable<Object> publisher) {
+         // TODO: don't support iteration yet
+         return null;
+      }
    }
 
    static class FlatMapHandler<OutputType, OutputStream extends BaseStream<OutputType, OutputStream>>
@@ -737,6 +791,12 @@ public abstract class AbstractCacheStream<Original, T, S extends BaseStream<T, S
             }
          }
          return (OutputStream) stream;
+      }
+
+      @Override
+      public Flowable<OutputType> performPublisher(Flowable<Object> publisher) {
+         // TODO: don't support iteration yet
+         return null;
       }
    }
 

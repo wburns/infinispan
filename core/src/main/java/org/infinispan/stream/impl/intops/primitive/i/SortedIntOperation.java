@@ -4,6 +4,8 @@ import java.util.stream.IntStream;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs sorted operation on a {@link IntStream}
  */
@@ -18,5 +20,10 @@ public class SortedIntOperation implements IntermediateOperation<Integer, IntStr
    @Override
    public IntStream perform(IntStream stream) {
       return stream.sorted();
+   }
+
+   @Override
+   public Flowable<Integer> performPublisher(Flowable<Integer> publisher) {
+      return publisher.sorted();
    }
 }

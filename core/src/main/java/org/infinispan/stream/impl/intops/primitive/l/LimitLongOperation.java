@@ -4,6 +4,8 @@ import java.util.stream.LongStream;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs limit operation on a {@link LongStream}
  */
@@ -20,6 +22,11 @@ public class LimitLongOperation implements IntermediateOperation<Long, LongStrea
    @Override
    public LongStream perform(LongStream stream) {
       return stream.limit(limit);
+   }
+
+   @Override
+   public Flowable<Long> performPublisher(Flowable<Long> publisher) {
+      return publisher.limit(limit);
    }
 
    public long getLimit() {

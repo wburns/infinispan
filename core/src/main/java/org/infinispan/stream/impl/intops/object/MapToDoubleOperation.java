@@ -6,6 +6,8 @@ import java.util.stream.Stream;
 
 import org.infinispan.stream.impl.intops.MappingOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs map to double operation on a regular {@link Stream}
  * @param <I> the type of the input stream
@@ -20,6 +22,11 @@ public class MapToDoubleOperation<I> implements MappingOperation<I, Stream<I>, D
    @Override
    public DoubleStream perform(Stream<I> stream) {
       return stream.mapToDouble(function);
+   }
+
+   @Override
+   public Flowable<Double> performPublisher(Flowable<I> publisher) {
+      return publisher.map(function::applyAsDouble);
    }
 
    public ToDoubleFunction<? super I> getFunction() {

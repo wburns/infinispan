@@ -42,7 +42,8 @@ public class TxDistributedCacheStream<Original, R, K, V> extends DistributedCach
            Supplier<CacheStream<R>> supplier, TxClusterStreamManager<Original, K> csm, boolean includeLoader,
            int distributedBatchSize, Executor executor, ComponentRegistry registry, LocalTxInvocationContext ctx,
            Function<? super Original, ?> toKeyFunction, Function<? super CacheEntry<K, V>, ? extends Original> toOriginalFunction) {
-      super(localAddress, parallel, dm, supplier, csm, includeLoader, distributedBatchSize, executor, registry, toKeyFunction);
+      // TODO: handle the ClusterPublisherManager
+      super(localAddress, parallel, dm, supplier, csm, null, includeLoader, distributedBatchSize, executor, registry, toKeyFunction);
       this.localAddress = localAddress;
       this.hash = dm.getWriteConsistentHash();
       this.ctx = ctx;

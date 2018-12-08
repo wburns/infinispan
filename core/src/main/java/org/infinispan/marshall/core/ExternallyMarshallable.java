@@ -61,7 +61,7 @@ public final class ExternallyMarshallable {
       whiteListClasses.add("org.infinispan.stream.BaseStreamTest$TestClass"); // test
       whiteListClasses.add("org.jboss.as.quickstarts.datagrid"); // quickstarts testing
 
-      whiteListClasses.add("org.infinispan.reactive.publisher.impl.SimplePublisherResult"); // temporary TODO: make this real
+      whiteListClasses.add("org.infinispan.stream.impl.AbstractCacheStream$CombinedTransformer"); // temporary TODO: make this real
    }
 
    private ExternallyMarshallable() {

@@ -6,6 +6,8 @@ import java.util.stream.LongStream;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs map to long operation on a {@link DoubleStream}
  */
@@ -19,6 +21,11 @@ public class MapToLongDoubleOperation implements IntermediateOperation<Double, D
    @Override
    public LongStream perform(DoubleStream stream) {
       return stream.mapToLong(function);
+   }
+
+   @Override
+   public Flowable<Long> performPublisher(Flowable<Double> publisher) {
+      return publisher.map(function::applyAsLong);
    }
 
    public DoubleToLongFunction getFunction() {

@@ -32,6 +32,7 @@ import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.impl.ComponentRef;
 import org.infinispan.interceptors.DDAsyncInterceptor;
+import org.infinispan.reactive.publisher.impl.ClusterPublisherManager;
 import org.infinispan.stream.StreamMarshalling;
 import org.infinispan.stream.impl.ClusterStreamManager;
 import org.infinispan.stream.impl.DistributedCacheStream;
@@ -48,6 +49,7 @@ import org.infinispan.util.EntryWrapper;
  */
 public class DistributionBulkInterceptor<K, V> extends DDAsyncInterceptor {
    @Inject private ComponentRef<Cache<K, V>> cache;
+   @Inject private ClusterPublisherManager<K, V> cpm;
 
    @Override
    public Object visitEntrySetCommand(InvocationContext ctx, EntrySetCommand command) throws Throwable {
@@ -61,16 +63,16 @@ public class DistributionBulkInterceptor<K, V> extends DDAsyncInterceptor {
          EntrySetCommand entrySetCommand = (EntrySetCommand) rCommand;
          CacheSet<CacheEntry<K, V>> entrySet = (CacheSet<CacheEntry<K, V>>) rv;
          if (rCtx.isInTxScope()) {
-            entrySet = new TxBackingEntrySet<>(Caches.getCacheWithFlags(cache.wired(), entrySetCommand), entrySet, entrySetCommand,
+            entrySet = new TxBackingEntrySet(Caches.getCacheWithFlags(cache.wired(), entrySetCommand), entrySet, entrySetCommand,
                                                (LocalTxInvocationContext) rCtx);
          } else {
-            entrySet = new BackingEntrySet<>(Caches.getCacheWithFlags(cache.wired(), entrySetCommand), entrySet, entrySetCommand);
+            entrySet = new BackingEntrySet(Caches.getCacheWithFlags(cache.wired(), entrySetCommand), entrySet, entrySetCommand);
          }
          return entrySet;
       });
    }
 
-   protected static class BackingEntrySet<K, V> extends AbstractCloseableIteratorCollection<CacheEntry<K, V>, K, V>
+   protected class BackingEntrySet extends AbstractCloseableIteratorCollection<CacheEntry<K, V>, K, V>
            implements CacheSet<CacheEntry<K, V>> {
       protected final CacheSet<CacheEntry<K, V>> entrySet;
       protected final FlagAffectedCommand command;
@@ -125,7 +127,7 @@ public class DistributionBulkInterceptor<K, V> extends DDAsyncInterceptor {
          ComponentRegistry registry = advancedCache.getComponentRegistry();
          CacheStream<CacheEntry<K, V>> cacheStream = new DistributedCacheStream<>(
                cache.getCacheManager().getAddress(), false, advancedCache.getDistributionManager(),
-               entrySet::stream, registry.getComponent(ClusterStreamManager.class),
+               entrySet::stream, registry.getComponent(ClusterStreamManager.class), cpm,
                !command.hasAnyFlag(FlagBitSets.SKIP_CACHE_LOAD),
                cache.getCacheConfiguration().clustering().stateTransfer().chunkSize(),
                registry.getComponent(Executor.class, ASYNC_OPERATIONS_EXECUTOR), registry,
@@ -139,7 +141,7 @@ public class DistributionBulkInterceptor<K, V> extends DDAsyncInterceptor {
          ComponentRegistry registry = advancedCache.getComponentRegistry();
          CacheStream<CacheEntry<K, V>> cacheStream = new DistributedCacheStream<CacheEntry<K, V>, CacheEntry<K, V>>(
                cache.getCacheManager().getAddress(), true, advancedCache.getDistributionManager(),
-               entrySet::parallelStream, registry.getComponent(ClusterStreamManager.class),
+               entrySet::parallelStream, registry.getComponent(ClusterStreamManager.class), cpm,
                !command.hasAnyFlag(FlagBitSets.SKIP_CACHE_LOAD),
                cache.getCacheConfiguration().clustering().stateTransfer().chunkSize(),
                registry.getComponent(Executor.class, ASYNC_OPERATIONS_EXECUTOR), registry,
@@ -148,7 +150,7 @@ public class DistributionBulkInterceptor<K, V> extends DDAsyncInterceptor {
       }
    }
 
-   protected static class TxBackingEntrySet<K, V> extends BackingEntrySet<K, V> {
+   protected class TxBackingEntrySet extends BackingEntrySet {
       private final LocalTxInvocationContext ctx;
 
       private TxBackingEntrySet(Cache cache, CacheSet<CacheEntry<K, V>> entrySet, FlagAffectedCommand command,
@@ -210,16 +212,16 @@ public class DistributionBulkInterceptor<K, V> extends DDAsyncInterceptor {
       return invokeNextThenApply(ctx, command, (rCtx, rCommand, rv) -> {
          CacheSet<K> keySet = (CacheSet<K>) rv;
          if (ctx.isInTxScope()) {
-            keySet = new TxBackingKeySet<>(Caches.getCacheWithFlags(cache.wired(), command), keySet, command,
+            keySet = new TxBackingKeySet(Caches.getCacheWithFlags(cache.wired(), command), keySet, command,
                                            (LocalTxInvocationContext) ctx);
          } else {
-            keySet = new BackingKeySet<>(Caches.getCacheWithFlags(cache.wired(), command), keySet, command);
+            keySet = new BackingKeySet(Caches.getCacheWithFlags(cache.wired(), command), keySet, command);
          }
          return keySet;
       });
    }
 
-   protected static class BackingKeySet<K, V> extends AbstractCloseableIteratorCollection<K, K, V>
+   protected class BackingKeySet extends AbstractCloseableIteratorCollection<K, K, V>
            implements CacheSet<K> {
       protected final CacheSet<K> keySet;
       protected final FlagAffectedCommand command;
@@ -257,7 +259,7 @@ public class DistributionBulkInterceptor<K, V> extends DDAsyncInterceptor {
          ComponentRegistry registry = advancedCache.getComponentRegistry();
          return new DistributedCacheStream<>(cache.getCacheManager().getAddress(), false,
                  advancedCache.getDistributionManager(), keySet::stream,
-                 registry.getComponent(ClusterStreamManager.class), !command.hasAnyFlag(FlagBitSets.SKIP_CACHE_LOAD),
+                 registry.getComponent(ClusterStreamManager.class), cpm, !command.hasAnyFlag(FlagBitSets.SKIP_CACHE_LOAD),
                  cache.getCacheConfiguration().clustering().stateTransfer().chunkSize(),
                  registry.getComponent(Executor.class, ASYNC_OPERATIONS_EXECUTOR), registry, null);
       }
@@ -268,13 +270,13 @@ public class DistributionBulkInterceptor<K, V> extends DDAsyncInterceptor {
          ComponentRegistry registry = advancedCache.getComponentRegistry();
          return new DistributedCacheStream<>(cache.getCacheManager().getAddress(), true,
                  advancedCache.getDistributionManager(), keySet::parallelStream,
-                 registry.getComponent(ClusterStreamManager.class), !command.hasAnyFlag(FlagBitSets.SKIP_CACHE_LOAD),
+                 registry.getComponent(ClusterStreamManager.class), cpm, !command.hasAnyFlag(FlagBitSets.SKIP_CACHE_LOAD),
                  cache.getCacheConfiguration().clustering().stateTransfer().chunkSize(),
                  registry.getComponent(Executor.class, ASYNC_OPERATIONS_EXECUTOR), registry, null);
       }
    }
 
-   private static class TxBackingKeySet<K, V> extends BackingKeySet<K, V> {
+   private class TxBackingKeySet extends BackingKeySet {
       private final LocalTxInvocationContext ctx;
 
       public TxBackingKeySet(Cache<K, V> cache, CacheSet<K> keySet, FlagAffectedCommand command,

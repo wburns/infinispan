@@ -6,6 +6,8 @@ import java.util.stream.Stream;
 import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs peek operation on a regular {@link Stream}
  */
@@ -19,6 +21,11 @@ public class PeekOperation<S> implements IntermediateOperation<S, Stream<S>, S, 
    @Override
    public Stream<S> perform(Stream<S> stream) {
       return stream.peek(consumer);
+   }
+
+   @Override
+   public Flowable<S> performPublisher(Flowable<S> publisher) {
+      return publisher.doOnNext(consumer::accept);
    }
 
    public Consumer<? super S> getConsumer() {

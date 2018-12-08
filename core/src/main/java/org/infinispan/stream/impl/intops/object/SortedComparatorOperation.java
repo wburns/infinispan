@@ -5,6 +5,8 @@ import java.util.stream.Stream;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs sorted operation with a comparator on a regular {@link Stream}
  */
@@ -18,6 +20,11 @@ public class SortedComparatorOperation<S> implements IntermediateOperation<S, St
    @Override
    public Stream<S> perform(Stream<S> stream) {
       return stream.sorted(comparator);
+   }
+
+   @Override
+   public Flowable<S> performPublisher(Flowable<S> publisher) {
+      return publisher.sorted(comparator);
    }
 
    public Comparator<? super S> getComparator() {

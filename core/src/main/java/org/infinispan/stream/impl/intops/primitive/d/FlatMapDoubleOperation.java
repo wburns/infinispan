@@ -6,6 +6,8 @@ import java.util.stream.Stream;
 
 import org.infinispan.stream.impl.intops.FlatMappingOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs flat map operation on a {@link DoubleStream}
  */
@@ -19,6 +21,11 @@ public class FlatMapDoubleOperation implements FlatMappingOperation<Double, Doub
    @Override
    public DoubleStream perform(DoubleStream stream) {
       return stream.flatMap(function);
+   }
+
+   @Override
+   public Flowable<Double> performPublisher(Flowable<Double> publisher) {
+      return publisher.flatMapIterable(doubleValue -> () -> function.apply(doubleValue).iterator());
    }
 
    public DoubleFunction<? extends DoubleStream> getFunction() {

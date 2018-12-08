@@ -5,6 +5,8 @@ import java.util.stream.LongStream;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs as double operation on a {@link LongStream}
  */
@@ -20,4 +22,11 @@ public class AsDoubleLongOperation implements IntermediateOperation<Long, LongSt
    public DoubleStream perform(LongStream stream) {
       return stream.asDoubleStream();
    }
+
+   @Override
+   public Flowable<Double> performPublisher(Flowable<Long> publisher) {
+      return publisher.map(Long::doubleValue);
+   }
+
+
 }

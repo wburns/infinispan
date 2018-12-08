@@ -98,7 +98,6 @@ import org.infinispan.interceptors.BaseAsyncInterceptor;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.metadata.Metadatas;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
-import org.infinispan.stream.StreamMarshalling;
 import org.infinispan.stream.impl.local.LocalCacheStream;
 import org.infinispan.stream.impl.local.SegmentedEntryStreamSupplier;
 import org.infinispan.stream.impl.local.SegmentedKeyStreamSupplier;

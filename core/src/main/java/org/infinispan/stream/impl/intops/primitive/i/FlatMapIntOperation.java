@@ -6,6 +6,8 @@ import java.util.stream.Stream;
 
 import org.infinispan.stream.impl.intops.FlatMappingOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs flat map operation on a {@link IntStream}
  */
@@ -19,6 +21,11 @@ public class FlatMapIntOperation implements FlatMappingOperation<Integer, IntStr
    @Override
    public IntStream perform(IntStream stream) {
       return stream.flatMap(function);
+   }
+
+   @Override
+   public Flowable<Integer> performPublisher(Flowable<Integer> publisher) {
+      return publisher.flatMapIterable(intValue -> () -> function.apply(intValue).iterator());
    }
 
    public IntFunction<? extends IntStream> getFunction() {

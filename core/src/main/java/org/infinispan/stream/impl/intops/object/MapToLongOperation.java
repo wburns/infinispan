@@ -6,6 +6,8 @@ import java.util.stream.Stream;
 
 import org.infinispan.stream.impl.intops.MappingOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs map to long operation on a regular {@link Stream}
  * @param <I> the type of the input stream
@@ -20,6 +22,11 @@ public class MapToLongOperation<I> implements MappingOperation<I, Stream<I>, Lon
    @Override
    public LongStream perform(Stream<I> stream) {
       return stream.mapToLong(function);
+   }
+
+   @Override
+   public Flowable<Long> performPublisher(Flowable<I> publisher) {
+      return publisher.map(function::applyAsLong);
    }
 
    public ToLongFunction<? super I> getFunction() {

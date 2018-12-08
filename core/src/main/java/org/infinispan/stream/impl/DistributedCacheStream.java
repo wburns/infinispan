@@ -63,7 +63,9 @@ import org.infinispan.distribution.DistributionManager;
 import org.infinispan.distribution.LocalizedCacheTopology;
 import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.factories.ComponentRegistry;
+import org.infinispan.reactive.publisher.impl.ClusterPublisherManager;
 import org.infinispan.remoting.transport.Address;
+import org.infinispan.stream.StreamMarshalling;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 import org.infinispan.stream.impl.intops.object.DistinctOperation;
 import org.infinispan.stream.impl.intops.object.FilterOperation;
@@ -119,9 +121,9 @@ public class DistributedCacheStream<Original, R> extends AbstractCacheStream<Ori
     *                      entries or not by this value being non null
     */
    public DistributedCacheStream(Address localAddress, boolean parallel, DistributionManager dm,
-           Supplier<CacheStream<R>> supplier, ClusterStreamManager csm, boolean includeLoader,
+           Supplier<CacheStream<R>> supplier, ClusterStreamManager csm, ClusterPublisherManager cpm, boolean includeLoader,
            int distributedBatchSize, Executor executor, ComponentRegistry registry, Function<? super Original, ?> toKeyFunction) {
-      super(localAddress, parallel, dm, supplierStreamCast(supplier), csm, includeLoader, distributedBatchSize,
+      super(localAddress, parallel, dm, supplierStreamCast(supplier), csm, cpm, includeLoader, distributedBatchSize,
               executor, registry, toKeyFunction);
 
       Configuration configuration = registry.getComponent(Configuration.class);
@@ -442,7 +444,8 @@ public class DistributedCacheStream<Original, R> extends AbstractCacheStream<Ori
 
    @Override
    public long count() {
-      return performOperation(TerminalFunctions.countFunction(), true, (l1, l2) -> l1 + l2, null);
+      return publisherBased(StreamMarshalling.countPublisherTransformer(), StreamMarshalling.countPublisherFinalizer())
+            .toCompletableFuture().join();
    }
 
 

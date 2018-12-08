@@ -6,6 +6,8 @@ import java.util.stream.Stream;
 
 import org.infinispan.stream.impl.intops.FlatMappingOperation;
 
+import io.reactivex.Flowable;
+
 /**
  * Performs flat map to long operation on a regular {@link Stream}
  * @param <I> the type of the input stream
@@ -20,6 +22,11 @@ public class FlatMapToLongOperation<I> implements FlatMappingOperation<I, Stream
    @Override
    public LongStream perform(Stream<I> stream) {
       return stream.flatMapToLong(function);
+   }
+
+   @Override
+   public Flowable<Long> performPublisher(Flowable<I> publisher) {
+      return publisher.flatMapIterable(value -> () -> function.apply(value).iterator());
    }
 
    public Function<? super I, ? extends LongStream> getFunction() {
