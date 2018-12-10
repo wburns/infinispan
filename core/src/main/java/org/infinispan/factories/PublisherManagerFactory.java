@@ -2,9 +2,9 @@ package org.infinispan.factories;
 
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.factories.annotations.DefaultFactoryFor;
-import org.infinispan.reactive.publisher.impl.ClusterPublisherManager;
+import org.infinispan.reactive.publisher.ClusterPublisherManager;
 import org.infinispan.reactive.publisher.impl.ClusterPublisherManagerImpl;
-import org.infinispan.reactive.publisher.impl.LocalPublisherManager;
+import org.infinispan.reactive.publisher.LocalPublisherManager;
 import org.infinispan.reactive.publisher.impl.LocalPublisherManagerImpl;
 
 /**

@@ -14,6 +14,7 @@ import org.infinispan.commons.marshall.MarshallUtil;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.Util;
 import org.infinispan.factories.annotations.Inject;
+import org.infinispan.reactive.publisher.LocalPublisherManager;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.util.ByteString;
 

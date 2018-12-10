@@ -63,7 +63,7 @@ import org.infinispan.distribution.DistributionManager;
 import org.infinispan.distribution.LocalizedCacheTopology;
 import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.factories.ComponentRegistry;
-import org.infinispan.reactive.publisher.impl.ClusterPublisherManager;
+import org.infinispan.reactive.publisher.ClusterPublisherManager;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.stream.StreamMarshalling;
 import org.infinispan.stream.impl.intops.IntermediateOperation;

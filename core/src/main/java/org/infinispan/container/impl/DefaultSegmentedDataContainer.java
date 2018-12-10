@@ -49,9 +49,7 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractInternalDataCon
    protected final Supplier<ConcurrentMap<K, InternalCacheEntry<K, V>>> mapSupplier;
    protected boolean shouldStopSegments;
 
-   protected final io.reactivex.functions.Predicate<InternalCacheEntry<K, V>> NOT_EXPIRED_PREDICATE = ice ->
-         // TODO: do we we care about multiple time invocations for expirable entries?
-         !ice.canExpire() || !ice.isExpired(timeService.wallClockTime());
+   protected io.reactivex.functions.Predicate<InternalCacheEntry<K, V>> notExpiredPredicate;
 
 
    public DefaultSegmentedDataContainer(Supplier<ConcurrentMap<K, InternalCacheEntry<K, V>>> mapSupplier, int numSegments) {
@@ -70,6 +68,10 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractInternalDataCon
       // Distributed is the only mode that allows for dynamic addition/removal of maps as others own all segments
       // in some fashion
       shouldStopSegments = configuration.clustering().cacheMode().isDistributed();
+
+      notExpiredPredicate = ice ->
+            // TODO: do we we care about multiple time invocations for expirable entries?
+            !ice.canExpire() || !ice.isExpired(timeService.wallClockTime());
    }
 
    // Priority has to be higher than the clear priority - which is currently 999
@@ -96,7 +98,7 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractInternalDataCon
       if (mapForSegment == null) {
          return Flowable.empty();
       }
-      return Flowable.fromIterable(mapForSegment.values()).filter(NOT_EXPIRED_PREDICATE);
+      return Flowable.fromIterable(mapForSegment.values()).filter(notExpiredPredicate);
    }
 
    @Override
