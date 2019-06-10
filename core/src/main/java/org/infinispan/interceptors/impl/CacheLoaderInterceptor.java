@@ -1,5 +1,6 @@
 package org.infinispan.interceptors.impl;
 
+import static org.infinispan.persistence.manager.PersistenceManager.AccessMode.BOTH;
 import static org.infinispan.persistence.manager.PersistenceManager.AccessMode.NOT_ASYNC;
 import static org.infinispan.persistence.manager.PersistenceManager.AccessMode.SHARED;
 
@@ -53,6 +54,8 @@ import org.infinispan.commons.time.TimeService;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.CloseableSpliterator;
 import org.infinispan.commons.util.EnumUtil;
+import org.infinispan.commons.util.IntSet;
+import org.infinispan.commons.util.IntSets;
 import org.infinispan.commons.util.IteratorMapper;
 import org.infinispan.commons.util.RemovableCloseableIterator;
 import org.infinispan.container.entries.CacheEntry;
@@ -98,6 +101,8 @@ import org.infinispan.util.logging.LogFactory;
 import org.reactivestreams.Publisher;
 
 import io.reactivex.Flowable;
+import io.reactivex.Scheduler;
+import io.reactivex.schedulers.Schedulers;
 
 /**
  * @since 9.0
@@ -122,6 +127,8 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
    @Inject @ComponentName(KnownComponentNames.ASYNC_OPERATIONS_EXECUTOR)
    protected ExecutorService cpuExecutor;
 
+   protected Scheduler cpuScheduler;
+
    protected boolean activation;
 
    private final ConcurrentMap<Object, CompletionStage<InternalCacheEntry<K, V>>> pendingLoads = new ConcurrentHashMap<>();
@@ -129,6 +136,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
    @Start
    public void start() {
       this.activation = cacheConfiguration.persistence().passivation();
+      this.cpuScheduler = Schedulers.from(cpuExecutor);
    }
 
    @Override
@@ -704,6 +712,28 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          return new LocalCacheStream<>(new PersistenceEntryStreamSupplier<>(cache, iceFactory, partitioner::getSegment,
                cacheSet.stream(), persistenceManager), parallel, cache.getAdvancedCache().getComponentRegistry());
       }
+
+      @Override
+      public Publisher<CacheEntry<K, V>> localPublisher(int segment) {
+         Set<K> seenKeys = new HashSet<>(2048);
+         Flowable<CacheEntry<K, V>> inMemoryPublisher = Flowable.fromPublisher(cacheSet.localPublisher(segment))
+               .doOnNext(ce -> seenKeys.add(ce.getKey()));
+         Flowable<CacheEntry<K, V>> loaderFlowable = Flowable.fromPublisher(persistenceManager.<K, V>publishEntries(IntSets.immutableSet(segment), k -> !seenKeys.contains(k), true, true, BOTH))
+               .observeOn(cpuScheduler)
+               .map(me -> PersistenceUtil.convert(me, iceFactory));
+         return Flowable.concat(inMemoryPublisher, loaderFlowable);
+      }
+
+      @Override
+      public Publisher<CacheEntry<K, V>> localPublisher(IntSet segments) {
+         Set<K> seenKeys = new HashSet<>(2048);
+         Flowable<CacheEntry<K, V>> inMemoryPublisher = Flowable.fromPublisher(cacheSet.localPublisher(segments))
+               .doOnNext(ce -> seenKeys.add(ce.getKey()));
+         Flowable<CacheEntry<K, V>> loaderFlowable = Flowable.fromPublisher(persistenceManager.<K, V>publishEntries(segments, k -> !seenKeys.contains(k), true, true, BOTH))
+               .observeOn(cpuScheduler)
+               .map(me -> PersistenceUtil.convert(me, iceFactory));
+         return Flowable.concat(inMemoryPublisher, loaderFlowable);
+      }
    }
 
    private class WrappedKeySet extends AbstractLoaderSet<K> implements CacheSet<K> {
@@ -769,6 +799,26 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
       protected CacheStream<K> getStream(boolean parallel) {
          return new LocalCacheStream<>(new PersistenceKeyStreamSupplier<>(cache, partitioner::getSegment,
                cacheSet.stream(), persistenceManager), parallel, cache.getAdvancedCache().getComponentRegistry());
+      }
+
+      @Override
+      public Publisher<K> localPublisher(int segment) {
+         Set<K> seenKeys = new HashSet<>(2048);
+         Flowable<K> inMemoryPublisher = Flowable.fromPublisher(cacheSet.localPublisher(segment))
+               .doOnNext(seenKeys::add);
+         Flowable<K> loaderFlowable = Flowable.fromPublisher(persistenceManager.<K>publishKeys(IntSets.immutableSet(segment), k -> !seenKeys.contains(k), BOTH))
+               .observeOn(cpuScheduler);
+         return Flowable.concat(inMemoryPublisher, loaderFlowable);
+      }
+
+      @Override
+      public Publisher<K> localPublisher(IntSet segments) {
+         Set<K> seenKeys = new HashSet<>(2048);
+         Flowable<K> inMemoryPublisher = Flowable.fromPublisher(cacheSet.localPublisher(segments))
+               .doOnNext(seenKeys::add);
+         Flowable<K> loaderFlowable = Flowable.fromPublisher(persistenceManager.<K>publishKeys(segments, k -> !seenKeys.contains(k), BOTH))
+               .observeOn(cpuScheduler);
+         return Flowable.concat(inMemoryPublisher, loaderFlowable);
       }
    }
 }

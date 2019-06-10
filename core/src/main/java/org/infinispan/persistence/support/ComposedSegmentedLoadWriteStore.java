@@ -138,6 +138,14 @@ public class ComposedSegmentedLoadWriteStore<K, V, T extends AbstractSegmentedSt
 
    @Override
    public Publisher<MarshallableEntry<K, V>> entryPublisher(IntSet segments, Predicate<? super K> filter, boolean fetchValue, boolean fetchMetadata) {
+      // Short circuit if only a single segment - assumed to be invoked from persistence thread
+      if (segments.size() == 1) {
+         AdvancedLoadWriteStore<K, V> alws = stores.get(segments.iterator().nextInt());
+         if (alws != null) {
+            return alws.entryPublisher(filter, fetchValue, fetchMetadata);
+         }
+         return Flowable.empty();
+      }
       return PersistenceUtil.parallelizePublisher(segments, scheduler, i -> {
          AdvancedLoadWriteStore<K, V> alws = stores.get(i);
          if (alws != null) {
