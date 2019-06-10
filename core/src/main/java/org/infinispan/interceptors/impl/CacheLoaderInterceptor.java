@@ -719,7 +719,6 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          Flowable<CacheEntry<K, V>> inMemoryPublisher = Flowable.fromPublisher(cacheSet.localPublisher(segment))
                .doOnNext(ce -> seenKeys.add(ce.getKey()));
          Flowable<CacheEntry<K, V>> loaderFlowable = Flowable.fromPublisher(persistenceManager.<K, V>publishEntries(IntSets.immutableSet(segment), k -> !seenKeys.contains(k), true, true, BOTH))
-               .observeOn(cpuScheduler)
                .map(me -> PersistenceUtil.convert(me, iceFactory));
          return Flowable.concat(inMemoryPublisher, loaderFlowable);
       }
@@ -730,7 +729,6 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          Flowable<CacheEntry<K, V>> inMemoryPublisher = Flowable.fromPublisher(cacheSet.localPublisher(segments))
                .doOnNext(ce -> seenKeys.add(ce.getKey()));
          Flowable<CacheEntry<K, V>> loaderFlowable = Flowable.fromPublisher(persistenceManager.<K, V>publishEntries(segments, k -> !seenKeys.contains(k), true, true, BOTH))
-               .observeOn(cpuScheduler)
                .map(me -> PersistenceUtil.convert(me, iceFactory));
          return Flowable.concat(inMemoryPublisher, loaderFlowable);
       }
@@ -806,8 +804,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          Set<K> seenKeys = new HashSet<>(2048);
          Flowable<K> inMemoryPublisher = Flowable.fromPublisher(cacheSet.localPublisher(segment))
                .doOnNext(seenKeys::add);
-         Flowable<K> loaderFlowable = Flowable.fromPublisher(persistenceManager.<K>publishKeys(IntSets.immutableSet(segment), k -> !seenKeys.contains(k), BOTH))
-               .observeOn(cpuScheduler);
+         Flowable<K> loaderFlowable = Flowable.fromPublisher(persistenceManager.<K>publishKeys(IntSets.immutableSet(segment), k -> !seenKeys.contains(k), BOTH));
          return Flowable.concat(inMemoryPublisher, loaderFlowable);
       }
 
@@ -816,8 +813,7 @@ public class CacheLoaderInterceptor<K, V> extends JmxStatsCommandInterceptor {
          Set<K> seenKeys = new HashSet<>(2048);
          Flowable<K> inMemoryPublisher = Flowable.fromPublisher(cacheSet.localPublisher(segments))
                .doOnNext(seenKeys::add);
-         Flowable<K> loaderFlowable = Flowable.fromPublisher(persistenceManager.<K>publishKeys(segments, k -> !seenKeys.contains(k), BOTH))
-               .observeOn(cpuScheduler);
+         Flowable<K> loaderFlowable = Flowable.fromPublisher(persistenceManager.<K>publishKeys(segments, k -> !seenKeys.contains(k), BOTH));
          return Flowable.concat(inMemoryPublisher, loaderFlowable);
       }
    }

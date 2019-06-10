@@ -670,6 +670,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
             semaphore.acquire();
             return advancedCacheLoader.entryPublisher(filter, fetchValue, fetchMetadata);
          }, Semaphore::release)
+               .observeOn(cpuScheduler)
                .subscribeOn(persistenceScheduler);
       }
       return Flowable.empty();
@@ -685,6 +686,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
             semaphore.acquire();
             return segmentedStore.entryPublisher(segments, filter, fetchValue, fetchMetadata);
          }, Semaphore::release)
+               .observeOn(cpuScheduler)
                .subscribeOn(persistenceScheduler);
       }
       return publishEntries(PersistenceUtil.combinePredicate(segments, keyPartitioner, filter), fetchValue, fetchMetadata, predicate);
@@ -702,6 +704,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
             semaphore.acquire();
             return advancedCacheLoader.publishKeys(filter);
          }, Semaphore::release)
+               .observeOn(cpuScheduler)
                .subscribeOn(persistenceScheduler);
       }
       return Flowable.empty();
@@ -720,6 +723,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
             semaphore.acquire();
             return segmentedStore.publishKeys(segments, filter);
          }, Semaphore::release)
+               .observeOn(cpuScheduler)
                .subscribeOn(persistenceScheduler);
       }
 
