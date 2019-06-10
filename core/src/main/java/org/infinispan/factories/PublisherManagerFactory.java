@@ -20,7 +20,7 @@ public class PublisherManagerFactory extends AbstractNamedCacheComponentFactory 
    @Override
    public Object construct(String componentName) {
       if (componentName.equals(LocalPublisherManager.class.getName())) {
-         if (!configuration.persistence().usingSegmentedStore()) {
+         if (configuration.persistence().usingStores() && !configuration.persistence().usingSegmentedStore()) {
             return new NonSegmentedLocalPublisherManagerImpl();
          }
          return new LocalPublisherManagerImpl<>();

@@ -36,6 +36,10 @@ public class NonSegmentedLocalPublisherManagerImpl<K, V> extends LocalPublisherM
             // Remove all the segments once we have iterated upon all the data for the segments
             .doOnComplete(() -> concurrentSegments.removeAll(segments));
 
+      if (keysToExclude != null) {
+         flowable = flowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
+      }
+
       return flowable.groupBy(i -> keyPartitioner.getSegment(toKeyFunction.apply(i)))
             .map(gf -> {
                // Have to request all segments to do in parallel - otherwise groupBy will get starved
@@ -58,6 +62,10 @@ public class NonSegmentedLocalPublisherManagerImpl<K, V> extends LocalPublisherM
       Flowable<I> flowable = Flowable.fromPublisher(set.localPublisher(segments))
             // Remove all the segments once we have iterated upon all the data for the segments
             .doOnComplete(() -> concurrentSegments.removeAll(segments));
+
+      if (keysToExclude != null) {
+         flowable = flowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
+      }
 
       return flowable.groupBy(i -> keyPartitioner.getSegment(toKeyFunction.apply(i)))
             .map(gf -> {
