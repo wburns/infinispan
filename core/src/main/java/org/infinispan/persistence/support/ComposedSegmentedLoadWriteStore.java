@@ -121,7 +121,15 @@ public class ComposedSegmentedLoadWriteStore<K, V, T extends AbstractSegmentedSt
    }
 
    @Override
-   public Flowable<K> publishKeys(IntSet segments, Predicate<? super K> filter) {
+   public Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter) {
+      // Short circuit if only a single segment - assumed to be invoked from persistence thread
+      if (segments.size() == 1) {
+         AdvancedLoadWriteStore<K, V> alws = stores.get(segments.iterator().nextInt());
+         if (alws != null) {
+            return alws.publishKeys(filter);
+         }
+         return Flowable.empty();
+      }
       return PersistenceUtil.parallelizePublisher(segments, scheduler, i -> {
          AdvancedLoadWriteStore<K, V> alws = stores.get(i);
          if (alws != null) {
@@ -132,7 +140,7 @@ public class ComposedSegmentedLoadWriteStore<K, V, T extends AbstractSegmentedSt
    }
 
    @Override
-   public Flowable<K> publishKeys(Predicate<? super K> filter) {
+   public Publisher<K> publishKeys(Predicate<? super K> filter) {
       return publishKeys(IntSets.immutableRangeSet(stores.length()), filter);
    }
 
