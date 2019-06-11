@@ -40,7 +40,6 @@ import org.infinispan.util.logging.LogFactory;
 import org.reactivestreams.Publisher;
 
 import io.reactivex.processors.FlowableProcessor;
-import io.reactivex.processors.PublishProcessor;
 import io.reactivex.processors.UnicastProcessor;
 
 /**
@@ -89,7 +88,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
          Function<? super Publisher<K>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
       // Needs to be serialized processor as we can write to it from different threads
-      FlowableProcessor<R> flowableProcessor = PublishProcessor.<R>create().toSerialized();
+      FlowableProcessor<R> flowableProcessor = UnicastProcessor.<R>create().toSerialized();
       // We apply the finalizer first to ensure they can subscribe to the PublishProcessor before we emit any items
       CompletionStage<R> stage = finalizer.apply(flowableProcessor);
 
@@ -112,7 +111,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
          Function<? super Publisher<CacheEntry<K, V>>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
       // Needs to be serialized processor as we can write to it from different threads
-      FlowableProcessor<R> flowableProcessor = PublishProcessor.<R>create().toSerialized();
+      FlowableProcessor<R> flowableProcessor = UnicastProcessor.<R>create().toSerialized();
       // We apply the finalizer first to ensure they can subscribe to the PublishProcessor before we emit any items
       CompletionStage<R> stage = finalizer.apply(flowableProcessor);
 

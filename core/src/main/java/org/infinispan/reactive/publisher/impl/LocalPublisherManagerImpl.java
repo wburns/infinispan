@@ -9,6 +9,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.function.IntConsumer;
 
@@ -41,6 +42,8 @@ import org.reactivestreams.Publisher;
 
 import io.reactivex.Flowable;
 import io.reactivex.Scheduler;
+import io.reactivex.processors.FlowableProcessor;
+import io.reactivex.processors.UnicastProcessor;
 import io.reactivex.schedulers.Schedulers;
 
 /**
@@ -57,6 +60,7 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
 
    @Inject ComponentRef<Cache<K, V>> cacheComponentRef;
    @Inject DistributionManager distributionManager;
+   @Inject @ComponentName(ASYNC_OPERATIONS_EXECUTOR) ExecutorService asyncOperationsExecutor;
    // This cache should only be used for retrieving entries via Cache#get
    protected AdvancedCache<K, V> remoteCache;
    // This cache should be used for iteration purposes or Cache#get that are local only
@@ -73,7 +77,7 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
     * method and add @Inject to the variable.
     */
    @Inject
-   public void inject(@ComponentName(ASYNC_OPERATIONS_EXECUTOR) ExecutorService asyncOperationsExecutor) {
+   public void inject() {
       this.asyncScheduler = Schedulers.from(asyncOperationsExecutor);
    }
 
@@ -154,7 +158,7 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
    }
 
    private static Function<Object, PublisherResult<Object>> ignoreSegmentsFunction  = value ->
-         new SegmentPublisherResult<>(IntSets.immutableEmptySet(), value);
+         new SegmentPublisherResult<>(null, value);
 
    static <R> Function<R, PublisherResult<R>> ignoreSegmentsFunction() {
       return (Function) ignoreSegmentsFunction;
@@ -174,7 +178,9 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
 
       Flowable<CompletionStage<R>> stageFlowable;
       if (parallelPublisher) {
-         stageFlowable = exactlyOnceParallel(set, keysToExclude, toKeyFunction, segments, transformer, listener, concurrentSegments);
+         Flowable<R> nodeResults = exactlyOnceParallel2(set, keysToExclude, toKeyFunction, segments, transformer, listener, concurrentSegments);
+         return handleLostSegments(finalizer.apply(nodeResults), listener);
+//         stageFlowable = exactlyOnceParallel(set, keysToExclude, toKeyFunction, segments, transformer, listener, concurrentSegments);
       } else {
          stageFlowable = exactlyOnceSequential(set, keysToExclude, toKeyFunction, segments, transformer, listener, concurrentSegments);
       }
@@ -182,19 +188,21 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
       return handleLostSegments(combinedStage, listener);
    }
 
-   protected <I, R> Flowable<CompletionStage<R>> exactlyOnceParallel(CacheSet<I> set,
+   protected <I, R> Flowable<R> exactlyOnceParallel2(CacheSet<I> set,
          Set<K> keysToExclude, Function<I, K> toKeyFunction, IntSet segments,
          Function<? super Publisher<I>, ? extends CompletionStage<R>> transformer,
          SegmentListener listener, IntSet concurrentSegments) {
-      // TODO: this technically boxes and then unboxes the segments - but the parallelism performance is so much
-      // better than the below solution
-      return Flowable.fromIterable(segments)
-            .parallel()
-            .runOn(asyncScheduler)
-            .map(segment -> {
-               Flowable<I> innerFlowable = Flowable.fromPublisher(set.localPublisher(segment))
-                     // If we complete the iteration try to remove the segment - so it can't be suspected
-                     .doOnComplete(() -> concurrentSegments.remove(segment));
+      int segmentCount = segments.size();
+      FlowableProcessor<R> processor = UnicastProcessor.<R>create(segmentCount).toSerialized();
+
+      AtomicInteger count = new AtomicInteger(segmentCount);
+      for (PrimitiveIterator.OfInt intIter = segments.iterator(); intIter.hasNext(); ) {
+         int segment = intIter.nextInt();
+         asyncOperationsExecutor.submit(() -> {
+            try {
+               Flowable<I> innerFlowable = Flowable.fromPublisher(set.localPublisher(segment));
+               // If we complete the iteration try to remove the segment - so it can't be suspected
+
                if (keysToExclude != null) {
                   innerFlowable = innerFlowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
                }
@@ -203,6 +211,122 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
                CompletableFuture<R> future = stage.toCompletableFuture();
                // This will always be true unless there is a store
                if (future.isDone()) {
+                  // If we complete the iteration try to remove the segment - so it can't be suspected
+                  concurrentSegments.remove(segment);
+                  if (listener.segmentsLost.contains(segment)) {
+                     handleCompletion(processor, null, count);
+                  } else {
+                     handleCompletion(processor, future.get(), count);
+                  }
+               } else {
+                  stage.whenComplete((value, t) -> {
+                     if (t != null) {
+                        processor.onError(t);
+                     } else {
+                        // If we complete the iteration try to remove the segment - so it can't be suspected
+                        concurrentSegments.remove(segment);
+                        // This means the segment was lost in the middle of processing
+                        if (listener.segmentsLost.contains(segment)) {
+                           handleCompletion(processor, null, count);
+                        }
+                        handleCompletion(processor, value, count);
+                     }
+                  });
+               }
+            } catch (Throwable t) {
+               // Make sure to propagate any errors
+               processor.onError(t);
+            }
+         });
+      }
+
+      return processor;
+   }
+
+   private <R> void handleCompletion(FlowableProcessor<R> processor, R value, AtomicInteger left) {
+      if (value != null) {
+         processor.onNext(value);
+      }
+      if (left.decrementAndGet() == 0) {
+         processor.onComplete();
+      }
+   }
+
+   protected <I, R> Flowable<CompletionStage<R>> exactlyOnceParallel(CacheSet<I> set,
+         Set<K> keysToExclude, Function<I, K> toKeyFunction, IntSet segments,
+         Function<? super Publisher<I>, ? extends CompletionStage<R>> transformer,
+         SegmentListener listener, IntSet concurrentSegments) {
+      // TODO: this technically boxes and then unboxes the segments - but the parallelism performance is so much
+      // better than the below solution
+//      int segmentCount = segments.size();
+//      FlowableProcessor<CompletionStage<R>> processor = UnicastProcessor.<CompletionStage<R>>create(segmentCount).toSerialized();
+//
+//      AtomicInteger count = new AtomicInteger(segmentCount);
+//      for (PrimitiveIterator.OfInt intIter = segments.iterator(); intIter.hasNext(); ) {
+//         int segment = intIter.nextInt();
+//         asyncOperationsExecutor.submit(() -> {
+//            try {
+//               Flowable<I> innerFlowable = Flowable.fromPublisher(set.localPublisher(segment));
+//               // If we complete the iteration try to remove the segment - so it can't be suspected
+//
+//               if (keysToExclude != null) {
+//                  innerFlowable = innerFlowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
+//               }
+//
+//               CompletionStage<R> stage = transformer.apply(innerFlowable);
+//               CompletableFuture<R> future = stage.toCompletableFuture();
+//               CompletionStage<R> returnedStage;
+//               // This will always be true unless there is a store
+//               if (future.isDone()) {
+//                  // If we complete the iteration try to remove the segment - so it can't be suspected
+//                  concurrentSegments.remove(segment);
+//                  if (listener.segmentsLost.contains(segment)) {
+//                     returnedStage = null;
+//                  } else {
+//                     returnedStage = future;
+//                  }
+//               } else {
+//                  returnedStage = stage.thenCompose(value -> {
+//                     // If we complete the iteration try to remove the segment - so it can't be suspected
+//                     concurrentSegments.remove(segment);
+//                     // This means the segment was lost in the middle of processing
+//                     if (listener.segmentsLost.contains(segment)) {
+//                        return CompletableFutures.completedNull();
+//                     }
+//                     return CompletableFuture.completedFuture(value);
+//                  });
+//               }
+//               if (returnedStage != null) {
+//                  processor.onNext(returnedStage);
+//               }
+//               if (count.decrementAndGet() == 0) {
+//                  processor.onComplete();
+//               }
+//            } catch (Throwable t) {
+//               // Make sure to propagate any errors
+//               processor.onError(t);
+//            }
+//         });
+//      }
+//
+//      return processor;
+      return Flowable.fromIterable(segments)
+            .parallel()
+            .runOn(asyncScheduler)
+            .map(segment -> {
+               Flowable<I> innerFlowable = Flowable.fromPublisher(set.localPublisher(segment));
+                     // If we complete the iteration try to remove the segment - so it can't be suspected
+
+               if (keysToExclude != null) {
+                  innerFlowable = innerFlowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
+               }
+
+               CompletionStage<R> stage = transformer.apply(innerFlowable);
+               CompletableFuture<R> future = stage.toCompletableFuture();
+               // This will always be true unless there is a store
+               if (future.isDone()) {
+                  // If we complete the iteration try to remove the segment - so it can't be suspected
+                  concurrentSegments.remove(segment);
                   if (listener.segmentsLost.contains(segment)) {
                      return CompletableFutures.<R>completedNull();
                   }
@@ -210,6 +334,8 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
                }
 
                return stage.thenCompose(value -> {
+                  // If we complete the iteration try to remove the segment - so it can't be suspected
+                  concurrentSegments.remove(segment);
                   // This means the segment was lost in the middle of processing
                   if (listener.segmentsLost.contains(segment)) {
                      return CompletableFutures.completedNull();
@@ -224,9 +350,7 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
          Function<? super Publisher<I>, ? extends CompletionStage<R>> transformer,
          SegmentListener listener, IntSet concurrentSegments) {
       return new FlowableFromIntSetFunction<>(segments, segment -> {
-         Flowable<I> innerFlowable = Flowable.fromPublisher(set.localPublisher(segment))
-               // If we complete the iteration try to remove the segment - so it can't be suspected
-               .doOnComplete(() -> concurrentSegments.remove(segment));
+         Flowable<I> innerFlowable = Flowable.fromPublisher(set.localPublisher(segment));
 
          if (keysToExclude != null) {
             innerFlowable = innerFlowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
@@ -236,6 +360,7 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
          CompletableFuture<R> future = stage.toCompletableFuture();
          // This will always be true unless there is a store
          if (future.isDone()) {
+            concurrentSegments.remove(segment);
             if (listener.segmentsLost.contains(segment)) {
                return CompletableFutures.completedNull();
             }
@@ -243,9 +368,10 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
          }
 
          return stage.thenCompose(value -> {
+            concurrentSegments.remove(segment);
             // This means the segment was lost in the middle of processing
             if (listener.segmentsLost.contains(segment)) {
-               return CompletableFutures.<R>completedNull();
+               return CompletableFutures.completedNull();
             }
             return CompletableFuture.completedFuture(value);
          });
