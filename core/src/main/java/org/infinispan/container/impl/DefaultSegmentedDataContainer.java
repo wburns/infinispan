@@ -71,9 +71,12 @@ public class DefaultSegmentedDataContainer<K, V> extends AbstractInternalDataCon
       shouldStopSegments = configuration.clustering().cacheMode().isDistributed();
 
       notExpiredPredicate = ice -> {
+         if (!ice.canExpire()) {
+            return true;
+         }
          // TODO: should we optimize wallClockTime per entry invocation?
          long currentTime = timeService.wallClockTime();
-         return !ice.canExpire() || !(ice.isExpired(currentTime) && expirationManager.entryExpiredInMemoryFromIteration(ice, currentTime).join() == Boolean.TRUE);
+         return !(ice.isExpired(currentTime) && expirationManager.entryExpiredInMemoryFromIteration(ice, currentTime).join() == Boolean.TRUE);
       };
    }
 
