@@ -239,7 +239,8 @@
                      {maven-resources},
                      /proto=${project.basedir}/target/classes/proto,
                      /META-INF/services=${project.basedir}/target/classes/META-INF/services,
-                     /OSGI-INF/blueprint/blueprint.xml=${project.basedir}/target/classes/OSGI-INF/blueprint/blueprint.xml
+                     /OSGI-INF/blueprint/blueprint.xml=${project.basedir}/target/classes/OSGI-INF/blueprint/blueprint.xml,
+                     /META-INF/jandex.idx=${project.basedir}/target/classes/META-INF/jandex.idx
                   </Include-Resource>
                   <DynamicImport-Package>*</DynamicImport-Package>
                </instructions>
@@ -319,6 +320,19 @@
                </execution>
             </executions>
          </plugin>
+         <plugin>
+            <groupId>org.jboss.jandex</groupId>
+            <artifactId>jandex-maven-plugin</artifactId>
+            <version>1.0.6</version>
+            <executions>
+              <execution>
+                <id>make-index</id>
+                <goals>
+                  <goal>jandex</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
       </plugins>
    </build>
 
