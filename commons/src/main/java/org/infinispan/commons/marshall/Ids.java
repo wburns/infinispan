@@ -158,6 +158,9 @@ public interface Ids {
 
    int IMMUTABLE_SET = 110;
 
+   // TODO: replace the stream iterator ones with these
+   int PUBLISHER_RESPONSE = 223;
+   int LOST_PUBLISHER_RESPONSE = 224;
    int STREAM_ITERATOR_RESPONSE = 111;
    int END_ITERATOR = 112;
 
@@ -206,7 +209,7 @@ public interface Ids {
    int SIMPLE_PUBLISHER_RESULT = 140;
    int PUBLISHER_REDUCERS = 141;
 
-   int MARSHALLED_VALUE = 142;
+   int CACHE_STREAM_INTERMEDIATE_PUBLISHER = 142;
 
    int CACHE_STREAM_INTERMEDIATE_REDUCER = 143;
 

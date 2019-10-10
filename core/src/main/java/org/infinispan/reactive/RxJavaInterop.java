@@ -5,6 +5,9 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.stream.Stream;
 
+import org.infinispan.commons.util.Util;
+import org.reactivestreams.Publisher;
+
 import io.reactivex.Completable;
 import io.reactivex.Flowable;
 import io.reactivex.Maybe;
@@ -96,6 +99,10 @@ public class RxJavaInterop {
       return (Function) entryToKeyFunction;
    }
 
+   public static <R> Function<? super Throwable, Publisher<R>> cacheExceptionWrapper() {
+      return (Function) wrapThrowable;
+   }
+
    private static final Function<Single<Object>, CompletionStage<Object>> singleToCompletionStage = single -> {
       CompletableFuture<Object> cf = new CompletableFuture<>();
       single.subscribe(cf::complete, cf::completeExceptionally);
@@ -143,4 +150,6 @@ public class RxJavaInterop {
          });
          return cs;
       };
+
+   private static final Function<? super Throwable, Publisher<?>> wrapThrowable = t -> Flowable.error(Util.rewrapAsCacheException(t));
 }

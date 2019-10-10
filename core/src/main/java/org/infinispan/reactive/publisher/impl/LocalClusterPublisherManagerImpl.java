@@ -15,6 +15,7 @@ import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
+import org.infinispan.reactive.publisher.impl.commands.reduction.PublisherResult;
 import org.reactivestreams.Publisher;
 
 import io.reactivex.Flowable;
@@ -108,5 +109,21 @@ public class LocalClusterPublisherManagerImpl<K, V> implements ClusterPublisherM
                .thenCombine(stage, Flowable::just)
                .thenCompose(finalizer);
       }
+   }
+
+   @Override
+   public <R> SegmentCompletionPublisher<R> keyPublisher(IntSet segments, Set<K> keysToInclude,
+         InvocationContext invocationContext, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
+         int batchSize, Function<? super Publisher<K>, ? extends Publisher<R>> transformer) {
+      // TODO: need to implement this
+      return null;
+   }
+
+   @Override
+   public <R> SegmentCompletionPublisher<R> entryPublisher(IntSet segments, Set<K> keysToInclude,
+         InvocationContext invocationContext, boolean includeLoader, DeliveryGuarantee deliveryGuarantee, int batchSize,
+         Function<? super Publisher<CacheEntry<K, V>>, ? extends Publisher<R>> transformer) {
+      // TODO: need to implement this
+      return null;
    }
 }

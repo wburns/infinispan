@@ -1,6 +1,7 @@
 package org.infinispan.stream;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -37,8 +38,7 @@ public class DistributedStreamIteratorExceptionTest extends BaseSetupStreamItera
       InternalDataContainer dataContainer = TestingUtil.extractComponent(cache1, InternalDataContainer.class);
       try {
          Throwable t = new AssertionError();
-         InternalDataContainer mockContainer = when(mock(InternalDataContainer.class).spliterator(any())).thenThrow(t).getMock();
-         doThrow(t).when(mockContainer).spliterator();
+         InternalDataContainer mockContainer = when(mock(InternalDataContainer.class).publisher(anyInt())).thenThrow(t).getMock();
          TestingUtil.replaceComponent(cache1, InternalDataContainer.class, mockContainer, true);
 
          try {

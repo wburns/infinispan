@@ -22,7 +22,7 @@ import org.infinispan.factories.scopes.Scopes;
  * @since 9.1
  */
 @Scope(Scopes.NONE)
-public class EncoderValueMapper<V> implements Function<V, V> {
+public class EncoderValueMapper<V> implements EncodingFunction<V> {
 
    private final DataConversion dataConversion;
 

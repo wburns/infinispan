@@ -49,4 +49,12 @@ public interface ClusterPublisherManager<K, V> {
          Set<K> keysToInclude, InvocationContext invocationContext, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
          Function<? super Publisher<CacheEntry<K, V>>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer);
+
+   <R> SegmentCompletionPublisher<R> keyPublisher(IntSet segments, Set<K> keysToInclude, InvocationContext invocationContext,
+         boolean includeLoader, DeliveryGuarantee deliveryGuarantee, int batchSize,
+         Function<? super Publisher<K>, ? extends Publisher<R>> transformer);
+
+   <R> SegmentCompletionPublisher<R> entryPublisher(IntSet segments, Set<K> keysToInclude, InvocationContext invocationContext,
+         boolean includeLoader, DeliveryGuarantee deliveryGuarantee, int batchSize,
+         Function<? super Publisher<CacheEntry<K, V>>, ? extends Publisher<R>> transformer);
 }

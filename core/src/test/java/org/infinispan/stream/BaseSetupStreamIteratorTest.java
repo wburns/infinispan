@@ -6,6 +6,7 @@ import static org.mockito.Mockito.spy;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -31,6 +32,8 @@ import org.infinispan.protostream.annotations.AutoProtoSchemaBuilder;
 import org.infinispan.protostream.annotations.ProtoFactory;
 import org.infinispan.protostream.annotations.ProtoField;
 import org.infinispan.protostream.annotations.ProtoName;
+import org.infinispan.reactive.publisher.impl.ClusterPublisherManager;
+import org.infinispan.reactive.publisher.impl.LocalPublisherManager;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.stream.impl.ClusterStreamManager;
 import org.infinispan.test.MultipleCacheManagersTest;
@@ -165,12 +168,12 @@ public abstract class BaseSetupStreamIteratorTest extends MultipleCacheManagersT
       }
    }
 
-   protected ClusterStreamManager replaceWithSpy(Cache<?,?> cache) {
-      ClusterStreamManager component = TestingUtil.extractComponent(cache, ClusterStreamManager.class);
-      ClusterStreamManager clusterStreamManager = spy(component);
-      TestingUtil.replaceComponent(cache, ClusterStreamManager.class, clusterStreamManager, false);
-      reset(clusterStreamManager);
-      return clusterStreamManager;
+   protected <C> C replaceComponentWithSpy(Cache<?,?> cache, Class<C> componentClass) {
+      C component = TestingUtil.extractComponent(cache, componentClass);
+      C spiedComponent = spy(component);
+      TestingUtil.replaceComponent(cache, componentClass, spiedComponent, true);
+      reset(spiedComponent);
+      return spiedComponent;
    }
 
    protected Map<Integer, Set<Map.Entry<Object, String>>> generateEntriesPerSegment(KeyPartitioner keyPartitioner,
@@ -179,7 +182,7 @@ public abstract class BaseSetupStreamIteratorTest extends MultipleCacheManagersT
 
       for (Map.Entry<Object, String> value : entries) {
          int segment = keyPartitioner.getSegment(value.getKey());
-         Set<Map.Entry<Object, String>> set = returnMap.computeIfAbsent(segment, k -> new HashSet<>());
+         Set<Map.Entry<Object, String>> set = returnMap.computeIfAbsent(segment, k -> new LinkedHashSet<>());
          set.add(new ImmortalCacheEntry(value.getKey(), value.getValue()));
       }
       return returnMap;

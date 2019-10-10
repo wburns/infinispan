@@ -48,7 +48,6 @@ import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.Closeables;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.IntSets;
-import org.infinispan.commons.util.IteratorMapper;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.PersistenceConfiguration;
 import org.infinispan.configuration.cache.StoreConfiguration;
@@ -56,7 +55,11 @@ import org.infinispan.distribution.DistributionManager;
 import org.infinispan.distribution.LocalizedCacheTopology;
 import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.factories.ComponentRegistry;
+import org.infinispan.marshall.core.MarshallableFunctions;
+import org.infinispan.reactive.RxJavaInterop;
 import org.infinispan.reactive.publisher.PublisherReducers;
+import org.infinispan.reactive.publisher.impl.DeliveryGuarantee;
+import org.infinispan.reactive.publisher.impl.SegmentCompletionPublisher;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 import org.infinispan.stream.impl.intops.object.DistinctOperation;
@@ -78,6 +81,7 @@ import org.infinispan.util.logging.LogFactory;
 import org.reactivestreams.Publisher;
 
 import io.reactivex.Flowable;
+import io.reactivex.disposables.Disposable;
 
 /**
  * Implementation of {@link CacheStream} that provides support for lazily distributing stream methods to appropriate
@@ -362,30 +366,29 @@ public class DistributedCacheStream<Original, R> extends AbstractCacheStream<Ori
    @Override
    public Iterator<R> iterator() {
       log.tracef("Distributed iterator invoked with rehash: %s", rehashAware);
-      if (!rehashAware) {
-         // Non rehash doesn't care about lost segments or completed ones
-         CloseableIterator<R> closeableIterator = nonRehashRemoteIterator(dm.getReadConsistentHash(), segmentsToFilter,
-               null, IdentityPublisherDecorator.getInstance(), intermediateOperations);
-         onClose(closeableIterator::close);
-         return closeableIterator;
+      Function usedTransformer;
+      if (intermediateOperations.isEmpty()) {
+         usedTransformer = MarshallableFunctions.identity();
       } else {
-         Iterable<IntermediateOperation> ops = iteratorOperation.prepareForIteration(intermediateOperations,
-               (Function) nonNullKeyFunction());
-         CloseableIterator<R> closeableIterator;
-         if (segmentCompletionListener != null && iteratorOperation != IteratorOperation.FLAT_MAP) {
-            closeableIterator = new CompletionListenerRehashIterator<>(ops, segmentCompletionListener);
-         } else {
-            closeableIterator = new RehashIterator<>(ops);
-         }
-         onClose(closeableIterator::close);
-         // This cast messes up generic checking, but that is okay
-         Function<R, R> function = iteratorOperation.getFunction();
-         if (function != null) {
-            return new IteratorMapper<>(closeableIterator, function);
-         } else {
-            return closeableIterator;
-         }
+         usedTransformer = new CacheStreamIntermediatePublisher(intermediateOperations);
       }
+      DeliveryGuarantee deliveryGuarantee = rehashAware ? DeliveryGuarantee.EXACTLY_ONCE : DeliveryGuarantee.AT_MOST_ONCE;
+      SegmentCompletionPublisher<R> publisher;
+      if (toKeyFunction == null) {
+         publisher = cpm.keyPublisher(segmentsToFilter, keysToFilter, null, includeLoader,
+               deliveryGuarantee, distributedBatchSize, usedTransformer);
+      } else {
+         publisher = cpm.entryPublisher(segmentsToFilter, keysToFilter, null, includeLoader,
+               deliveryGuarantee, distributedBatchSize, usedTransformer);
+      }
+
+      Iterator<R> iterator = Flowable.fromPublisher(publisher)
+            // Make sure any runtime errors are wrapped in CacheException
+            .onErrorResumeNext(RxJavaInterop.cacheExceptionWrapper())
+            .blockingIterable()
+            .iterator();
+      onClose(((Disposable) iterator)::dispose);
+      return iterator;
    }
 
    private class RehashIterator<S> extends AbstractIterator<S> implements CloseableIterator<S> {

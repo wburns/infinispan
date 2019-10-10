@@ -22,7 +22,7 @@ import org.infinispan.factories.scopes.Scopes;
  * @since 9.1
  */
 @Scope(Scopes.NONE)
-public class EncoderKeyMapper<K> implements InjectiveFunction<K, K> {
+public class EncoderKeyMapper<K> implements EncodingFunction<K> {
    private final DataConversion dataConversion;
 
    public EncoderKeyMapper(DataConversion dataConversion) {

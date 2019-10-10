@@ -6,7 +6,10 @@ import java.util.function.Function;
 
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.container.entries.CacheEntry;
+import org.infinispan.reactive.publisher.impl.commands.reduction.PublisherResult;
 import org.reactivestreams.Publisher;
+
+import io.reactivex.functions.Consumer;
 
 /**
  * Handles locally publishing entries from the cache. This manager will return results that contains suspected segments
@@ -56,7 +59,7 @@ public interface LocalPublisherManager<K, V> {
     *       <td>EXACTLY_ONCE</td> <td>TRUE</td><td>Each segment is a publisher passed to the transformer individually. Each result is only accepted if the segment was owned the entire duration of the Subscription.</td>
     *    </tr>
     *    <tr>
-    *       <td>AT_LEAST_ONCE</td> <td>FALSE</td><td>Same as EXACTLY_ONCE/TRUE, except the publishers are consumed one at a time.</td>
+    *       <td>EXACTLY_ONCE</td> <td>FALSE</td><td>Same as EXACTLY_ONCE/TRUE, except the publishers are consumed one at a time.</td>
     *    </tr>
     * </table>
     *
@@ -75,6 +78,22 @@ public interface LocalPublisherManager<K, V> {
          Set<K> keysToInclude, Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
          Function<? super Publisher<CacheEntry<K, V>>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer);
+
+   <R> SegmentAwarePublisher<R> keyPublisher(IntSet segments, Set<K> keysToInclude,
+         Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
+         Function<? super Publisher<K>, ? extends Publisher<R>> transformer);
+
+   <R> SegmentAwarePublisher<R> keyPublisher(IntSet segments, Set<K> keysToInclude,
+         Set<K> keysToExclude, boolean includeLoader, Consumer<? super K> keyConsumer,
+         Function<? super Publisher<K>, ? extends Publisher<R>> transformer);
+
+   <R> SegmentAwarePublisher<R> entryPublisher(IntSet segments, Set<K> keysToInclude,
+         Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
+         Function<? super Publisher<CacheEntry<K, V>>, ? extends Publisher<R>> transformer);
+
+   <R> SegmentAwarePublisher<R> entryPublisher(IntSet segments, Set<K> keysToInclude,
+         Set<K> keysToExclude, boolean includeLoader, Consumer<? super K> keyConsumer,
+         Function<? super Publisher<CacheEntry<K, V>>, ? extends Publisher<R>> transformer);
 
    /**
     * Method to invoke when a set of segments are being removed from this node. This way operations can be aware

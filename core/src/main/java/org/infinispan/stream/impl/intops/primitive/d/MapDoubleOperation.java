@@ -4,13 +4,14 @@ import java.util.function.DoubleUnaryOperator;
 import java.util.stream.DoubleStream;
 
 import org.infinispan.stream.impl.intops.IntermediateOperation;
+import org.infinispan.stream.impl.intops.MappingOperation;
 
 import io.reactivex.Flowable;
 
 /**
  * Performs map operation on a {@link DoubleStream}
  */
-public class MapDoubleOperation implements IntermediateOperation<Double, DoubleStream, Double, DoubleStream> {
+public class MapDoubleOperation implements MappingOperation<Double, DoubleStream, Double, DoubleStream> {
    private final DoubleUnaryOperator operator;
 
    public MapDoubleOperation(DoubleUnaryOperator operator) {
