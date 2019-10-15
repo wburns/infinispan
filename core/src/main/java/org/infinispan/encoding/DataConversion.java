@@ -143,7 +143,7 @@ public final class DataConversion {
 
    public Object convertToRequestFormat(Object o, MediaType contentType) {
       if (o == null) return null;
-      if (requestMediaType == null) return fromStorage(o);
+      if (requestMediaType == null || requestMediaType.match(MediaType.APPLICATION_UNKNOWN)) return fromStorage(o);
       Transcoder transcoder = encoderRegistry.getTranscoder(contentType, requestMediaType);
       return transcoder.transcode(o, contentType, requestMediaType);
    }

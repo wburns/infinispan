@@ -205,9 +205,8 @@ class ClientListenerRegistry {
       // events will only use the key
       if (converter == null && filter == null) {
          converter = new KeyValueFilterConverterAsCacheEventFilterConverter<>(HotRodServer.ToEmptyBytesKeyValueFilterConverter.INSTANCE);
-         // We have to use storage format - otherwise passing converer will force it to change to incorrect format
-         cache.addStorageFormatFilteredListener(clientEventSender, filter, converter, filterAnnotations);
-      } else if (useRawData) {
+      }
+      if (useRawData) {
          cache.addStorageFormatFilteredListener(clientEventSender, filter, converter, filterAnnotations);
       } else {
          cache.addFilteredListener(clientEventSender, filter, converter, filterAnnotations);

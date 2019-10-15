@@ -6,6 +6,7 @@ import java.io.ObjectOutput;
 import java.util.Collections;
 import java.util.Set;
 
+import org.infinispan.commons.dataconversion.MediaType;
 import org.infinispan.commons.marshall.AdvancedExternalizer;
 import org.infinispan.commons.marshall.Ids;
 import org.infinispan.factories.ComponentRegistry;
@@ -22,9 +23,15 @@ import org.infinispan.metadata.Metadata;
  */
 public class KeyValueFilterConverterAsCacheEventFilterConverter<K, V, C> implements CacheEventFilterConverter<K, V, C> {
    private final KeyValueFilterConverter<K, V, C> keyValueFilterConverter;
+   private final MediaType format;
 
    public KeyValueFilterConverterAsCacheEventFilterConverter(KeyValueFilterConverter<K, V, C> keyValueFilterConverter) {
+      this(keyValueFilterConverter, MediaType.APPLICATION_OBJECT);
+   }
+
+   public KeyValueFilterConverterAsCacheEventFilterConverter(KeyValueFilterConverter<K, V, C> keyValueFilterConverter, MediaType format) {
       this.keyValueFilterConverter = keyValueFilterConverter;
+      this.format = format;
    }
 
    @Override
@@ -40,6 +47,11 @@ public class KeyValueFilterConverterAsCacheEventFilterConverter<K, V, C> impleme
    @Override
    public boolean accept(K key, V oldValue, Metadata oldMetadata, V newValue, Metadata newMetadata, EventType eventType) {
       return keyValueFilterConverter.accept(key, newValue, newMetadata);
+   }
+
+   @Override
+   public MediaType format() {
+      return format;
    }
 
    @Inject

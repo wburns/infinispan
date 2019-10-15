@@ -305,7 +305,7 @@ public final class CacheNotifierImpl<K, V> extends AbstractListenerImpl<Event<K,
       }
 
       // Filter has a specific format to run, convert to that format
-      return (K) keyDataConversion.convert(unwrappedKey, keyDataConversion.getStorageMediaType(), convertFormat);
+      return (K) keyDataConversion.convertToRequestFormat(unwrappedKey, convertFormat);
    }
 
    private V convertValue(CacheEntryListenerInvocation listenerInvocation, V value) {
@@ -327,7 +327,7 @@ public final class CacheNotifierImpl<K, V> extends AbstractListenerImpl<Event<K,
          return (V) unwrappedValue;
       }
       // Filter has a specific format to run, convert to that format
-      return (V) valueDataConversion.convert(unwrappedValue, valueDataConversion.getStorageMediaType(), convertFormat);
+      return (V) valueDataConversion.convertToRequestFormat(unwrappedValue, convertFormat);
    }
 
    @Override
@@ -1830,7 +1830,7 @@ public final class CacheNotifierImpl<K, V> extends AbstractListenerImpl<Event<K,
                         eventImpl.getOldMetadata(), (V) eventImpl.getValue(),
                         eventImpl.getMetadata(), evType);
                }
-               if (!converter.useRequestFormat()) {
+               if (converter.useRequestFormat()) {
                   // Convert from the filter output to the request output
                   return convertEventToRequestFormat(eventImpl, null, converter, newValue);
                } else {

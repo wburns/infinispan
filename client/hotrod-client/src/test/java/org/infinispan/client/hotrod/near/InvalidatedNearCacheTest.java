@@ -1,6 +1,7 @@
 package org.infinispan.client.hotrod.near;
 
 import static org.infinispan.client.hotrod.test.HotRodClientTestingUtil.withRemoteCacheManager;
+import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
 import static org.testng.AssertJUnit.assertTrue;
@@ -17,12 +18,43 @@ import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.RemoteCacheManagerCallable;
 import org.infinispan.client.hotrod.test.SingleHotRodServerTest;
 import org.infinispan.commons.CacheConfigurationException;
+import org.infinispan.configuration.cache.StorageType;
+import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.test.fwk.TestCacheManagerFactory;
+import org.testng.annotations.Factory;
 import org.testng.annotations.Test;
 
 @Test(groups = {"functional", "smoke"}, testName = "client.hotrod.near.InvalidatedNearCacheTest")
 public class InvalidatedNearCacheTest extends SingleHotRodServerTest {
 
+   StorageType storageType;
    AssertsNearCache<Integer, String> assertClient;
+
+   InvalidatedNearCacheTest storageType(StorageType storageType) {
+      this.storageType = storageType;
+      return this;
+   }
+
+   @Factory
+   public Object[] factory() {
+      return new Object[]{
+            new InvalidatedNearCacheTest().storageType(StorageType.OBJECT),
+            new InvalidatedNearCacheTest().storageType(StorageType.BINARY),
+            new InvalidatedNearCacheTest().storageType(StorageType.OFF_HEAP),
+      };
+   }
+
+   @Override
+   protected String parameters() {
+      return "storageType-" + storageType;
+   }
+
+   @Override
+   protected EmbeddedCacheManager createCacheManager() throws Exception {
+      org.infinispan.configuration.cache.ConfigurationBuilder cb = hotRodCacheConfiguration();
+      cb.memory().storageType(storageType);
+      return TestCacheManagerFactory.createCacheManager(cb);
+   }
 
    @Override
    protected RemoteCacheManager getRemoteCacheManager() {
