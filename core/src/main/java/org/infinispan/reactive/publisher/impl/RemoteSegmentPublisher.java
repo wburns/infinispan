@@ -77,8 +77,6 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
       s.onSubscribe(this);
    }
 
-
-
    @Override
    public void request(long n) {
       if (n <= 0) {

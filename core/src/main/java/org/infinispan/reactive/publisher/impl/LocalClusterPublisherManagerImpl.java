@@ -75,18 +75,17 @@ public class LocalClusterPublisherManagerImpl<K, V> implements ClusterPublisherM
       if (invocationContext == null || invocationContext.lookedUpEntriesCount() == 0) {
          return localPublisherManager.keyReduction(parallelPublisher, handleNullSegments(segments), keysToInclude, null,
                includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer, finalizer).thenApply(PublisherResult::getResult);
-      } else {
-         Set<K> keysToExclude = new HashSet<>(invocationContext.lookedUpEntriesCount());
-         invocationContext.forEachEntry((key, ce) -> keysToExclude.add((K) key));
-
-         CompletionStage<R> stage = localPublisherManager.keyReduction(parallelPublisher, segments, keysToInclude,
-               keysToExclude, includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer, finalizer).thenApply(PublisherResult::getResult);
-
-         Flowable<K> entryFlowable = keyPublisherFromContext(invocationContext, keysToInclude);
-         return transformer.apply(entryFlowable)
-               .thenCombine(stage, Flowable::just)
-               .thenCompose(finalizer);
       }
+      Set<K> keysToExclude = new HashSet<>(invocationContext.lookedUpEntriesCount());
+      invocationContext.forEachEntry((key, ce) -> keysToExclude.add((K) key));
+
+      CompletionStage<R> stage = localPublisherManager.keyReduction(parallelPublisher, segments, keysToInclude,
+            keysToExclude, includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer, finalizer).thenApply(PublisherResult::getResult);
+
+      Flowable<K> entryFlowable = keyPublisherFromContext(invocationContext, keysToInclude);
+      return transformer.apply(entryFlowable)
+            .thenCombine(stage, Flowable::just)
+            .thenCompose(finalizer);
    }
 
    @Override
@@ -97,33 +96,54 @@ public class LocalClusterPublisherManagerImpl<K, V> implements ClusterPublisherM
       if (invocationContext == null || invocationContext.lookedUpEntriesCount() == 0) {
          return localPublisherManager.entryReduction(parallelPublisher, handleNullSegments(segments), keysToInclude, null,
                includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer, finalizer).thenApply(PublisherResult::getResult);
-      } else {
-         Set<K> keysToExclude = new HashSet<>(invocationContext.lookedUpEntriesCount());
-         invocationContext.forEachEntry((key, ce) -> keysToExclude.add((K) key));
-
-         CompletionStage<R> stage = localPublisherManager.entryReduction(parallelPublisher, segments, keysToInclude,
-               keysToExclude, includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer, finalizer).thenApply(PublisherResult::getResult);
-
-         Flowable<CacheEntry<K, V>> entryFlowable = entryPublisherFromContext(invocationContext, keysToInclude);
-         return transformer.apply(entryFlowable)
-               .thenCombine(stage, Flowable::just)
-               .thenCompose(finalizer);
       }
+      Set<K> keysToExclude = new HashSet<>(invocationContext.lookedUpEntriesCount());
+      invocationContext.forEachEntry((key, ce) -> keysToExclude.add((K) key));
+
+      CompletionStage<R> stage = localPublisherManager.entryReduction(parallelPublisher, segments, keysToInclude,
+            keysToExclude, includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer, finalizer).thenApply(PublisherResult::getResult);
+
+      Flowable<CacheEntry<K, V>> entryFlowable = entryPublisherFromContext(invocationContext, keysToInclude);
+      return transformer.apply(entryFlowable)
+            .thenCombine(stage, Flowable::just)
+            .thenCompose(finalizer);
    }
 
    @Override
    public <R> SegmentCompletionPublisher<R> keyPublisher(IntSet segments, Set<K> keysToInclude,
          InvocationContext invocationContext, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
          int batchSize, Function<? super Publisher<K>, ? extends Publisher<R>> transformer) {
-      // TODO: need to implement this
-      return null;
+      if (invocationContext == null || invocationContext.lookedUpEntriesCount() == 0) {
+         return localPublisherManager.keyPublisher(segments, keysToInclude, null, includeLoader,
+               DeliveryGuarantee.AT_MOST_ONCE, transformer);
+      }
+      SegmentCompletionPublisher<R> cachePublisher = localPublisherManager.keyPublisher(segments, keysToInclude, null,
+            includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer);
+
+      Flowable<K> keyFlowable = keyPublisherFromContext(invocationContext, keysToInclude);
+      return (subscriber, completedSegments) ->
+         Flowable.concat(
+               transformer.apply(keyFlowable),
+               s -> cachePublisher.subscribe(s, completedSegments)
+         ).subscribe(subscriber);
    }
 
    @Override
    public <R> SegmentCompletionPublisher<R> entryPublisher(IntSet segments, Set<K> keysToInclude,
          InvocationContext invocationContext, boolean includeLoader, DeliveryGuarantee deliveryGuarantee, int batchSize,
          Function<? super Publisher<CacheEntry<K, V>>, ? extends Publisher<R>> transformer) {
-      // TODO: need to implement this
-      return null;
+      if (invocationContext == null || invocationContext.lookedUpEntriesCount() == 0) {
+         return localPublisherManager.entryPublisher(segments, keysToInclude, null, includeLoader,
+               DeliveryGuarantee.AT_MOST_ONCE, transformer);
+      }
+      SegmentCompletionPublisher<R> cachePublisher = localPublisherManager.entryPublisher(segments, keysToInclude, null,
+            includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer);
+
+      Flowable<CacheEntry<K, V>> entryFlowable = entryPublisherFromContext(invocationContext, keysToInclude);
+      return (subscriber, completedSegments) ->
+            Flowable.concat(
+                  transformer.apply(entryFlowable),
+                  s -> cachePublisher.subscribe(s, completedSegments)
+            ).subscribe(subscriber);
    }
 }

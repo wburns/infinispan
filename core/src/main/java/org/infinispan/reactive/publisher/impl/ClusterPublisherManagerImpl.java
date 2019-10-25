@@ -1027,7 +1027,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
     */
    static boolean shouldTrackKeys(DeliveryGuarantee deliveryGuarantee, Function<?, ?> transformer) {
       if (deliveryGuarantee == DeliveryGuarantee.EXACTLY_ONCE) {
-         if (transformer == (Function) MarshallableFunctions.identity()) {
+         if (transformer == MarshallableFunctions.identity()) {
             return false;
          } else if (transformer instanceof MaybeValueRetainedFunction) {
             return !((MaybeValueRetainedFunction<?, ?>) transformer).retainsOriginalValue();

@@ -1413,7 +1413,6 @@ public class JGroupsTransport implements Transport {
          Address address = fromJGroupsAddress(src);
          requests.addResponse(requestId, address, response);
       } catch (Throwable t) {
-         t.printStackTrace();
          CLUSTER.errorProcessingResponse(requestId, src);
       }
    }
