@@ -1495,6 +1495,7 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
       iterator.forEachRemaining((long e) -> assertEquals(i.getAndIncrement(), e));
    }
 
+   @Test(invocationCount = 1000)
    public void testLongFlatMapIterator() {
       Cache<Long, String> cache = getCache(0);
       int range = 10;

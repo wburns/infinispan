@@ -21,6 +21,7 @@ import org.infinispan.commons.util.Closeables;
 import org.infinispan.context.Flag;
 import org.infinispan.distribution.MagicKey;
 import org.infinispan.notifications.cachelistener.CacheNotifier;
+import org.infinispan.reactive.publisher.impl.commands.batch.InitialPublisherCommand;
 import org.infinispan.remoting.rpc.RpcManager;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.stream.impl.StreamIteratorRequestCommand;
@@ -78,6 +79,8 @@ public class StreamDistPartitionHandlingTest extends BasePartitionHandlingTest {
       cache0.put(new MagicKey(cache(0), cache(1)), "local");
 
       CheckPoint iteratorCP = new CheckPoint();
+      // We let the completeable future be returned - but don't let it process the values yet
+      iteratorCP.triggerForever(Mocks.BEFORE_RELEASE);
       // This must be before the stream is generated or else it won't see the update
       blockUntilRemoteNodesRespond(iteratorCP, cache0);
       try (CloseableIterator<?> iterator = Closeables.iterator(cache0.entrySet().stream())) {
@@ -98,7 +101,6 @@ public class StreamDistPartitionHandlingTest extends BasePartitionHandlingTest {
          partitionCP.awaitStrict(Mocks.AFTER_INVOCATION, 10, TimeUnit.SECONDS);
 
          // Afterwards let all the responses come in
-         iteratorCP.triggerForever(Mocks.BEFORE_RELEASE);
          iteratorCP.triggerForever(Mocks.AFTER_RELEASE);
 
          try {
@@ -119,12 +121,12 @@ public class StreamDistPartitionHandlingTest extends BasePartitionHandlingTest {
       cache0.put(new MagicKey(cache(0), cache(1)), "local");
 
       CheckPoint iteratorCP = new CheckPoint();
+      // We let the completeable future be returned - but don't let it process the values yet
+      iteratorCP.triggerForever(Mocks.BEFORE_RELEASE);
       // This must be before the iterator is generated or else it won't see the update
       blockUntilRemoteNodesRespond(iteratorCP, cache0);
       try (CloseableIterator<?> iterator = Closeables.iterator(cache0.entrySet().stream())) {
 
-         // Let all the responses go first
-         iteratorCP.triggerForever(Mocks.BEFORE_RELEASE);
          iteratorCP.triggerForever(Mocks.AFTER_RELEASE);
 
          // We have to iterate in another thread as stream iterator is requested on same thread and we would deadlock
@@ -171,7 +173,7 @@ public class StreamDistPartitionHandlingTest extends BasePartitionHandlingTest {
                   throw new AssertionError(throwable);
                }
             }, checkPoint).call()
-      ).when(spy).invokeCommand(any(Address.class), any(StreamIteratorRequestCommand.class), any(), any());
+      ).when(spy).invokeCommand(any(Address.class), any(InitialPublisherCommand.class), any(), any());
 
       TestingUtil.replaceComponent(cache, RpcManager.class, spy, true);
    }

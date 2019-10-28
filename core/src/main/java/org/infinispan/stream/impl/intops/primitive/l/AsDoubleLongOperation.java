@@ -3,7 +3,6 @@ package org.infinispan.stream.impl.intops.primitive.l;
 import java.util.stream.DoubleStream;
 import java.util.stream.LongStream;
 
-import org.infinispan.stream.impl.intops.IntermediateOperation;
 import org.infinispan.stream.impl.intops.MappingOperation;
 
 import io.reactivex.Flowable;

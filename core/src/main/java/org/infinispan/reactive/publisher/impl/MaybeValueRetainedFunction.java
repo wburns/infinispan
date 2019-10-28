@@ -2,8 +2,6 @@ package org.infinispan.reactive.publisher.impl;
 
 import java.util.function.Function;
 
-import org.reactivestreams.Publisher;
-
 public interface MaybeValueRetainedFunction<I, O> extends Function<I, O> {
    /**
     * This method should return true when this function doesn't change the actual values of the Publisher. This

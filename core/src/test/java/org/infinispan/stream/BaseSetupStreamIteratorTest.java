@@ -4,7 +4,6 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -32,10 +31,7 @@ import org.infinispan.protostream.annotations.AutoProtoSchemaBuilder;
 import org.infinispan.protostream.annotations.ProtoFactory;
 import org.infinispan.protostream.annotations.ProtoField;
 import org.infinispan.protostream.annotations.ProtoName;
-import org.infinispan.reactive.publisher.impl.ClusterPublisherManager;
-import org.infinispan.reactive.publisher.impl.LocalPublisherManager;
 import org.infinispan.remoting.transport.Address;
-import org.infinispan.stream.impl.ClusterStreamManager;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.TestCacheManagerFactory;

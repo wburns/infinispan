@@ -4,7 +4,6 @@ import java.util.function.IntToLongFunction;
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 
-import org.infinispan.stream.impl.intops.IntermediateOperation;
 import org.infinispan.stream.impl.intops.MappingOperation;
 
 import io.reactivex.Flowable;
