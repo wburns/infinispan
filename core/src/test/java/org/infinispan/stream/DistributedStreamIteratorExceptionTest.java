@@ -29,6 +29,10 @@ public class DistributedStreamIteratorExceptionTest extends BaseSetupStreamItera
       this(CacheMode.DIST_SYNC);
    }
 
+   protected InternalDataContainer mockContainer(Throwable t) {
+      return when(mock(InternalDataContainer.class).publisher(anyInt())).thenThrow(t).getMock();
+   }
+
    public void ensureDataContainerRemoteExceptionPropagated() {
       Cache cache0 = cache(0, CACHE_NAME);
       Cache cache1 = cache(1, CACHE_NAME);
@@ -36,7 +40,7 @@ public class DistributedStreamIteratorExceptionTest extends BaseSetupStreamItera
       InternalDataContainer dataContainer = TestingUtil.extractComponent(cache1, InternalDataContainer.class);
       try {
          Throwable t = new AssertionError();
-         InternalDataContainer mockContainer = when(mock(InternalDataContainer.class).publisher(anyInt())).thenThrow(t).getMock();
+         InternalDataContainer mockContainer = mockContainer(t);
          TestingUtil.replaceComponent(cache1, InternalDataContainer.class, mockContainer, true);
 
          try {
