@@ -3,7 +3,9 @@ package org.infinispan.reactive.publisher.impl;
 import static org.infinispan.util.logging.Log.CLUSTER;
 
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 
 import org.infinispan.Cache;
@@ -11,13 +13,18 @@ import org.infinispan.commons.util.IntSet;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.context.InvocationContext;
 import org.infinispan.factories.annotations.Inject;
+import org.infinispan.factories.impl.ComponentRef;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.notifications.Listener;
 import org.infinispan.notifications.cachelistener.annotation.PartitionStatusChanged;
 import org.infinispan.notifications.cachelistener.event.PartitionStatusChangedEvent;
+import org.infinispan.partitionhandling.AvailabilityException;
 import org.infinispan.partitionhandling.AvailabilityMode;
 import org.reactivestreams.Publisher;
+
+import io.reactivex.processors.FlowableProcessor;
+import io.reactivex.processors.PublishProcessor;
 
 /**
  * Cluster stream manager that also pays attention to partition status and properly closes iterators and throws
@@ -28,7 +35,10 @@ public class PartitionAwareClusterPublisherManager<K, V> extends ClusterPublishe
    volatile AvailabilityMode currentMode = AvailabilityMode.AVAILABLE;
 
    protected final PartitionListener listener = new PartitionListener();
-   @Inject protected Cache<?, ?> cache;
+   @Inject protected ComponentRef<Cache<?, ?>> cache;
+
+   private final Set<CompletableFuture<?>> pendingCompletableFutures = ConcurrentHashMap.newKeySet();
+   private final Set<FlowableProcessor<?>> pendingProcessors = ConcurrentHashMap.newKeySet();
 
    @Listener
    private class PartitionListener {
@@ -37,14 +47,21 @@ public class PartitionAwareClusterPublisherManager<K, V> extends ClusterPublishe
       @PartitionStatusChanged
       public void onPartitionChange(PartitionStatusChangedEvent<K, ?> event) {
          if (!event.isPre()) {
-            currentMode = event.getAvailabilityMode();
+            AvailabilityMode newMode = event.getAvailabilityMode();
+            if (newMode == AvailabilityMode.DEGRADED_MODE) {
+               AvailabilityException ae = CLUSTER.partitionDegraded();
+               pendingProcessors.forEach(pp -> pp.onError(ae));
+               pendingCompletableFutures.forEach(cf -> cf.completeExceptionally(ae));
+            }
+            // We have to assign this after reassigning exceptionProcessor if necessary
+            currentMode = newMode;
          }
       }
    }
 
    public void start() {
       super.start();
-      cache.addListener(listener);
+      cache.running().addListener(listener);
    }
 
    @Override
@@ -53,7 +70,9 @@ public class PartitionAwareClusterPublisherManager<K, V> extends ClusterPublishe
          Function<? super Publisher<K>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
       checkPartitionStatus();
-      return super.keyReduction(parallelPublisher, segments, keysToInclude, ctx, includeLoader, deliveryGuarantee, transformer, finalizer);
+      CompletionStage<R> original = super.keyReduction(parallelPublisher, segments, keysToInclude, ctx, includeLoader,
+            deliveryGuarantee, transformer, finalizer);
+      return registerStage(original);
    }
 
    @Override
@@ -62,7 +81,23 @@ public class PartitionAwareClusterPublisherManager<K, V> extends ClusterPublishe
          Function<? super Publisher<CacheEntry<K, V>>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
       checkPartitionStatus();
-      return super.entryReduction(parallelPublisher, segments, keysToInclude, ctx, includeLoader, deliveryGuarantee, transformer, finalizer);
+      CompletionStage<R> original = super.entryReduction(parallelPublisher, segments, keysToInclude, ctx, includeLoader,
+            deliveryGuarantee, transformer, finalizer);
+      return registerStage(original);
+   }
+
+   private <R> CompletionStage<R> registerStage(CompletionStage<R> original) {
+      CompletableFuture<R> future = new CompletableFuture<>();
+      pendingCompletableFutures.add(future);
+      original.whenComplete((value, t) -> {
+         if (t != null) {
+            future.completeExceptionally(t);
+         } else {
+            future.complete(value);
+         }
+         pendingCompletableFutures.remove(future);
+      });
+      return future;
    }
 
    @Override
@@ -70,7 +105,9 @@ public class PartitionAwareClusterPublisherManager<K, V> extends ClusterPublishe
          InvocationContext invocationContext, boolean includeLoader, DeliveryGuarantee deliveryGuarantee, int batchSize,
          Function<? super Publisher<K>, ? extends Publisher<R>> transformer) {
       checkPartitionStatus();
-      return super.keyPublisher(segments, keysToInclude, invocationContext, includeLoader, deliveryGuarantee, batchSize, transformer);
+      SegmentCompletionPublisher<R> original = super.keyPublisher(segments, keysToInclude, invocationContext,
+            includeLoader, deliveryGuarantee, batchSize, transformer);
+      return registerPublisher(original);
    }
 
    @Override
@@ -78,7 +115,21 @@ public class PartitionAwareClusterPublisherManager<K, V> extends ClusterPublishe
          InvocationContext invocationContext, boolean includeLoader, DeliveryGuarantee deliveryGuarantee, int batchSize,
          Function<? super Publisher<CacheEntry<K, V>>, ? extends Publisher<R>> transformer) {
       checkPartitionStatus();
-      return super.entryPublisher(segments, keysToInclude, invocationContext, includeLoader, deliveryGuarantee, batchSize, transformer);
+      SegmentCompletionPublisher<R> original = super.entryPublisher(segments, keysToInclude, invocationContext,
+            includeLoader, deliveryGuarantee, batchSize, transformer);
+      return registerPublisher(original);
+   }
+
+   private <R> SegmentCompletionPublisher<R> registerPublisher(SegmentCompletionPublisher<R> original) {
+      return (subscriber, segmentsComplete) -> {
+         // Processor has to be serialized due to possibly invoking onError from a different thread
+         FlowableProcessor<R> earlyTerminatingProcessor = PublishProcessor.<R>create().toSerialized();
+         pendingProcessors.add(earlyTerminatingProcessor);
+         earlyTerminatingProcessor
+               .doOnTerminate(() -> pendingProcessors.remove(earlyTerminatingProcessor))
+               .subscribe(subscriber);
+         original.subscribe(earlyTerminatingProcessor, segmentsComplete);
+      };
    }
 
    private void checkPartitionStatus() {

@@ -6,12 +6,12 @@ import static org.mockito.Mockito.eq;
 import static org.mockito.Mockito.spy;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertFalse;
+import static org.testng.AssertJUnit.assertTrue;
 import static org.testng.AssertJUnit.fail;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -24,7 +24,6 @@ import org.infinispan.notifications.cachelistener.CacheNotifier;
 import org.infinispan.reactive.publisher.impl.commands.batch.InitialPublisherCommand;
 import org.infinispan.remoting.rpc.RpcManager;
 import org.infinispan.remoting.transport.Address;
-import org.infinispan.stream.impl.StreamIteratorRequestCommand;
 import org.infinispan.test.Mocks;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.CheckPoint;
@@ -120,25 +119,10 @@ public class StreamDistPartitionHandlingTest extends BasePartitionHandlingTest {
       cache0.put(new MagicKey(cache(1), cache(2)), "not-local");
       cache0.put(new MagicKey(cache(0), cache(1)), "local");
 
-      CheckPoint iteratorCP = new CheckPoint();
-      // We let the completeable future be returned - but don't let it process the values yet
-      iteratorCP.triggerForever(Mocks.BEFORE_RELEASE);
-      // This must be before the iterator is generated or else it won't see the update
-      blockUntilRemoteNodesRespond(iteratorCP, cache0);
+      // Just retrieving the iterator will spawn the remote command
       try (CloseableIterator<?> iterator = Closeables.iterator(cache0.entrySet().stream())) {
-
-         iteratorCP.triggerForever(Mocks.AFTER_RELEASE);
-
-         // We have to iterate in another thread as stream iterator is requested on same thread and we would deadlock
-         Future<?> future = fork(() -> {
-            // This should complete without issue now
-            while (iterator.hasNext()) {
-               iterator.next();
-            }
-         });
-
-         // Wait for all the responses to come back - we have to do this before splitting
-         iteratorCP.awaitStrict(Mocks.AFTER_INVOCATION, numMembersInCluster - 1, 10, TimeUnit.SECONDS);
+         // Make sure we got one value
+         assertTrue(iterator.hasNext());
 
          CheckPoint partitionCP = new CheckPoint();
          // Now we replace the notifier so we know when the notifier was told of the partition change so we know
@@ -152,7 +136,10 @@ public class StreamDistPartitionHandlingTest extends BasePartitionHandlingTest {
          partitionCP.triggerForever(Mocks.BEFORE_RELEASE);
          partitionCP.triggerForever(Mocks.AFTER_RELEASE);
 
-         future.get(10, TimeUnit.SECONDS);
+         // This should complete without issue now
+         while (iterator.hasNext()) {
+            iterator.next();
+         }
       }
    }
 
