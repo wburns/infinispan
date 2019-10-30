@@ -26,6 +26,7 @@ import java.util.function.Supplier;
 
 import org.infinispan.commands.CommandsFactory;
 import org.infinispan.commons.CacheException;
+import org.infinispan.commons.util.ByRef;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.IntSets;
 import org.infinispan.commons.util.Util;
@@ -820,6 +821,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       final AtomicReferenceArray<Set<K>> keysBySegment;
       final IntSet segmentsToComplete;
       final IntConsumer completedSegmentConsumer;
+      final Map<Object, IntSet> enqueuedSegmentNotifiers;
 
       volatile int currentTopology = -1;
 
@@ -831,10 +833,11 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
                new AtomicReferenceArray<>(maxSegment) : null;
          this.segmentsToComplete = IntSets.concurrentCopyFrom(publisher.segments, maxSegment);
          this.completedSegmentConsumer = completedSegmentConsumer;
+         this.enqueuedSegmentNotifiers = completedSegmentConsumer == null ? null : new ConcurrentHashMap<>();
       }
 
       public void start(Subscriber<? super R> subscriber) {
-         Flowable.just(distributionManager)
+         Flowable<R> valuesFlowable = Flowable.just(distributionManager)
                .flatMap(dm -> {
                   LocalizedCacheTopology topology = dm.getCacheTopology();
                   int previousTopology = currentTopology;
@@ -894,7 +897,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
                   }
 
                   return Flowable.mergeArray(publisherArray);
-               },4)
+               }, 4)
                .repeatUntil(() -> {
                   boolean complete = segmentsToComplete.isEmpty();
                   if (trace) {
@@ -905,8 +908,24 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
                      }
                   }
                   return complete;
-               })
-               .subscribe(subscriber);
+               });
+
+         if (completedSegmentConsumer != null) {
+            ByRef<R> previousValue = new ByRef<>(null);
+            valuesFlowable = valuesFlowable.doOnNext(value -> {
+               R previous = previousValue.get();
+               if (previous != null) {
+                  IntSet segments = enqueuedSegmentNotifiers.remove(previous);
+                  if (segments != null) {
+                     segments.forEach(completedSegmentConsumer);
+                  }
+               }
+               previousValue.set(value);
+            }).doOnComplete(() -> enqueuedSegmentNotifiers.forEach(
+                  (k, segments) -> segments.forEach(completedSegmentConsumer))
+            );
+         }
+         valuesFlowable.subscribe(subscriber);
       }
 
       void completeSegment(int segment) {
@@ -914,7 +933,19 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
          if (keysBySegment != null) {
             keysBySegment.set(segment, null);
          }
-         completedSegmentConsumer.accept(segment);
+      }
+
+      // Method to be invoked after processing all the results of a request. If lastEnqueudValue is null that means
+      // that all entries have been consumed by the downstream and we can immediately notify of segment completion,
+      // otherwise we must wait until the given enqueued value is consumed before notifying of segment completion
+      void notifySegmentsComplete(IntSet segments, Object lastEnqueuedValue) {
+         if (completedSegmentConsumer != null) {
+            if (lastEnqueuedValue == null) {
+               segments.forEach(completedSegmentConsumer);
+            } else {
+               enqueuedSegmentNotifiers.put(lastEnqueuedValue, segments);
+            }
+         }
       }
 
       CompletionStage<PublisherResponse> sendInitialCommand(Address target, IntSet segments, int batchSize, Set<K> excludedKeys, int topologyId) {
@@ -1072,8 +1103,10 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
 
       @Override
       public void subscribe(Subscriber<? super R> s, IntConsumer completedSegmentConsumer) {
+         IntConsumer consumerToUse = completedSegmentConsumer == SegmentCompletionPublisher.EMPTY_CONSUMER ? null :
+               Objects.requireNonNull(completedSegmentConsumer);
          this.upstream = s;
-         new PublisherSubscription<I, R>(this, completedSegmentConsumer).start(s);
+         new PublisherSubscription<I, R>(this, consumerToUse).start(s);
       }
 
       abstract InitialPublisherCommand buildInitialCommand(Address target, Object requestId, IntSet segments,

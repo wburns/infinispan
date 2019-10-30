@@ -251,8 +251,8 @@ public class RehashClusterPublisherManagerTest extends MultipleCacheManagersTest
 
       performOperation.run();
 
-      Long actualCount = future.get(10, TimeUnit.MINUTES)
-            .toCompletableFuture().get(10, TimeUnit.MINUTES);
+      Long actualCount = future.get(10, TimeUnit.SECONDS)
+            .toCompletableFuture().get(10, TimeUnit.SECONDS);
       // Should be 1 entry per node
       assertEquals(expectedAmount, actualCount.intValue());
    }

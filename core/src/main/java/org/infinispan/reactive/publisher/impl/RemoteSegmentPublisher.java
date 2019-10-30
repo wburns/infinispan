@@ -195,23 +195,28 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
 
             int produced = 0;
 
-            int offset = 0;
-            while (offset < valueArray.length) {
-               R value = valueArray[offset];
+            Object lastQueuedValue = null;
+
+            for (R value : valueArray) {
                if (value == null) {
                   // Local execution doesn't trim array down
                   break;
                }
                // Note that consumed is always equal to how many have been sent to onNext - thus
-               // once it is equal to the requested we have to enqueue any additional values - so they can requested
+               // once it is equal to the requested we have to enqueue any additional values - so they can be requested
                // later
                if (produced >= requested) {
                   queue.offer(value);
+                  lastQueuedValue = value;
                } else {
                   subscriber.onNext(value);
                   produced++;
                }
-               offset++;
+            }
+
+            if (completedSegments != null) {
+               // Tell the parent of the last enqueued value we have
+               parent.notifySegmentsComplete(completedSegments, lastQueuedValue);
             }
 
             trySendRequest(produced);

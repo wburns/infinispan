@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.PrimitiveIterator;
 import java.util.Set;
@@ -23,6 +24,7 @@ import java.util.function.BiFunction;
 import java.util.function.BinaryOperator;
 import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.function.IntConsumer;
 import java.util.function.IntFunction;
 import java.util.function.Predicate;
 import java.util.function.Supplier;
@@ -95,6 +97,7 @@ public class DistributedCacheStream<Original, R> extends AbstractCacheStream<Ori
    private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass());
 
    private final boolean writeBehindShared;
+   private final int maxSegment;
 
    // This is a hack to allow for cast to work properly, since Java doesn't work as well with nested generics
    protected static <R> Supplier<CacheStream<R>> supplierStreamCast(Supplier supplier) {
@@ -124,6 +127,7 @@ public class DistributedCacheStream<Original, R> extends AbstractCacheStream<Ori
 
       Configuration configuration = registry.getComponent(Configuration.class);
       writeBehindShared = hasWriteBehindSharedStore(configuration.persistence());
+      maxSegment = configuration.clustering().hash().numSegments();
    }
 
    /**
@@ -136,6 +140,7 @@ public class DistributedCacheStream<Original, R> extends AbstractCacheStream<Ori
 
       Configuration configuration = registry.getComponent(Configuration.class);
       writeBehindShared = hasWriteBehindSharedStore(configuration.persistence());
+      maxSegment = configuration.clustering().hash().numSegments();
    }
 
    boolean hasWriteBehindSharedStore(PersistenceConfiguration persistenceConfiguration) {
@@ -373,6 +378,7 @@ public class DistributedCacheStream<Original, R> extends AbstractCacheStream<Ori
          usedTransformer = new CacheStreamIntermediatePublisher(intermediateOperations);
       }
       DeliveryGuarantee deliveryGuarantee = rehashAware ? DeliveryGuarantee.EXACTLY_ONCE : DeliveryGuarantee.AT_MOST_ONCE;
+      Publisher<R> publisherToSubscribeTo;
       SegmentCompletionPublisher<R> publisher;
       if (toKeyFunction == null) {
          publisher = cpm.keyPublisher(segmentsToFilter, keysToFilter, null, includeLoader,
@@ -382,13 +388,84 @@ public class DistributedCacheStream<Original, R> extends AbstractCacheStream<Ori
                deliveryGuarantee, distributedBatchSize, usedTransformer);
       }
 
-      Iterator<R> iterator = Flowable.fromPublisher(publisher)
+      CompletionSegmentTracker segmentTracker;
+      if (segmentCompletionListener != null) {
+         // Tracker relies on ordering that a segment completion occurs
+         segmentTracker = new CompletionSegmentTracker(segmentCompletionListener);
+         publisherToSubscribeTo = Flowable.<R>fromPublisher(s -> publisher.subscribe(s, segmentTracker))
+               .doOnNext(segmentTracker);
+      } else {
+         segmentTracker = null;
+         publisherToSubscribeTo = publisher;
+      }
+
+      Iterator<R> realIterator = Flowable.fromPublisher(publisherToSubscribeTo)
             // Make sure any runtime errors are wrapped in CacheException
             .onErrorResumeNext(RxJavaInterop.cacheExceptionWrapper())
             .blockingIterable()
             .iterator();
-      onClose(((Disposable) iterator)::dispose);
-      return iterator;
+      onClose(((Disposable) realIterator)::dispose);
+
+      if (segmentTracker != null) {
+         return new AbstractIterator<R>() {
+            @Override
+            protected R getNext() {
+               if (realIterator.hasNext()) {
+                  R value = realIterator.next();
+                  segmentTracker.returningObject(value);
+                  return value;
+               } else {
+                  segmentTracker.onComplete();
+               }
+               return null;
+            }
+         };
+      }
+      return realIterator;
+   }
+
+   /**
+    * Tracking class that keeps track of segment completions and maps them to a given value. This value is not actually
+    * part of these segments, but is instead the object returned immediately after the segments complete. This way
+    * we can guarantee to notify the user after all elements have been processed of which segments were completed.
+    * All methods except for accept(int) are guaranteed to be called sequentially and in a safe manner.
+    */
+   private class CompletionSegmentTracker implements IntConsumer, io.reactivex.functions.Consumer<Object> {
+      private final Consumer<Supplier<PrimitiveIterator.OfInt>> listener;
+      private final Map<Object, IntSet> awaitingNotification;
+      volatile IntSet completedSegments;
+
+      private CompletionSegmentTracker(Consumer<Supplier<PrimitiveIterator.OfInt>> listener) {
+         this.listener = Objects.requireNonNull(listener);
+         this.awaitingNotification = new HashMap<>();
+         this.completedSegments = IntSets.concurrentSet(maxSegment);
+      }
+
+
+      @Override
+      public void accept(int value) {
+         // This method can technically be called from multiple threads
+         completedSegments.set(value);
+      }
+
+      @Override
+      public void accept(Object r) {
+         if (!completedSegments.isEmpty()) {
+            awaitingNotification.put(r, completedSegments);
+            completedSegments = IntSets.concurrentSet(maxSegment);
+         }
+      }
+
+      public void returningObject(Object value) {
+         IntSet segments = awaitingNotification.remove(value);
+         if (segments != null) {
+            listener.accept(segments::iterator);
+         }
+      }
+
+      public void onComplete() {
+         listener.accept(completedSegments::iterator);
+      }
    }
 
    private class RehashIterator<S> extends AbstractIterator<S> implements CloseableIterator<S> {
