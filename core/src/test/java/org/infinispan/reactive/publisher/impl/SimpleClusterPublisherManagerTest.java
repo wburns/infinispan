@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
@@ -50,8 +51,7 @@ import io.reactivex.subscribers.TestSubscriber;
  * @since 10.0
  */
 @Test(groups = "functional", testName = "reactive.publisher.impl.SimpleClusterPublisherManagerTest")
-// TODO: need to remove comments here
-@InCacheMode({/*CacheMode.REPL_SYNC,*/ CacheMode.DIST_SYNC, /*CacheMode.SCATTERED_SYNC*/})
+@InCacheMode({CacheMode.REPL_SYNC, CacheMode.DIST_SYNC, CacheMode.SCATTERED_SYNC})
 public class SimpleClusterPublisherManagerTest extends MultipleCacheManagersTest {
    @Override
    protected void createCacheManagers() throws Throwable {
@@ -273,11 +273,10 @@ public class SimpleClusterPublisherManagerTest extends MultipleCacheManagersTest
 
    @DataProvider(name = "GuaranteeEntry")
    public Object[][] guaranteesEntryType() {
-      return new Object[][] { { DeliveryGuarantee.EXACTLY_ONCE, Boolean.FALSE } };
-//      return Arrays.stream(DeliveryGuarantee.values())
-//            .flatMap(dg -> Stream.of(Boolean.TRUE, Boolean.FALSE)
-//                        .map(entry -> new Object[]{dg, entry}))
-//            .toArray(Object[][]::new);
+      return Arrays.stream(DeliveryGuarantee.values())
+            .flatMap(dg -> Stream.of(Boolean.TRUE, Boolean.FALSE)
+                        .map(entry -> new Object[]{dg, entry}))
+            .toArray(Object[][]::new);
    }
 
    private <I> void performPublisherOperation(DeliveryGuarantee deliveryGuarantee, boolean isEntry, IntSet segments,
@@ -394,12 +393,12 @@ public class SimpleClusterPublisherManagerTest extends MultipleCacheManagersTest
    }
 
    @Test(dataProvider = "GuaranteeEntry")
-   public void testEmptySegmentNotification(DeliveryGuarantee deliveryGuarantee, boolean isEntry) {
+   public void testEmptySegmentNotification(DeliveryGuarantee deliveryGuarantee, boolean isEntry) throws InterruptedException {
       performSegmentPublisherOperation(deliveryGuarantee, isEntry, null, null, null, null);
    }
 
    private <I, R> void performSegmentPublisherOperation(DeliveryGuarantee deliveryGuarantee, boolean isEntry, IntSet segments,
-         Set<Integer> keys, InvocationContext context, Map<Integer, String> expectedValues) {
+         Set<Integer> keys, InvocationContext context, Map<Integer, String> expectedValues) throws InterruptedException {
       ClusterPublisherManager<Integer, String> cpm = cpm(cache(0));
       SegmentCompletionPublisher<R> publisher;
       if (isEntry) {
@@ -413,6 +412,8 @@ public class SimpleClusterPublisherManagerTest extends MultipleCacheManagersTest
       IntSet mutableIntSet = IntSets.concurrentSet(10);
       TestSubscriber<R> testSubscriber = TestSubscriber.create();
       publisher.subscribe(testSubscriber, mutableIntSet::set);
+
+      testSubscriber.await(10, TimeUnit.SECONDS);
 
       assertEquals(IntSets.immutableRangeSet(10), mutableIntSet);
    }
