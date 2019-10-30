@@ -705,12 +705,13 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
    private CacheSet<K> getKeySet(boolean includeLoader) {
       if (includeLoader) {
          if (keySet == null) {
-            keySet = cache.keySet();
+            // Due to the nature of retries, we can't have the collection looking at the transaction
+            keySet = cache.withFlags(Flag.IGNORE_TRANSACTION).keySet();
          }
          return keySet;
       } else {
          if (keySetWithoutLoader == null) {
-            keySetWithoutLoader = cache.withFlags(Flag.SKIP_CACHE_LOAD).keySet();
+            keySetWithoutLoader = cache.withFlags(Flag.SKIP_CACHE_LOAD, Flag.IGNORE_TRANSACTION).keySet();
          }
          return keySetWithoutLoader;
       }

@@ -692,7 +692,8 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       public CompletionStage<PublisherResult<R>> contextInvocation(IntSet segments, Set<K> keysToInclude,
             InvocationContext ctx, Function<? super Publisher<K>, ? extends CompletionStage<R>> transformer) {
 
-         return transformer.apply(LocalClusterPublisherManagerImpl.keyPublisherFromContext(ctx, keysToInclude))
+         return transformer.apply(LocalClusterPublisherManagerImpl.keyPublisherFromContext(ctx, segments, keyPartitioner,
+               keysToInclude))
                .thenApply(LocalPublisherManagerImpl.ignoreSegmentsFunction());
       }
 
@@ -742,7 +743,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       @Override
       public CompletionStage<PublisherResult<R>> contextInvocation(IntSet segments, Set<K> keysToInclude,
             InvocationContext ctx, Function<? super Publisher<CacheEntry<K, V>>, ? extends CompletionStage<R>> transformer) {
-         return transformer.apply(LocalClusterPublisherManagerImpl.entryPublisherFromContext(ctx, keysToInclude))
+         return transformer.apply(LocalClusterPublisherManagerImpl.entryPublisherFromContext(ctx, segments, keyPartitioner, keysToInclude))
                .thenApply(LocalPublisherManagerImpl.ignoreSegmentsFunction());
       }
 
@@ -818,16 +819,18 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
 
       final AtomicReferenceArray<Set<K>> keysBySegment;
       final IntSet segmentsToComplete;
+      final IntConsumer completedSegmentConsumer;
 
       volatile int currentTopology = -1;
 
-      PublisherSubscription(AbstractSegmentAwarePublisher<I, R> publisher) {
+      PublisherSubscription(AbstractSegmentAwarePublisher<I, R> publisher, IntConsumer completedSegmentConsumer) {
          this.publisher = publisher;
          this.requestId = rpcManager.getAddress() + "#" + requestCounter.incrementAndGet();
 
          this.keysBySegment = publisher.deliveryGuarantee == DeliveryGuarantee.EXACTLY_ONCE ?
                new AtomicReferenceArray<>(maxSegment) : null;
          this.segmentsToComplete = IntSets.concurrentCopyFrom(publisher.segments, maxSegment);
+         this.completedSegmentConsumer = completedSegmentConsumer;
       }
 
       public void start(Subscriber<? super R> subscriber) {
@@ -911,6 +914,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
          if (keysBySegment != null) {
             keysBySegment.set(segment, null);
          }
+         completedSegmentConsumer.accept(segment);
       }
 
       CompletionStage<PublisherResponse> sendInitialCommand(Address target, IntSet segments, int batchSize, Set<K> excludedKeys, int topologyId) {
@@ -1069,7 +1073,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       @Override
       public void subscribe(Subscriber<? super R> s, IntConsumer completedSegmentConsumer) {
          this.upstream = s;
-         new PublisherSubscription<I, R>(this).start(s);
+         new PublisherSubscription<I, R>(this, completedSegmentConsumer).start(s);
       }
 
       abstract InitialPublisherCommand buildInitialCommand(Address target, Object requestId, IntSet segments,

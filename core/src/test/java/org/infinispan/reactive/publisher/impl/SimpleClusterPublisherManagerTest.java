@@ -42,6 +42,7 @@ import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 
 import io.reactivex.Flowable;
+import io.reactivex.subscribers.TestSubscriber;
 
 /**
  * Test class for simple ClusterPublisherManager to ensure arguments are adhered to
@@ -49,7 +50,7 @@ import io.reactivex.Flowable;
  * @since 10.0
  */
 @Test(groups = "functional", testName = "reactive.publisher.impl.SimpleClusterPublisherManagerTest")
-@InCacheMode({CacheMode.REPL_SYNC, CacheMode.DIST_SYNC/*, CacheMode.SCATTERED_SYNC*/})
+@InCacheMode({CacheMode.REPL_SYNC, CacheMode.DIST_SYNC, CacheMode.SCATTERED_SYNC})
 public class SimpleClusterPublisherManagerTest extends MultipleCacheManagersTest {
    @Override
    protected void createCacheManagers() throws Throwable {
@@ -214,6 +215,9 @@ public class SimpleClusterPublisherManagerTest extends MultipleCacheManagersTest
 
       KeyPartitioner keyPartitioner = TestingUtil.extractComponent(cache, KeyPartitioner.class);
 
+      // We only expect a subset based on the provided segments
+      int expected = findHowManyInSegments(insertAmount, targetSegments, keyPartitioner);
+
       AtomicInteger contextChange = new AtomicInteger();
 
       InvocationContext ctx = new NonTxInvocationContext(null);
@@ -244,7 +248,7 @@ public class SimpleClusterPublisherManagerTest extends MultipleCacheManagersTest
 
       Long actualCount = stageCount.toCompletableFuture().join();
       // Two keys are removed and another is new
-      assertEquals(insertAmount + contextChange.get(), actualCount.intValue());
+      assertEquals(expected + contextChange.get(), actualCount.intValue());
    }
 
    private int findHowManyInSegments(int insertAmount, IntSet targetSegments, KeyPartitioner kp) {
@@ -268,15 +272,13 @@ public class SimpleClusterPublisherManagerTest extends MultipleCacheManagersTest
 
    @DataProvider(name = "GuaranteeEntry")
    public Object[][] guaranteesEntryType() {
-      // TODO: remove this comment later
-//      return new Object[][] { { DeliveryGuarantee.EXACTLY_ONCE, Boolean.FALSE } };
       return Arrays.stream(DeliveryGuarantee.values())
             .flatMap(dg -> Stream.of(Boolean.TRUE, Boolean.FALSE)
                         .map(entry -> new Object[]{dg, entry}))
             .toArray(Object[][]::new);
    }
 
-   private <I, R> void performPublisherOperation(DeliveryGuarantee deliveryGuarantee, boolean isEntry, IntSet segments,
+   private <I> void performPublisherOperation(DeliveryGuarantee deliveryGuarantee, boolean isEntry, IntSet segments,
          Set<Integer> keys, InvocationContext context, Map<Integer, String> expectedValues) {
       ClusterPublisherManager<Integer, String> cpm = cpm(cache(0));
       SegmentCompletionPublisher<?> publisher;
@@ -387,6 +389,30 @@ public class SimpleClusterPublisherManagerTest extends MultipleCacheManagersTest
                      Flowable.fromPublisher(entryPublisher).map(String::valueOf));
       }
       performFunctionPublisherOperation(publisher, mappedValues);
+   }
+
+   @Test(dataProvider = "GuaranteeEntry")
+   public void testEmptySegmentNotification(DeliveryGuarantee deliveryGuarantee, boolean isEntry) {
+      performSegmentPublisherOperation(deliveryGuarantee, isEntry, null, null, null, null);
+   }
+
+   private <I, R> void performSegmentPublisherOperation(DeliveryGuarantee deliveryGuarantee, boolean isEntry, IntSet segments,
+         Set<Integer> keys, InvocationContext context, Map<Integer, String> expectedValues) {
+      ClusterPublisherManager<Integer, String> cpm = cpm(cache(0));
+      SegmentCompletionPublisher<R> publisher;
+      if (isEntry) {
+         publisher = (SegmentCompletionPublisher) cpm.entryPublisher(segments, keys, context, false,
+               deliveryGuarantee, 10, MarshallableFunctions.identity());
+      } else {
+         publisher = (SegmentCompletionPublisher) cpm.keyPublisher(segments, keys, context, false,
+               deliveryGuarantee, 10, MarshallableFunctions.identity());
+      }
+
+      IntSet mutableIntSet = IntSets.mutableEmptySet(10);
+      TestSubscriber<R> testSubscriber = TestSubscriber.create();
+      publisher.subscribe(testSubscriber, mutableIntSet::set);
+
+      assertEquals(IntSets.immutableRangeSet(10), mutableIntSet);
    }
 
    private <I, R> void performFunctionPublisherOperation(Publisher<R> publisher, Collection<R> expectedValues) {

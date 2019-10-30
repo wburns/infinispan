@@ -11,6 +11,7 @@ import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.StoreConfiguration;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.context.InvocationContext;
+import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.scopes.Scope;
@@ -25,6 +26,7 @@ import io.reactivex.processors.UnicastProcessor;
 public class LocalClusterPublisherManagerImpl<K, V> implements ClusterPublisherManager<K, V> {
    @Inject LocalPublisherManager<K, V> localPublisherManager;
    @Inject Configuration cacheConfiguration;
+   @Inject KeyPartitioner keyPartitioner;
 
    private int maxSegment;
 
@@ -39,11 +41,13 @@ public class LocalClusterPublisherManagerImpl<K, V> implements ClusterPublisherM
       }
    }
 
-   static <K> Flowable<K> keyPublisherFromContext(InvocationContext ctx, Set<K> keysToInclude) {
+   static <K> Flowable<K> keyPublisherFromContext(InvocationContext ctx, IntSet segments, KeyPartitioner keyPartitioner,
+         Set<K> keysToInclude) {
       UnicastProcessor<K> unicastProcessor = UnicastProcessor.create(ctx.lookedUpEntriesCount());
       ctx.forEachValue((o, cacheEntry) -> {
          K key = (K) o;
-         if (keysToInclude == null || keysToInclude.contains(key)) {
+         if ((keysToInclude == null || keysToInclude.contains(key))
+               && (segments == null || segments.contains(keyPartitioner.getSegment(key)))) {
             unicastProcessor.onNext(key);
          }
       });
@@ -51,11 +55,13 @@ public class LocalClusterPublisherManagerImpl<K, V> implements ClusterPublisherM
       return unicastProcessor;
    }
 
-   static <K, V> Flowable<CacheEntry<K, V>> entryPublisherFromContext(InvocationContext ctx, Set<K> keysToInclude) {
+   static <K, V> Flowable<CacheEntry<K, V>> entryPublisherFromContext(InvocationContext ctx, IntSet segments,
+         KeyPartitioner keyPartitioner, Set<K> keysToInclude) {
       UnicastProcessor<CacheEntry<K, V>> unicastProcessor = UnicastProcessor.create(ctx.lookedUpEntriesCount());
       ctx.forEachValue((o, cacheEntry) -> {
          K key = (K) o;
-         if (keysToInclude == null || keysToInclude.contains(key)) {
+         if ((keysToInclude == null || keysToInclude.contains(key))
+            && (segments == null || segments.contains(keyPartitioner.getSegment(key)))) {
             unicastProcessor.onNext(cacheEntry);
          }
       });
@@ -82,7 +88,7 @@ public class LocalClusterPublisherManagerImpl<K, V> implements ClusterPublisherM
       CompletionStage<R> stage = localPublisherManager.keyReduction(parallelPublisher, handleNullSegments(segments), keysToInclude,
             keysToExclude, includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer, finalizer).thenApply(PublisherResult::getResult);
 
-      Flowable<K> entryFlowable = keyPublisherFromContext(invocationContext, keysToInclude);
+      Flowable<K> entryFlowable = keyPublisherFromContext(invocationContext, segments, keyPartitioner, keysToInclude);
       return transformer.apply(entryFlowable)
             .thenCombine(stage, Flowable::just)
             .thenCompose(finalizer);
@@ -103,7 +109,8 @@ public class LocalClusterPublisherManagerImpl<K, V> implements ClusterPublisherM
       CompletionStage<R> stage = localPublisherManager.entryReduction(parallelPublisher, handleNullSegments(segments), keysToInclude,
             keysToExclude, includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer, finalizer).thenApply(PublisherResult::getResult);
 
-      Flowable<CacheEntry<K, V>> entryFlowable = entryPublisherFromContext(invocationContext, keysToInclude);
+      Flowable<CacheEntry<K, V>> entryFlowable = entryPublisherFromContext(invocationContext, segments, keyPartitioner,
+            keysToInclude);
       return transformer.apply(entryFlowable)
             .thenCombine(stage, Flowable::just)
             .thenCompose(finalizer);
@@ -120,7 +127,7 @@ public class LocalClusterPublisherManagerImpl<K, V> implements ClusterPublisherM
       SegmentCompletionPublisher<R> cachePublisher = localPublisherManager.keyPublisher(handleNullSegments(segments),
             keysToInclude, null, includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer);
 
-      Flowable<K> keyFlowable = keyPublisherFromContext(invocationContext, keysToInclude);
+      Flowable<K> keyFlowable = keyPublisherFromContext(invocationContext, segments, keyPartitioner, keysToInclude);
       return (subscriber, completedSegments) ->
          Flowable.concat(
                transformer.apply(keyFlowable),
@@ -139,7 +146,8 @@ public class LocalClusterPublisherManagerImpl<K, V> implements ClusterPublisherM
       SegmentCompletionPublisher<R> cachePublisher = localPublisherManager.entryPublisher(handleNullSegments(segments), keysToInclude, null,
             includeLoader, DeliveryGuarantee.AT_MOST_ONCE, transformer);
 
-      Flowable<CacheEntry<K, V>> entryFlowable = entryPublisherFromContext(invocationContext, keysToInclude);
+      Flowable<CacheEntry<K, V>> entryFlowable = entryPublisherFromContext(invocationContext, segments, keyPartitioner,
+            keysToInclude);
       return (subscriber, completedSegments) ->
             Flowable.concat(
                   transformer.apply(entryFlowable),
