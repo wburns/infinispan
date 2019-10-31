@@ -90,8 +90,18 @@ public class PublisherHandler {
          publisherState = new PublisherState(requestId, command.getOrigin(), command.getBatchSize());
       }
 
-      if (currentRequests.putIfAbsent(requestId, publisherState) != null) {
-         throw new IllegalStateException("There was already a publisher registered for id " + requestId);
+      PublisherState previousState;
+      if ((previousState = currentRequests.put(requestId, publisherState)) != null) {
+         if (!previousState.complete) {
+            currentRequests.remove(requestId);
+            throw new IllegalStateException("There was already a publisher registered for id " + requestId + " that wasn't complete!");
+         }
+         // We have a previous state that is already completed - this is most likely due to a failover and our node
+         // now owns another segment but the async thread hasn't yet cleaned up our state.
+         if (trace) {
+            log.tracef("Closing prior state for %s to make room for a new request", requestId);
+         }
+         previousState.cancel();
       }
 
       publisherState.startProcessing(command);
@@ -124,8 +134,24 @@ public class PublisherHandler {
       if ((state = currentRequests.remove(requestId)) != null) {
          if (trace) {
             log.tracef("Closed publisher using requestId %s", requestId);
-            state.cancel();
          }
+         state.cancel();
+      }
+   }
+
+   /**
+    * Optionally closes the state if this state is still registered for the given requestId
+    * @param requestId unique identifier for the given request
+    * @param state state to cancel if it is still registered
+    */
+   private void closePublisher(Object requestId, PublisherState state) {
+      if (currentRequests.remove(requestId, state)) {
+         if (trace) {
+            log.tracef("Closed publisher from completion using requestId %s", requestId);
+         }
+         state.cancel();
+      } else if (trace) {
+         log.tracef("A concurrent request already closed the prior state for %s", requestId);
       }
    }
 
@@ -366,7 +392,7 @@ public class PublisherHandler {
          } else {
             synchronized (this) {
                if (futureResponse == null) {
-                  closePublisher(requestId);
+                  closePublisher(requestId, this);
                } else if (trace) {
                   log.tracef("Skipping run as handler is complete, but still has some results for id %s", requestId);
                }
