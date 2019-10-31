@@ -228,8 +228,8 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
 
    private void handleThrowableInResponse(Throwable t, Address address, IntSet segments) {
       if (parent.handleThrowable(t, address, segments)) {
-         // We were told to continue processing - so treat those segments as lost and try the next target if possible
-         segments.clear();
+         // We were told to continue processing - so ignore those segments and try the next target if possible
+         // Since we never invoked parent.compleSegment they may get retried
          currentTarget.set(null);
          trySendRequest(0);
       }

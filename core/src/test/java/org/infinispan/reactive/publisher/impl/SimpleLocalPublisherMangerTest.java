@@ -3,6 +3,7 @@ package org.infinispan.reactive.publisher.impl;
 import static org.testng.AssertJUnit.assertEquals;
 import static org.testng.AssertJUnit.assertTrue;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -10,12 +11,15 @@ import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import org.infinispan.Cache;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.IntSets;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.distribution.DistributionManager;
+import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.InCacheMode;
@@ -51,11 +55,10 @@ public class SimpleLocalPublisherMangerTest extends MultipleCacheManagersTest {
 
    @DataProvider(name = "GuaranteeEntry")
    public Object[][] collectionAndVersionsProvider() {
-      return new Object[][] { { DeliveryGuarantee.AT_MOST_ONCE, Boolean.FALSE} };
-//      return Arrays.stream(DeliveryGuarantee.values())
-//            .flatMap(dg -> Stream.of(Boolean.TRUE, Boolean.FALSE)
-//                        .map(entry -> new Object[]{dg, entry}))
-//            .toArray(Object[][]::new);
+      return Arrays.stream(DeliveryGuarantee.values())
+            .flatMap(dg -> Stream.of(Boolean.TRUE, Boolean.FALSE)
+                        .map(entry -> new Object[]{dg, entry}))
+            .toArray(Object[][]::new);
    }
 
    @Test(dataProvider = "GuaranteeEntry")
@@ -81,8 +84,13 @@ public class SimpleLocalPublisherMangerTest extends MultipleCacheManagersTest {
          };
       }
 
+      DistributionManager dm = TestingUtil.extractComponent(cache, DistributionManager.class);
+      IntSet localSegments = dm.getCacheTopology().getLocalReadSegments();
+
+      int expected = SimpleClusterPublisherManagerTest.findHowManyInSegments(inserted.size(), localSegments, TestingUtil.extractComponent(cache, KeyPartitioner.class));
+
       Set<Object> results = Flowable.fromPublisher(publisher).collectInto(new HashSet<>(), HashSet::add).blockingGet();
-      assertEquals(inserted.size(), results.size());
+      assertEquals(expected, results.size());
 
       results.forEach(assertConsumer);
    }

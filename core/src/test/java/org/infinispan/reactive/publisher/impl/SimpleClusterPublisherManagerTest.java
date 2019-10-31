@@ -252,7 +252,7 @@ public class SimpleClusterPublisherManagerTest extends MultipleCacheManagersTest
       assertEquals(expected + contextChange.get(), actualCount.intValue());
    }
 
-   private int findHowManyInSegments(int insertAmount, IntSet targetSegments, KeyPartitioner kp) {
+   static int findHowManyInSegments(int insertAmount, IntSet targetSegments, KeyPartitioner kp) {
       int count = 0;
       for (int i = 0; i < insertAmount; ++i) {
          int segment = kp.getSegment(i);
