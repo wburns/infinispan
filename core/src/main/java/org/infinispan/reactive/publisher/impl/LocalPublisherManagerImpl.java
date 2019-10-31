@@ -563,7 +563,7 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
 
    private AdvancedCache<K, V> getCache(DeliveryGuarantee deliveryGuarantee, boolean includeLoader) {
       AdvancedCache<K, V> cache = deliveryGuarantee == DeliveryGuarantee.AT_MOST_ONCE ? this.cache : remoteCache;
-      if (includeLoader) {
+      if (!includeLoader) {
          return cache.withFlags(Flag.SKIP_CACHE_LOAD);
       }
       return cache;
@@ -717,15 +717,22 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
       }
    }
 
+   void resetKeyAndEntrySet() {
+      keySet = null;
+      keySetWithoutLoader = null;
+      entrySet = null;
+      entrySetWithoutLoader = null;
+   }
+
    private CacheSet<CacheEntry<K, V>> getEntrySet(boolean includeLoader) {
       if (includeLoader) {
          if (entrySet == null) {
-            entrySet = cache.cacheEntrySet();
+            entrySet = cache.withFlags(Flag.IGNORE_TRANSACTION).cacheEntrySet();
          }
          return entrySet;
       } else {
          if (entrySetWithoutLoader == null) {
-            entrySetWithoutLoader = cache.withFlags(Flag.SKIP_CACHE_LOAD).cacheEntrySet();
+            entrySetWithoutLoader = cache.withFlags(Flag.SKIP_CACHE_LOAD, Flag.IGNORE_TRANSACTION).cacheEntrySet();
          }
          return entrySetWithoutLoader;
       }

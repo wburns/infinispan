@@ -66,6 +66,11 @@ public class RehashClusterPublisherManagerTest extends MultipleCacheManagersTest
       factory.setOwnerIndexes(START_SEGMENT_OWNERS);
       factory.triggerRebalance(cache(0));
       TestingUtil.waitForNoRebalance(caches());
+
+      Cache cache2 = cache(2);
+      LocalPublisherManager lpm = TestingUtil.extractComponent(cache2, LocalPublisherManager.class);
+      // Our tests mess with replacing the DataContainer - which is cached
+      ((LocalPublisherManagerImpl) lpm).resetKeyAndEntrySet();
    }
 
    @DataProvider(name = "GuaranteeParallelEntry")
