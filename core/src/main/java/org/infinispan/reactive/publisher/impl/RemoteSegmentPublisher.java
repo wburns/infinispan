@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntConsumer;
@@ -21,6 +21,7 @@ import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
 import io.reactivex.internal.queue.SpscArrayQueue;
+import io.reactivex.internal.subscriptions.SubscriptionHelper;
 import io.reactivex.internal.util.BackpressureHelper;
 
 /**
@@ -39,7 +40,7 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
    private final int topologyId;
 
    private volatile Subscriber<? super R> subscriber;
-   private final AtomicBoolean pendingRequest = new AtomicBoolean();
+   private final AtomicInteger requestors = new AtomicInteger();
 
    private volatile boolean alreadyCreated;
 
@@ -79,12 +80,12 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
 
    @Override
    public void request(long n) {
-      if (n <= 0) {
-         throw new IllegalArgumentException("request amount must be greater than 0");
-      }
-      long prev = BackpressureHelper.add(this, n);
-      if (prev == 0 && !pendingRequest.getAndSet(true)) {
-         sendRequest(get());
+      if (SubscriptionHelper.validate(n)) {
+         BackpressureHelper.add(this, n);
+         // Only if there are no other requestors can we proceed
+         if (requestors.getAndIncrement() == 0) {
+            sendRequest(get());
+         }
       }
    }
 
@@ -249,20 +250,13 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
       if (remaining > 0) {
          return remaining;
       }
-      // We have to end in either one of two states
-      // 1. pendingRequest was set from false to true by this and remaining is > 0
-      // 2. pendingRequest was set to false by us and remaining == 0
-      while (true) {
-         pendingRequest.set(false);
-         if (get() > 0 && !pendingRequest.getAndSet(true)) {
-            remaining = get();
-            if (remaining > 0) {
-               return remaining;
-            }
-         } else {
-            // This means another thread took the pendingRequest and are processing now
-            return 0;
-         }
+      // We try to unregister ourself from being a requestor
+      if (requestors.decrementAndGet() == 0) {
+         return 0;
       }
+      // However if there was another we have to continue going
+      remaining = get();
+      assert remaining > 0;
+      return remaining;
    }
 }
