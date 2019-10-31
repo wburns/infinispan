@@ -195,7 +195,7 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
 
             int produced = 0;
 
-            Object lastQueuedValue = null;
+            Object lastValue = null;
 
             for (R value : valueArray) {
                if (value == null) {
@@ -207,16 +207,16 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
                // later
                if (produced >= requested) {
                   queue.offer(value);
-                  lastQueuedValue = value;
                } else {
                   subscriber.onNext(value);
                   produced++;
                }
+               lastValue = value;
             }
 
             if (completedSegments != null) {
                // Tell the parent of the last enqueued value we have
-               parent.notifySegmentsComplete(completedSegments, lastQueuedValue);
+               parent.notifySegmentsComplete(completedSegments, lastValue);
             }
 
             trySendRequest(produced);

@@ -50,6 +50,7 @@ import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.commons.util.Closeables;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.IntSets;
+import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.PersistenceConfiguration;
 import org.infinispan.configuration.cache.StoreConfiguration;
@@ -451,6 +452,7 @@ public class DistributedCacheStream<Original, R> extends AbstractCacheStream<Ori
       @Override
       public void accept(Object r) {
          if (!completedSegments.isEmpty()) {
+            log.tracef("Going to complete segments %s when %s is iterated upon", completedSegments, Util.toStr(r));
             awaitingNotification.put(r, completedSegments);
             completedSegments = IntSets.concurrentSet(maxSegment);
          }
@@ -459,12 +461,15 @@ public class DistributedCacheStream<Original, R> extends AbstractCacheStream<Ori
       public void returningObject(Object value) {
          IntSet segments = awaitingNotification.remove(value);
          if (segments != null) {
+            log.tracef("Notifying listeners of segments %s complete now that %s is returning", segments, Util.toStr(value));
             listener.accept(segments::iterator);
          }
       }
 
       public void onComplete() {
+         log.tracef("Completing last segments of: %s", completedSegments);
          listener.accept(completedSegments::iterator);
+         completedSegments.clear();
       }
    }
 

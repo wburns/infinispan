@@ -917,12 +917,21 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
                if (previous != null) {
                   IntSet segments = enqueuedSegmentNotifiers.remove(previous);
                   if (segments != null) {
+                     if (trace) {
+                        log.tracef("Enqueued value %s has been returned, completing segments %s",
+                              Util.toStr(previous), segments);
+                     }
                      segments.forEach(completedSegmentConsumer);
                   }
                }
                previousValue.set(value);
             }).doOnComplete(() -> enqueuedSegmentNotifiers.forEach(
-                  (k, segments) -> segments.forEach(completedSegmentConsumer))
+                  (k, segments) -> {
+                     if (trace) {
+                        log.tracef("Notifying of completed segments %s due to publisher is complete", segments);
+                     }
+                     segments.forEach(completedSegmentConsumer);
+                  })
             );
          }
          valuesFlowable.subscribe(subscriber);
@@ -938,12 +947,20 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       // Method to be invoked after processing all the results of a request. If lastEnqueudValue is null that means
       // that all entries have been consumed by the downstream and we can immediately notify of segment completion,
       // otherwise we must wait until the given enqueued value is consumed before notifying of segment completion
-      void notifySegmentsComplete(IntSet segments, Object lastEnqueuedValue) {
+      void notifySegmentsComplete(IntSet segments, Object lastValue) {
          if (completedSegmentConsumer != null) {
-            if (lastEnqueuedValue == null) {
-               segments.forEach(completedSegmentConsumer);
+            if (lastValue == null) {
+               if (trace) {
+                  log.tracef("Delaying completed segments %s to be notified when current publisher is complete" +
+                        "(no value to map it's completion)", segments);
+               }
+               enqueuedSegmentNotifiers.put(new Object(), segments);
             } else {
-               enqueuedSegmentNotifiers.put(lastEnqueuedValue, segments);
+               if (trace) {
+                  log.tracef("Delaying completed segments %s to be notified when %s is returned", segments,
+                        Util.toStr(lastValue));
+               }
+               enqueuedSegmentNotifiers.put(lastValue, segments);
             }
          }
       }
@@ -1048,7 +1065,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
                key = publisher.composedType.toKey(value);
             }
             if (trace) {
-               log.tracef("Saving key %s for segment %d for id %s", key, segment, requestId);
+               log.tracef("Saving key %s for segment %d for id %s", Util.toStr(key), segment, requestId);
             }
             keys.add(key);
          }
