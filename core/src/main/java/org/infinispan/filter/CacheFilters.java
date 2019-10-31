@@ -59,6 +59,12 @@ public final class CacheFilters {
       return new ConverterAsCacheEntryFunction<>(converter);
    }
 
+   public static <K, V, C> CacheStream<C> filterAndConvertToValue(CacheStream<CacheEntry<K, V>> stream,
+         KeyValueFilterConverter<? super K, ? super V, C> filterConverter) {
+      // Have to use flatMap instead of map/filter as reactive streams spec doesn't allow null values
+      return stream.flatMap(new FilterConverterAsValueFunction(filterConverter));
+   }
+
    /**
     * Adds needed intermediate operations to the provided stream, returning a possibly new stream as a result of the
     * operations.  This method keeps the contract of filter and conversion being performed in only 1 call as the
@@ -163,24 +169,56 @@ public final class CacheFilters {
       }
    }
 
+   @Scope(Scopes.NONE)
+   static class FilterConverterAsValueFunction<K, V, C> implements Function<CacheEntry<K, V>, Stream<C>> {
+      protected final KeyValueFilterConverter<? super K, ? super V, C> converter;
+
+      protected InternalEntryFactory factory;
+
+      public FilterConverterAsValueFunction(KeyValueFilterConverter<? super K, ? super V, C> converter) {
+         Objects.nonNull(converter);
+         this.converter = converter;
+      }
+
+      @Inject
+      public void inject(InternalEntryFactory factory, ComponentRegistry registry) {
+         this.factory = factory;
+         registry.wireDependencies(converter);
+      }
+
+      @Override
+      public Stream<C> apply(CacheEntry<K, V> kvCacheEntry) {
+         K key = kvCacheEntry.getKey();
+         V value = kvCacheEntry.getValue();
+         Metadata metadata = kvCacheEntry.getMetadata();
+         C converted = converter.filterAndConvert(key, value, metadata);
+         if (converted == null) {
+            return Stream.empty();
+         }
+         return Stream.of(converted);
+      }
+   }
+
    public static final class CacheFiltersExternalizer implements AdvancedExternalizer<Object> {
 
       private static final int KEY_VALUE_FILTER_PREDICATE = 0;
       private static final int CONVERTER_FUNCTION = 1;
       private static final int FILTER_CONVERTER_FUNCTION = 2;
+      private static final int FILTER_CONVERTER_VALUE_FUNCTION = 3;
 
-      private final Map<Class<?>, Integer> objects = new HashMap<>(3);
+      private final Map<Class<?>, Integer> objects = new HashMap<>();
 
       public CacheFiltersExternalizer() {
          objects.put(KeyValueFilterAsPredicate.class, KEY_VALUE_FILTER_PREDICATE);
          objects.put(ConverterAsCacheEntryFunction.class, CONVERTER_FUNCTION);
          objects.put(FilterConverterAsCacheEntryFunction.class, FILTER_CONVERTER_FUNCTION);
+         objects.put(FilterConverterAsValueFunction.class, FILTER_CONVERTER_VALUE_FUNCTION);
       }
 
       @Override
       public Set<Class<?>> getTypeClasses() {
          return Util.asSet(KeyValueFilterAsPredicate.class, ConverterAsCacheEntryFunction.class,
-                 FilterConverterAsCacheEntryFunction.class);
+                 FilterConverterAsCacheEntryFunction.class, FilterConverterAsValueFunction.class);
       }
 
       @Override
@@ -202,6 +240,11 @@ public final class CacheFilters {
             case FILTER_CONVERTER_FUNCTION:
                output.writeObject(((FilterConverterAsCacheEntryFunction) object).converter);
                break;
+            case FILTER_CONVERTER_VALUE_FUNCTION:
+               output.writeObject(((FilterConverterAsValueFunction) object).converter);
+               break;
+            default:
+               throw new IllegalArgumentException("Type " + number + " is not supported!");
          }
       }
 
@@ -215,6 +258,8 @@ public final class CacheFilters {
                return new ConverterAsCacheEntryFunction((Converter) input.readObject());
             case FILTER_CONVERTER_FUNCTION:
                return new FilterConverterAsCacheEntryFunction((KeyValueFilterConverter) input.readObject());
+            case FILTER_CONVERTER_VALUE_FUNCTION:
+               return new FilterConverterAsValueFunction((KeyValueFilterConverter) input.readObject());
             default:
                throw new IllegalArgumentException("Found invalid number " + number);
          }
