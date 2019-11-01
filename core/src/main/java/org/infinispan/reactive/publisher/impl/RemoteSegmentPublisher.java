@@ -42,6 +42,7 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
    private volatile Subscriber<? super R> subscriber;
    private final AtomicInteger requestors = new AtomicInteger();
 
+   private volatile boolean cancelled;
    private volatile boolean alreadyCreated;
 
    private AtomicReference<Map.Entry<Address, IntSet>> currentTarget = new AtomicReference<>();
@@ -91,6 +92,7 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
 
    @Override
    public void cancel() {
+      cancelled = true;
       Map.Entry<Address, IntSet> target = currentTarget.get();
       if (target != null) {
          parent.sendCancelCommand(target.getKey());
@@ -98,8 +100,10 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
    }
 
    private void sendRequest(long remaining) {
-      while (remaining > 0 && !queue.isEmpty()) {
-         int produced = 0;
+      assert remaining > 0;
+
+      while (!queue.isEmpty()) {
+         long produced = 0;
          while (produced < remaining) {
             // Use any of the queued values if present first
             R queuedValue = queue.poll();
@@ -112,16 +116,15 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
          }
 
          remaining = BackpressureHelper.produced(this, produced);
-      }
 
-      // We produced some entries from the overflow queue and had leftovers or exactly enough - try to release
-      // control of the pendingRequest boolean
-      if (remaining == 0) {
-         remaining = continueWithRemaining(0);
+         // We produced some entries from the overflow queue and had leftovers or exactly enough - try to release
+         // control of the pendingRequest boolean
          if (remaining == 0) {
-            return;
-         } else if (queue.isEmpty()) {
-            sendRequest(remaining);
+            remaining = continueWithRemaining(0);
+            if (remaining == 0) {
+               // Terminate - continueWithRemaining freed requestors
+               return;
+            }
          }
       }
 
@@ -194,7 +197,7 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
             long requested = get();
             assert requested > 0;
 
-            int produced = 0;
+            long produced = 0;
 
             Object lastValue = null;
 
@@ -202,6 +205,12 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
                if (value == null) {
                   // Local execution doesn't trim array down
                   break;
+               }
+               if (cancelled) {
+                  if (trace) {
+                     log.tracef("Subscription %s was cancelled, terminating early", RemoteSegmentPublisher.this);
+                  }
+                  return;
                }
                // Note that consumed is always equal to how many have been sent to onNext - thus
                // once it is equal to the requested we have to enqueue any additional values - so they can be requested
@@ -250,13 +259,15 @@ public class RemoteSegmentPublisher<K, I, R> extends AtomicLong implements Publi
       if (remaining > 0) {
          return remaining;
       }
-      // We try to unregister ourself from being a requestor
-      if (requestors.decrementAndGet() == 0) {
-         return 0;
-      }
-      // However if there was another we have to continue going
-      remaining = get();
-      assert remaining > 0;
+      do {
+         // We try to unregister ourself from being a requestor
+         if (requestors.decrementAndGet() == 0) {
+            return 0;
+         }
+         // However if there was another we have to continue going
+         remaining = get();
+      } while (remaining == 0);
+
       return remaining;
    }
 }
