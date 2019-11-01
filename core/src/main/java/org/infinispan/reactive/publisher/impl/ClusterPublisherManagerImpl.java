@@ -16,6 +16,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReferenceArray;
 import java.util.function.BiConsumer;
@@ -814,19 +815,32 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       }
    };
 
-   class PublisherSubscription<I, R> implements ObjIntConsumer<I> {
+   /**
+    * This class handles whenever a new subscriber is registered. This class handles the retry mechanism and submission
+    * of requests to various nodes. All details regarding a specific subscriber should be stored in this class, such
+    * as the completed segments.
+    * @param <I>
+    * @param <R>
+    */
+   class SubscriberHandler<I, R> implements ObjIntConsumer<I> {
       final AbstractSegmentAwarePublisher<I, R> publisher;
+      final Subscriber<? super R> subscriber;
       final Object requestId;
 
       final AtomicReferenceArray<Set<K>> keysBySegment;
       final IntSet segmentsToComplete;
       final IntConsumer completedSegmentConsumer;
       final Map<Object, IntSet> enqueuedSegmentNotifiers;
+      // Only allow the first child publisher to use the context values
+      final AtomicBoolean useContext = new AtomicBoolean(true);
 
+      // Variable used to ensure we only read the context once - so it is not read again during a retry
       volatile int currentTopology = -1;
 
-      PublisherSubscription(AbstractSegmentAwarePublisher<I, R> publisher, IntConsumer completedSegmentConsumer) {
+      SubscriberHandler(AbstractSegmentAwarePublisher<I, R> publisher, Subscriber<? super R> subscriber,
+            IntConsumer completedSegmentConsumer) {
          this.publisher = publisher;
+         this.subscriber = subscriber;
          this.requestId = rpcManager.getAddress() + "#" + requestCounter.incrementAndGet();
 
          this.keysBySegment = publisher.deliveryGuarantee == DeliveryGuarantee.EXACTLY_ONCE ?
@@ -836,7 +850,10 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
          this.enqueuedSegmentNotifiers = completedSegmentConsumer == null ? null : new ConcurrentHashMap<>();
       }
 
-      public void start(Subscriber<? super R> subscriber) {
+      /**
+       * This is the method that starts the actual subscription. This method starts up to 4 concurrent
+       */
+      public void start() {
          Flowable<R> valuesFlowable = Flowable.just(distributionManager)
                .flatMap(dm -> {
                   LocalizedCacheTopology topology = dm.getCacheTopology();
@@ -880,19 +897,19 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
 
                   int targetBatchSize = publisher.batchSize / concurrentPublishers + 3;
 
-                  RemoteSegmentPublisher<K, I, R>[] publisherArray = new RemoteSegmentPublisher[concurrentPublishers];
+                  InnerPublisherSubscription<K, I, R>[] publisherArray = new InnerPublisherSubscription[concurrentPublishers];
                   for (int i = 0; i < concurrentPublishers - 1; ++i) {
-                     publisherArray[i] = new RemoteSegmentPublisher<>(this, targetBatchSize, targetSupplier,
+                     publisherArray[i] = new InnerPublisherSubscription<>(this, targetBatchSize, targetSupplier,
                            excludedKeys, currentTopology);
                   }
                   // Submit the local target last if necessary (otherwise is a normal submission)
                   // This is done last as we want to send all the remote requests first and only process the local
                   // container concurrently with the remote requests
                   if (localSegments != null) {
-                     publisherArray[concurrentPublishers - 1] = new RemoteSegmentPublisher<>(this, targetBatchSize,
+                     publisherArray[concurrentPublishers - 1] = new InnerPublisherSubscription<>(this, targetBatchSize,
                            targetSupplier, excludedKeys, currentTopology, new AbstractMap.SimpleEntry<>(localAddress, localSegments));
                   } else {
-                     publisherArray[concurrentPublishers - 1] = new RemoteSegmentPublisher<>(this, targetBatchSize,
+                     publisherArray[concurrentPublishers - 1] = new InnerPublisherSubscription<>(this, targetBatchSize,
                            targetSupplier, excludedKeys, currentTopology);
                   }
 
@@ -984,10 +1001,12 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
                   target, segments);
          }
          boolean local = target == rpcManager.getAddress();
-         InitialPublisherCommand cmd = publisher.buildInitialCommand(target, requestId, segments, excludedKeys, batchSize, local);
+         InitialPublisherCommand cmd = publisher.buildInitialCommand(target, requestId, segments, excludedKeys, batchSize,
+               local && useContext.getAndSet(false));
          if (cmd == null) {
             return CompletableFuture.completedFuture(PublisherResponse.emptyResponse(segments, null));
          }
+         // This means the target is local - so skip calling the rpcManager
          if (local) {
             try {
                return (CompletableFuture) cmd.invokeAsync();
@@ -1005,10 +1024,12 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
          if (trace) {
             log.tracef("Request: %s is continuing publisher request from %s", requestId, target);
          }
+         // Local command so just return the handler
          if (target == rpcManager.getAddress()) {
             return publisherHandler.getNext(requestId);
          }
          NextPublisherCommand cmd = publisher.buildNextCommand(requestId);
+
          cmd.setTopologyId(topologyId);
          return rpcManager.invokeCommand(target, cmd, SingleResponseCollector.validOnly(), rpcOptions)
                .thenApply(responseHandler);
@@ -1016,6 +1037,8 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
 
       /**
        * Handles logging the throwable and cancelling if necessary. Returns if publisher should continue processing or not.
+       * This method must be guaranteed to not be invoked concurrently with another that may signal the subscriber since
+       * it can invoke onError.
        */
       boolean handleThrowable(Throwable t, Address target, IntSet segments) {
          // Most likely SuspectException will be wrapped in CompletionException
@@ -1030,7 +1053,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
             log.tracef(t, "Received exception for id %s from node %s when requesting segments %s", requestId, target,
                   segments);
          }
-         publisher.upstream.onError(t);
+         subscriber.onError(t);
          // Cancel out the command for the provided publisher - other should be cancelled
          sendCancelCommand(target);
          return false;
@@ -1074,10 +1097,15 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
 
    /**
     * Whether the response should contain the keys for the current non completed segment. Note that we currently
-    * optimize the case where we know that we get back keys or entries without mapping to a new value.
+    * optimize the case where we know that we get back keys or entries without mapping to a new value. We only require
+    * key tracking when delivery guarantee is EXACTLY_ONCE. In somes case we don't need to track keys if the transformer
+    * is the identity function (delineated by being the same as {@link MarshallableFunctions#identity()} or the function
+    * implements a special interface {@link MaybeValueRetainedFunction} and it retains the original value.
+    * @param deliveryGuarantee guarantee of the data
+    * @param transformer provided transformer
     * @return should keys for the current segment be returned in the response
     */
-   static boolean shouldTrackKeys(DeliveryGuarantee deliveryGuarantee, Function<?, ?> transformer) {
+   private static boolean shouldTrackKeys(DeliveryGuarantee deliveryGuarantee, Function<?, ?> transformer) {
       if (deliveryGuarantee == DeliveryGuarantee.EXACTLY_ONCE) {
          if (transformer == MarshallableFunctions.identity()) {
             return false;
@@ -1100,11 +1128,6 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       final Function<? super Publisher<I>, ? extends Publisher<R>> transformer;
       final boolean shouldTrackKeys;
 
-      // Variable used to ensure we only read the context once - so it is not read again during a retry
-      volatile boolean usedContext;
-
-      Subscriber<? super R> upstream;
-
       private AbstractSegmentAwarePublisher(ComposedType<K, I, R> composedType, IntSet segments, InvocationContext invocationContext,
             boolean includeLoader, DeliveryGuarantee deliveryGuarantee, int batchSize,
             Function<? super Publisher<I>, ? extends Publisher<R>> transformer) {
@@ -1122,12 +1145,11 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       public void subscribe(Subscriber<? super R> s, IntConsumer completedSegmentConsumer) {
          IntConsumer consumerToUse = completedSegmentConsumer == SegmentCompletionPublisher.EMPTY_CONSUMER ? null :
                Objects.requireNonNull(completedSegmentConsumer);
-         this.upstream = s;
-         new PublisherSubscription<I, R>(this, consumerToUse).start(s);
+         new SubscriberHandler<I, R>(this, s, consumerToUse).start();
       }
 
       abstract InitialPublisherCommand buildInitialCommand(Address target, Object requestId, IntSet segments,
-            Set<K> excludedKeys, int batchSize, boolean local);
+            Set<K> excludedKeys, int batchSize, boolean useContext);
 
       NextPublisherCommand buildNextCommand(Object requestId) {
          return commandsFactory.buildNextPublisherCommand(requestId);
@@ -1160,7 +1182,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
 
       @Override
       InitialPublisherCommand buildInitialCommand(Address target, Object requestId, IntSet segments, Set<K> excludedKeys,
-            int batchSize, boolean local) {
+            int batchSize, boolean useContext) {
          Set<K> keysToUse = calculateKeysToUse(keysToInclude, segments, excludedKeys);
          if (keysToUse == null) {
             return null;
@@ -1168,9 +1190,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
 
          Function<? super Publisher<I>, ? extends Publisher<R>> functionToUse;
          int lookupEntryCount;
-         if (local && invocationContext != null && (lookupEntryCount = invocationContext.lookedUpEntriesCount()) > 0 && !usedContext) {
-            // TODO: this isn't invoked if no segments map to the local node - which would skip the ctx (need to fix)
-            usedContext = true;
+         if (useContext && invocationContext != null && (lookupEntryCount = invocationContext.lookedUpEntriesCount()) > 0) {
             functionToUse = (SerializableFunction<Publisher<I>, Publisher<R>>) publisher -> {
                List<I> contextValues = new ArrayList<>(lookupEntryCount);
                invocationContext.forEachValue((key, entry) -> {
@@ -1199,11 +1219,10 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
 
       @Override
       InitialPublisherCommand buildInitialCommand(Address target, Object requestId, IntSet segments, Set<K> excludedKeys,
-            int batchSize, boolean local) {
+            int batchSize, boolean useContext) {
          Function<? super Publisher<I>, ? extends Publisher<R>> functionToUse;
          int lookupEntryCount;
-         if (local && invocationContext != null && (lookupEntryCount = invocationContext.lookedUpEntriesCount()) > 0 && !usedContext) {
-            usedContext = true;
+         if (useContext && invocationContext != null && (lookupEntryCount = invocationContext.lookedUpEntriesCount()) > 0) {
             functionToUse = (SerializableFunction<Publisher<I>, Publisher<R>>) publisher -> {
                List<I> contextValues = new ArrayList<>(lookupEntryCount);
                invocationContext.forEachValue((key, entry) ->
