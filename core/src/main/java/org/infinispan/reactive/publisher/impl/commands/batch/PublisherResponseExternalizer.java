@@ -32,6 +32,7 @@ public class PublisherResponseExternalizer extends AbstractExternalizer<Publishe
       if (object instanceof KeyPublisherResponse) {
          KeyPublisherResponse keyResponse = (KeyPublisherResponse) object;
          // Just send the combined count of both arrays - the read handles both the same way
+         // segmentOffset for a KeyPublisherResponse is actually the extra value size
          UnsignedNumeric.writeUnsignedInt(output, keyResponse.size + keyResponse.segmentOffset);
          for (int i = 0; i < keyResponse.size; ++i) {
             output.writeObject(keyResponse.results[i]);

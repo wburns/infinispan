@@ -64,7 +64,7 @@ public class PublisherHandler {
          // so that can't be suspected
          if (owner != null && !newMembers.contains(owner)) {
             log.tracef("View changed and no longer contains %s, closing %s publisher", owner, state.requestId);
-            // TODO: actually close publishers
+            state.cancel();
             iter.remove();
          }
       }
@@ -81,6 +81,14 @@ public class PublisherHandler {
       managerNotifier.removeListener(this);
    }
 
+   /**
+    * Registers a publisher given the initial command arguments. The value returned will eventually contain the
+    * first batched response for the publisher of the given id.
+    * @param command the command with arguments to start a publisher with
+    * @param <I> input type
+    * @param <R> output type
+    * @return future that will or eventually will contain the first response
+    */
    public <I, R> CompletableFuture<PublisherResponse> register(InitialPublisherCommand<?, I, R> command) {
       PublisherState publisherState;
       Object requestId = command.getRequestId();
@@ -109,6 +117,12 @@ public class PublisherHandler {
       return publisherState.results();
    }
 
+   /**
+    * Retrieves the next response for the same request id that was configured on the command when invoking
+    * {@link #register(InitialPublisherCommand)}.
+    * @param requestId the unique request id to continue the response with
+    * @return future that will or eventually will contain the next response
+    */
    public CompletableFuture<PublisherResponse> getNext(Object requestId) {
       PublisherState publisherState = currentRequests.get(requestId);
       if (publisherState == null) {
@@ -437,7 +451,7 @@ public class PublisherHandler {
          if (pos == results.length) {
             // Write any overflow into our buffer
             if (extraValues == null) {
-               extraValues = new Object[16];
+               extraValues = new Object[8];
             }
             if (extraPos == extraValues.length) {
                Object[] expandedArray = new Object[extraValues.length << 1];

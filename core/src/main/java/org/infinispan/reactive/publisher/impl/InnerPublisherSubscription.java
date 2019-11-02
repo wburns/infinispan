@@ -7,6 +7,7 @@ import java.util.Set;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.IntConsumer;
 import java.util.function.Supplier;
 
@@ -20,6 +21,7 @@ import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
 import io.reactivex.internal.queue.SpscArrayQueue;
+import io.reactivex.internal.subscriptions.EmptySubscription;
 import io.reactivex.internal.subscriptions.SubscriptionHelper;
 import io.reactivex.internal.util.BackpressureHelper;
 import net.jcip.annotations.GuardedBy;
@@ -48,11 +50,19 @@ class InnerPublisherSubscription<K, I, R> extends AtomicLong implements Publishe
    private final Map<Address, Set<K>> excludedKeys;
    private final int topologyId;
 
+   // The upstream subscriber we will send values to
+   private AtomicReference<Subscriber<? super R>> subscriber = new AtomicReference<>();
+   // This variable is here to track how many requests have been invoked, by incrementing it. If a request changes this
+   // from 0 to 1, this request may begin processing entries. When the values are processed this variable should be
+   // decremented and if the value is now 0 the invoker may return otherwise it must repeat until the requestors becomes 0.
+   // This is important so that only a single caller can be adding things to the upstream subscriber.
    private final AtomicInteger requestors = new AtomicInteger();
 
+   // The current address and segments we are processing or null if another one should be acquired
    private volatile Map.Entry<Address, IntSet> currentTarget;
-   private volatile Subscriber<? super R> subscriber;
+   // whether this subscription was cancelled by a caller (means we can stop processing)
    private volatile boolean cancelled;
+   // whether the initial request was already sent or not (if so then a next command is used)
    private volatile boolean alreadyCreated;
 
    InnerPublisherSubscription(ClusterPublisherManagerImpl<K, ?>.SubscriberHandler<I, R> parent,
@@ -80,11 +90,14 @@ class InnerPublisherSubscription<K, I, R> extends AtomicLong implements Publishe
 
    @Override
    public void subscribe(Subscriber<? super R> s) {
-      if (trace) {
-         log.tracef("Subscribed to %s via %s", parent.requestId, s);
+      if (subscriber.compareAndSet(null, s)) {
+         if (trace) {
+            log.tracef("Subscribed to %s via %s", parent.requestId, s);
+         }
+         s.onSubscribe(this);
+      } else {
+         EmptySubscription.error(new IllegalStateException("This processor allows only a single Subscriber"), s);
       }
-      this.subscriber = s;
-      s.onSubscribe(this);
    }
 
    @Override
@@ -110,7 +123,9 @@ class InnerPublisherSubscription<K, I, R> extends AtomicLong implements Publishe
    }
 
    /**
-    * Method to handle a request of values. This is the only method
+    * Method to handle a request of values. This is the only method that should actually publish anything to the
+    * subscriber. The requestors variable should also ensure that only one caller may invoke this thread (this
+    * guarantee must be non reentrant as well)
     * @param remaining the last known amount of requested values (this value is assumed to always be less than or equal
     *                  to the current request count and greater than 0)
     */
@@ -123,7 +138,7 @@ class InnerPublisherSubscription<K, I, R> extends AtomicLong implements Publishe
       while (!queue.isEmpty()) {
          long produced = 0;
          // Avoid volatile read for every entry
-         Subscriber<? super R> localSubscriber = subscriber;
+         Subscriber<? super R> localSubscriber = subscriber.get();
          while (produced < remaining) {
             // Use any of the queued values if present first
             R queuedValue = queue.poll();
@@ -165,7 +180,7 @@ class InnerPublisherSubscription<K, I, R> extends AtomicLong implements Publishe
             if (trace) {
                log.tracef("Completing subscription %s", this);
             }
-            subscriber.onComplete();
+            subscriber.get().onComplete();
             return;
          } else {
             currentTarget = target;
@@ -214,7 +229,8 @@ class InnerPublisherSubscription<K, I, R> extends AtomicLong implements Publishe
 
             boolean complete = values.isComplete();
             if (complete) {
-               // Need to get a new target
+               // Current address has returned all values it can - setting to null will force the next invocation
+               // of this method try the next target if available
                currentTarget = null;
             } else {
                int segment = segments.iterator().nextInt();
@@ -229,7 +245,7 @@ class InnerPublisherSubscription<K, I, R> extends AtomicLong implements Publishe
             Object lastValue = null;
 
             // Avoid volatile read for every entry
-            Subscriber<? super R> localSubscriber = subscriber;
+            Subscriber<? super R> localSubscriber = subscriber.get();
 
             for (R value : valueArray) {
                if (value == null) {
@@ -253,7 +269,8 @@ class InnerPublisherSubscription<K, I, R> extends AtomicLong implements Publishe
             }
 
             if (completedSegments != null) {
-               // Tell the parent of the last enqueued value we have
+               // We tell the parent of what the value is when we complete segments - this way they can notify
+               // segment listeners properly
                parent.notifySegmentsComplete(completedSegments, lastValue);
             }
 
@@ -288,6 +305,10 @@ class InnerPublisherSubscription<K, I, R> extends AtomicLong implements Publishe
       }
    }
 
+   /**
+    * This method is used by an invoker when it already owns the requestor and will either release it or continue
+    * processing more values if not enough have been retrieved or if more requests have come in
+    */
    @GuardedBy("requestors")
    private void trySendRequest(long produced) {
       long innerRemaining = continueWithRemaining(produced);
@@ -296,8 +317,12 @@ class InnerPublisherSubscription<K, I, R> extends AtomicLong implements Publishe
       }
    }
 
-   // Determines if the current thread should continue processing due to outstanding requests - That means we either
-   // need to read from the queue or if empty submit remotely for more elements
+   /**
+    * Determines if the current thread should continue processing due to outstanding requests - That means we either
+    * need to read from the queue or if empty submit remotely for more elements
+    * @param produced how many entries have been produced by the caller
+    * @return how many more entries can still be produced or 0 if the caller should immediately return
+    */
    @GuardedBy("requestors")
    private long continueWithRemaining(long produced) {
       long remaining = BackpressureHelper.produced(this, produced);

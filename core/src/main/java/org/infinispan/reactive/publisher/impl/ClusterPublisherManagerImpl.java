@@ -982,7 +982,8 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
          }
       }
 
-      CompletionStage<PublisherResponse> sendInitialCommand(Address target, IntSet segments, int batchSize, Set<K> excludedKeys, int topologyId) {
+      CompletionStage<PublisherResponse> sendInitialCommand(Address target, IntSet segments, int batchSize,
+            Set<K> excludedKeys, int topologyId) {
          if (keysBySegment != null) {
             for (PrimitiveIterator.OfInt iter = segments.iterator(); iter.hasNext(); ) {
                int segment = iter.nextInt();

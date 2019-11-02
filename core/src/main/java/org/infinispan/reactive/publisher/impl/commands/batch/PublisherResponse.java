@@ -5,6 +5,12 @@ import java.util.function.ObjIntConsumer;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.Util;
 
+/**
+ * The response for a cache publisher request to a given node. It contains an array with how many results there were,
+ * which segments were completed or lost during processing, whether the operation has sent all values (complete), and
+ * also an offset into the results array of which elements don't map to any of the completed segments. Note that
+ * the results will never contain values for a segment that was lost in the same response.
+ */
 public class PublisherResponse {
    final Object[] results;
    // The completed segments after this request - This may be null
