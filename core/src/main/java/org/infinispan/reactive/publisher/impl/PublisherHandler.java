@@ -7,9 +7,11 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
 
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.IntSets;
+import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.factories.KnownComponentNames;
 import org.infinispan.factories.annotations.ComponentName;
 import org.infinispan.factories.annotations.Inject;
@@ -28,9 +30,11 @@ import org.infinispan.remoting.transport.Address;
 import org.infinispan.util.concurrent.CompletableFutures;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 import org.reactivestreams.Subscription;
 
+import io.reactivex.Flowable;
 import io.reactivex.functions.Consumer;
 import io.reactivex.internal.subscriptions.SubscriptionHelper;
 import net.jcip.annotations.GuardedBy;
@@ -467,11 +471,19 @@ public class PublisherHandler {
       void startProcessing(InitialPublisherCommand command) {
          SegmentAwarePublisher sap;
          if (command.isEntryStream()) {
+            Function<Publisher<CacheEntry>, Publisher<Object>> function = original ->
+                  (Publisher) command.getTransformer().apply(
+                        Flowable.fromPublisher(original)
+                              .doOnNext(ce -> accept(ce.getKey())));
             sap = lpm.entryPublisher(command.getSegments(), command.getKeys(), command.getExcludedKeys(),
-                  command.isIncludeLoader(), this, command.getTransformer());
+                  command.isIncludeLoader(), DeliveryGuarantee.EXACTLY_ONCE, function);
          } else {
+            Function<Publisher<Object>, Publisher<Object>> function = original ->
+                  (Publisher) command.getTransformer().apply(
+                        Flowable.fromPublisher(original)
+                              .doOnNext(this));
             sap = lpm.keyPublisher(command.getSegments(), command.getKeys(), command.getExcludedKeys(),
-                  command.isIncludeLoader(), this, command.getTransformer());
+                  command.isIncludeLoader(), DeliveryGuarantee.EXACTLY_ONCE, function);
          }
 
          sap.subscribe(this, this::segmentComplete, this::segmentLost);

@@ -9,8 +9,6 @@ import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.reactive.publisher.impl.commands.reduction.PublisherResult;
 import org.reactivestreams.Publisher;
 
-import io.reactivex.functions.Consumer;
-
 /**
  * Handles locally publishing entries from the cache. This manager will return results that contains suspected segments
  * @param <K> The key type for the underlying cache
@@ -23,7 +21,6 @@ public interface LocalPublisherManager<K, V> {
     * Same as {@link #entryReduction(boolean, IntSet, Set, Set, boolean, DeliveryGuarantee, Function, Function)}
     * except that the source publisher provided to the <b>transformer</b> is made up of keys only.
     * @param <R> return value type
-    * @param parallelPublisher
     * @return CompletionStage that contains the resulting value when complete
     */
    <R> CompletionStage<PublisherResult<R>> keyReduction(boolean parallelPublisher, IntSet segments,
@@ -65,8 +62,8 @@ public interface LocalPublisherManager<K, V> {
     *
     * @param <R> return value type
     * @param parallelPublisher Whether the publisher should be parallelized
-    * @param segments determines what entries should be evaluated by only using ones that map to the given segments
-    * @param keysToInclude set of keys that should only be used. If null all entries for the given segments will be evaluated
+    * @param segments determines what entries should be evaluated by only using ones that map to the given segments (must not be null)
+    * @param keysToInclude set of keys that should only be used. May be null, in which case all provided entries for the given segments will be evaluated
     * @param keysToExclude set of keys that should not be used. May be null, in which case all provided entries will be evaluated
     * @param includeLoader whether to include entries from the underlying cache loader if any
     * @param deliveryGuarantee delivery guarantee for given entries
@@ -79,20 +76,46 @@ public interface LocalPublisherManager<K, V> {
          Function<? super Publisher<CacheEntry<K, V>>, ? extends CompletionStage<R>> transformer,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer);
 
+   /**
+    * Same as {@link #entryPublisher(IntSet, Set, Set, boolean, DeliveryGuarantee, Function)}
+    * except that the source publisher provided to the <b>transformer</b> is made up of keys only.
+    * @param <R> return value type
+    * @return SegmentAwarePublisher that will publish the values when subscribed to along with segment completions and losses
+    */
    <R> SegmentAwarePublisher<R> keyPublisher(IntSet segments, Set<K> keysToInclude,
          Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
          Function<? super Publisher<K>, ? extends Publisher<R>> transformer);
 
-   <R> SegmentAwarePublisher<R> keyPublisher(IntSet segments, Set<K> keysToInclude,
-         Set<K> keysToExclude, boolean includeLoader, Consumer<? super K> keyConsumer,
-         Function<? super Publisher<K>, ? extends Publisher<R>> transformer);
-
+   /**
+    * Performs the given <b>transformer</b> on data in the cache that is local, resulting in a stream of values of
+    * possibly varying size. The <b>transformer</b> will be invoked
+    * <b>numSegments</b> times. The table below shows the behavior for the various delivery guarantees.
+    * <p>
+    * The effects of the provided <b>deliveryGuarantee</b> are as follows:
+    * <table>
+    *    <tr>
+    *       <th>Guarantee</th><th>Behavior></th>
+    *    </tr>
+    *    <tr>
+    *       <td>AT_MOST_ONCE</td> <td>For each segment a publisher passed to the transformer sequentially. All segments are always complete, ignoring loss of data</td>
+    *    </tr>
+    *       <td>AT_LEAST_ONCE</td> <td>Same as AT_MOST_ONCE, but if a segment is lost in the middle it is returned as a suspected segment possibly dropping values in that segment.</td>
+    *    </tr>
+    *       <td>EXACTLY_ONCE</td> <td>Same as AT_LEAST_ONCE except whenever as segment is lost the value(s) collected in the same response for that segment are always dropped.</td>
+    *    </tr>
+    * </table>
+    *
+    * @param segments determines what entries should be evaluated by only using ones that map to the given segments (must not be null)
+    * @param keysToInclude set of keys that should only be used. May be null, in which case all provided entries for the given segments will be evaluated
+    * @param keysToExclude set of keys that should not be used. May be null, in which case all provided entries will be evaluated
+    * @param includeLoader whether to include entries from the underlying cache loader if any
+    * @param deliveryGuarantee delivery guarantee for given entries
+    * @param transformer transforms the values to another value (0 to many). Must not be null.
+    * @param <R> return value type
+    * @return SegmentAwarePublisher that will publish the values when subscribed to along with segment completions and losses
+    */
    <R> SegmentAwarePublisher<R> entryPublisher(IntSet segments, Set<K> keysToInclude,
          Set<K> keysToExclude, boolean includeLoader, DeliveryGuarantee deliveryGuarantee,
-         Function<? super Publisher<CacheEntry<K, V>>, ? extends Publisher<R>> transformer);
-
-   <R> SegmentAwarePublisher<R> entryPublisher(IntSet segments, Set<K> keysToInclude,
-         Set<K> keysToExclude, boolean includeLoader, Consumer<? super K> keyConsumer,
          Function<? super Publisher<CacheEntry<K, V>>, ? extends Publisher<R>> transformer);
 
    /**

@@ -54,7 +54,6 @@ import org.mockito.stubbing.Answer;
 import org.testng.annotations.Test;
 
 import io.reactivex.Flowable;
-import io.reactivex.functions.Consumer;
 
 /**
  * Test to verify distributed stream iterator
@@ -429,13 +428,8 @@ public class DistributedStreamIteratorTest extends BaseClusteredStreamIteratorTe
 
    protected void waitUntilSendingResponse(final Cache<?, ?> cache, final CheckPoint checkPoint, boolean hasMap) {
       Mocks.blockingMock(checkPoint, LocalPublisherManager.class, cache,
-            (stub, m) -> {
-               if (hasMap) {
-                  stub.when(m).entryPublisher(any(), any(), any(), anyBoolean(), any(Consumer.class), any(Function.class));
-               } else {
-                  stub.when(m).entryPublisher(any(), any(), any(), anyBoolean(), any(DeliveryGuarantee.class), any(Function.class));
-               }
-            }
+            (stub, m) ->
+               stub.when(m).entryPublisher(any(), any(), any(), anyBoolean(), any(DeliveryGuarantee.class), any(Function.class))
       );
    }
 

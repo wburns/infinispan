@@ -48,7 +48,6 @@ import org.reactivestreams.Subscriber;
 
 import io.reactivex.Flowable;
 import io.reactivex.Scheduler;
-import io.reactivex.functions.Consumer;
 import io.reactivex.internal.functions.Functions;
 import io.reactivex.parallel.ParallelFlowable;
 import io.reactivex.processors.FlowableProcessor;
@@ -175,20 +174,6 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
             keysToExclude, deliveryGuarantee, transformer);
    }
 
-   @Override
-   public <R> SegmentAwarePublisher<R> keyPublisher(IntSet segments, Set<K> keysToInclude, Set<K> keysToExclude,
-         boolean includeLoader, Consumer<? super K> keyConsumer, Function<? super Publisher<K>, ? extends Publisher<R>> transformer) {
-      if (keysToInclude != null) {
-         AdvancedCache<K, V> cache = getCache(DeliveryGuarantee.EXACTLY_ONCE, includeLoader);
-         return specificKeyPublisher(segments, keysToInclude, keyFlowable -> keyFlowable.filter(cache::containsKey)
-                     .doOnNext(keyConsumer),
-               transformer);
-      }
-      return new SegmentAwarePublisherImpl<>(segments, getKeySet(includeLoader), Function.identity(),
-            keysToExclude, DeliveryGuarantee.EXACTLY_ONCE, publisher -> transformer.apply(
-                  Flowable.fromPublisher(publisher).doOnNext(keyConsumer)));
-   }
-
    Flowable<CacheEntry<K, V>> filterEntries(AdvancedCache<K, V> cacheToUse, Flowable<K> entryFlowable) {
       return entryFlowable.map(k -> {
          // TODO: technically this can block if it ends up going remote due to a rehash
@@ -215,22 +200,6 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
       }
       return new SegmentAwarePublisherImpl<>(segments, getEntrySet(includeLoader),
             StreamMarshalling.entryToKeyFunction(), keysToExclude, deliveryGuarantee, transformer);
-   }
-
-   @Override
-   public <R> SegmentAwarePublisher<R> entryPublisher(IntSet segments, Set<K> keysToInclude, Set<K> keysToExclude,
-         boolean includeLoader, Consumer<? super K> keyConsumer, Function<? super Publisher<CacheEntry<K, V>>, ? extends Publisher<R>> transformer) {
-      if (keysToInclude != null) {
-         AdvancedCache<K, V> cacheToUse = getCache(DeliveryGuarantee.EXACTLY_ONCE, includeLoader);
-         return specificKeyPublisher(segments, keysToInclude, entryFlowable ->
-                     filterEntries(cacheToUse, entryFlowable.doOnNext(keyConsumer))
-               , transformer);
-      }
-      return new SegmentAwarePublisherImpl<>(segments, getEntrySet(includeLoader),
-            StreamMarshalling.entryToKeyFunction(), keysToExclude, DeliveryGuarantee.EXACTLY_ONCE, publisher ->
-            transformer.apply(Flowable.fromPublisher(publisher)
-                  .doOnNext(ce -> keyConsumer.accept(ce.getKey())))
-      );
    }
 
    private <I, R> SegmentAwarePublisher<R> specificKeyPublisher(IntSet segment, Set<K> keysToInclude,
