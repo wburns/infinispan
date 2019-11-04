@@ -170,7 +170,26 @@ public class PublisherHandler {
    }
 
    /**
-    * TODO: Document the design here
+    * Actual subscriber that listens to the local publisher and stores state and prepares responses as they are ready.
+    * This subscriber works by initially requesting {@code batchSize + 1} entries when it is subscribed. The {@code +1}
+    * is done purposefully due to how segment completion is guaranteed to be notified just before the next value of
+    * a different segment is returned. This way a given batchSize will have a complete view of which segments were
+    * completed in it. Subsequent requests will only request {@code batchSize} since our outstanding request count
+    * is always 1 more.
+    * <p>
+    * When a batch size is retrieved or the publisher is complete we create a PublisherResponse that is either
+    * passed to the waiting CompletableFuture or registers a new CompletableFuture for a pending request to receive.
+    * <p>
+    * The state keeps track of all segments that have completed or lost during the publisher response and are returned
+    * on the next response. The state keeps track of where the last segment completed {@code segmentStart}, thus
+    * our response can tell which which values were not part of the completed segments. It also allows us to drop entries
+    * from a segment that was just lost. This is preferable since otherwise the coordinator will have to resend this
+    * value or retrieve the value a second time, thus reducing how often they keys need to be replicated.
+    * <p>
+    * This class relies heavily upon the fact that the reactive stream spec specifies that {@code onNext},
+    * {@code onError}, and {@code onComplete} are invoked in a thread safe manner as well as the {@code accept} method
+    * on the {@code IntConsumer} when a segment is completed or lost. This allows us to use a simple array with an offset
+    * that is used to collect the response.
     */
    private class PublisherState implements Subscriber<Object>, Runnable {
       final Object requestId;
@@ -367,6 +386,11 @@ public class PublisherHandler {
          return origin;
       }
 
+      /**
+       * Retrieves the either already completed result or registers a new future to be completed. This also prestarts
+       * the next batch to be ready for the next request as it comes, which is submitted on the {@code cpuExecutor}.
+       * @return future that will contain the publisher response with the data
+       */
       CompletableFuture<PublisherResponse> results() {
          boolean submitRequest = false;
          CompletableFuture<PublisherResponse> currentFuture;
@@ -392,6 +416,10 @@ public class PublisherHandler {
          return currentFuture;
       }
 
+      /**
+       * This will either request the next batch of values or completes the request. Note the completion has to be done
+       * after the last result is returned, thus it cannot be eagerly closed in most cases.
+       */
       @Override
       public void run() {
          if (trace) {
@@ -415,6 +443,15 @@ public class PublisherHandler {
       }
    }
 
+   /**
+    * Special PublisherState that listens also to what key generates a given set of values. This state is only used
+    * when keys must be tracked (EXACTLY_ONCE guarantee with map or flatMap)
+    * <p>
+    * The general idea is the publisher will notify when a key or entry is sent down the pipeline and we can view
+    * all values that result from that (assumes the transformations are synchronous). Thus we only send a result when
+    * we have enough values (>= batchSize) but also get to a new key. This means that we can actually return more
+    * values than the batchSize when flatMap returns more than 1 value for a given key.
+    */
    class KeyPublisherState extends PublisherState implements Consumer<Object> {
       Object[] extraValues;
       int extraPos;
