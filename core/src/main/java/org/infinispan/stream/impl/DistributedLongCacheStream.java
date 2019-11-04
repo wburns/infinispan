@@ -32,6 +32,7 @@ import org.infinispan.IntCacheStream;
 import org.infinispan.LongCacheStream;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.IntSets;
+import org.infinispan.reactive.publisher.PublisherReducers;
 import org.infinispan.stream.impl.intops.primitive.l.AsDoubleLongOperation;
 import org.infinispan.stream.impl.intops.primitive.l.BoxedLongOperation;
 import org.infinispan.stream.impl.intops.primitive.l.DistinctLongOperation;
@@ -208,11 +209,11 @@ public class DistributedLongCacheStream<Original> extends AbstractCacheStream<Or
 
    @Override
    public void forEach(LongConsumer action) {
-      if (!rehashAware) {
-         performOperation(TerminalFunctions.forEachFunction(action), false, (v1, v2) -> null, null);
-      } else {
-         performRehashKeyTrackingOperation(s -> getForEach(action, s));
-      }
+      // Run the action on the remote nodes
+      intermediateOperations.add(new PeekLongOperation(action));
+      iterator()
+            // Just ignore the value, that is local anyways
+            .forEachRemaining((long value) -> {});
    }
 
    @Override
@@ -222,11 +223,12 @@ public class DistributedLongCacheStream<Original> extends AbstractCacheStream<Or
 
    @Override
    public <K, V> void forEach(ObjLongConsumer<Cache<K, V>> action) {
-      if (!rehashAware) {
-         performOperation(TerminalFunctions.forEachFunction(action), false, (v1, v2) -> null, null);
-      } else {
-         performRehashKeyTrackingOperation(s -> getForEach(action, s));
-      }
+      // Run the action on the remote nodes
+      // TODO: need to make a PeekOperation that works with the Cache as well...
+      intermediateOperations.add(new PeekLongOperation(v -> action.accept(null, v)));
+      iterator()
+            // Just ignore the value, that is local anyways
+            .forEachRemaining((long value) -> {});
    }
 
    @Override
@@ -264,6 +266,7 @@ public class DistributedLongCacheStream<Original> extends AbstractCacheStream<Or
 
    @Override
    public long[] toArray() {
+      return performPublisherOperation(PublisherReducers.toArrayReducer(), PublisherReducers.toArrayFinalizer());
       return performOperation(TerminalFunctions.toArrayLongFunction(), false,
               (v1, v2) -> {
                  long[] array = Arrays.copyOf(v1, v1.length + v2.length);
