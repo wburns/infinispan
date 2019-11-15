@@ -113,7 +113,6 @@ import org.infinispan.stream.impl.AbstractCacheStream;
 import org.infinispan.stream.impl.CacheStreamIntermediatePublisher;
 import org.infinispan.stream.impl.CacheStreamIntermediateReducer;
 import org.infinispan.stream.impl.EndIterator;
-import org.infinispan.stream.impl.IteratorResponses;
 import org.infinispan.stream.impl.intops.IntermediateOperationExternalizer;
 import org.infinispan.stream.impl.termop.TerminalOperationExternalizer;
 import org.infinispan.topology.CacheJoinInfo;

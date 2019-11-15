@@ -5,9 +5,6 @@ import org.infinispan.factories.annotations.DefaultFactoryFor;
 import org.infinispan.partitionhandling.PartitionHandling;
 import org.infinispan.stream.impl.ClusterStreamManager;
 import org.infinispan.stream.impl.ClusterStreamManagerImpl;
-import org.infinispan.stream.impl.LocalStreamManager;
-import org.infinispan.stream.impl.LocalStreamManagerImpl;
-import org.infinispan.stream.impl.PartitionAwareClusterStreamManager;
 
 /**
  * Factory that allows creation of a {@link LocalStreamManager} or {@link ClusterStreamManager} based on the provided

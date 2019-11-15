@@ -17,7 +17,6 @@ import org.infinispan.marshall.protostream.impl.SerializationContextRegistry;
 import org.infinispan.marshall.protostream.impl.SerializationContextRegistryImpl;
 import org.infinispan.remoting.inboundhandler.GlobalInboundInvocationHandler;
 import org.infinispan.remoting.inboundhandler.InboundInvocationHandler;
-import org.infinispan.stream.impl.IteratorHandler;
 import org.infinispan.topology.PersistentUUIDManager;
 import org.infinispan.topology.PersistentUUIDManagerImpl;
 import org.infinispan.util.EmbeddedTimeService;

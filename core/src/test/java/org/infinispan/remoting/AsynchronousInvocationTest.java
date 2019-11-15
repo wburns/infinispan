@@ -35,7 +35,6 @@ import org.infinispan.remoting.responses.ExceptionResponse;
 import org.infinispan.remoting.responses.Response;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.remoting.transport.Transport;
-import org.infinispan.stream.impl.StreamRequestCommand;
 import org.infinispan.stream.impl.TerminalOperation;
 import org.infinispan.test.AbstractInfinispanTest;
 import org.infinispan.test.TestException;

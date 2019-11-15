@@ -47,11 +47,6 @@ import org.infinispan.reactive.publisher.impl.commands.batch.NextPublisherComman
 import org.infinispan.reactive.publisher.impl.commands.reduction.ReductionPublisherRequestCommand;
 import org.infinispan.statetransfer.StateRequestCommand;
 import org.infinispan.statetransfer.StateResponseCommand;
-import org.infinispan.stream.impl.StreamIteratorCloseCommand;
-import org.infinispan.stream.impl.StreamIteratorNextCommand;
-import org.infinispan.stream.impl.StreamIteratorRequestCommand;
-import org.infinispan.stream.impl.StreamRequestCommand;
-import org.infinispan.stream.impl.StreamResponseCommand;
 import org.infinispan.util.ByteString;
 import org.infinispan.xsite.SingleXSiteRpcCommand;
 import org.infinispan.xsite.XSiteAdminCommand;

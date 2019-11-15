@@ -9,7 +9,6 @@ import java.util.stream.BaseStream;
 import java.util.stream.Stream;
 
 import org.infinispan.commons.util.ByRef;
-import org.infinispan.stream.impl.KeyTrackingTerminalOperation;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 
 /**

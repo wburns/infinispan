@@ -156,7 +156,6 @@ public class DistributedIntCacheStream<Original> extends AbstractCacheStream<Ori
 
    @Override
    public IntCacheStream flatMap(IntFunction<? extends IntStream> mapper) {
-      iteratorOperation = IteratorOperation.FLAT_MAP;
       return addIntermediateOperation(new FlatMapIntOperation(mapper));
    }
 
@@ -246,28 +245,6 @@ public class DistributedIntCacheStream<Original> extends AbstractCacheStream<Ori
    @Override
    public <K, V> void forEach(SerializableObjIntConsumer<Cache<K, V>> action) {
       forEach((ObjIntConsumer<Cache<K, V>>) action);
-   }
-
-   KeyTrackingTerminalOperation<Original, Object, Integer> getForEach(IntConsumer consumer,
-           Supplier<Stream<Original>> supplier) {
-      if (iteratorOperation == IteratorOperation.FLAT_MAP) {
-         return new ForEachFlatMapIntOperation<>(intermediateOperations, supplier, nonNullKeyFunction(),
-               distributedBatchSize, consumer);
-      } else {
-         return new ForEachIntOperation<>(intermediateOperations, supplier, nonNullKeyFunction(), distributedBatchSize,
-               consumer);
-      }
-   }
-
-   <K, V> KeyTrackingTerminalOperation<Original, Object, Integer> getForEach(ObjIntConsumer<Cache<K, V>> consumer,
-           Supplier<Stream<Original>> supplier) {
-      if (iteratorOperation == IteratorOperation.FLAT_MAP) {
-         return new ForEachFlatMapObjIntOperation(intermediateOperations, supplier, nonNullKeyFunction(),
-               distributedBatchSize, consumer);
-      } else {
-         return new ForEachObjIntOperation(intermediateOperations, supplier, nonNullKeyFunction(),
-               distributedBatchSize, consumer);
-      }
    }
 
    @Override

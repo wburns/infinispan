@@ -10,7 +10,6 @@ import java.util.stream.BaseStream;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
-import org.infinispan.stream.impl.KeyTrackingTerminalOperation;
 import org.infinispan.stream.impl.intops.IntermediateOperation;
 import org.infinispan.stream.impl.termop.BaseTerminalOperation;
 

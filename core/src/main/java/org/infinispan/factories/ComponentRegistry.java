@@ -45,7 +45,6 @@ import org.infinispan.statetransfer.StateTransferLock;
 import org.infinispan.statetransfer.StateTransferManager;
 import org.infinispan.stats.ClusterCacheStats;
 import org.infinispan.stream.impl.ClusterStreamManager;
-import org.infinispan.stream.impl.LocalStreamManager;
 import org.infinispan.transaction.impl.TransactionTable;
 import org.infinispan.transaction.xa.recovery.RecoveryManager;
 import org.infinispan.util.ByteString;

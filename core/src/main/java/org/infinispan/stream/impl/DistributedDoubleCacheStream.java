@@ -153,7 +153,6 @@ public class DistributedDoubleCacheStream<Original> extends AbstractCacheStream<
 
    @Override
    public DoubleCacheStream flatMap(DoubleFunction<? extends DoubleStream> mapper) {
-      iteratorOperation = IteratorOperation.FLAT_MAP;
       return addIntermediateOperation(new FlatMapDoubleOperation(mapper));
    }
 
@@ -230,28 +229,6 @@ public class DistributedDoubleCacheStream<Original> extends AbstractCacheStream<
    @Override
    public <K, V> void forEach(SerializableObjDoubleConsumer<Cache<K, V>> action) {
       forEach((ObjDoubleConsumer<Cache<K, V>>) action);
-   }
-
-   KeyTrackingTerminalOperation<Original, Object, Double> getForEach(DoubleConsumer consumer,
-           Supplier<Stream<Original>> supplier) {
-      if (iteratorOperation == IteratorOperation.FLAT_MAP) {
-         return new ForEachFlatMapDoubleOperation<>(intermediateOperations, supplier, nonNullKeyFunction(),
-               distributedBatchSize, consumer);
-      } else {
-         return new ForEachDoubleOperation<>(intermediateOperations, supplier, nonNullKeyFunction(),
-               distributedBatchSize, consumer);
-      }
-   }
-
-   <K, V> KeyTrackingTerminalOperation<Original, Object, Double> getForEach(ObjDoubleConsumer<Cache<K, V>> consumer,
-           Supplier<Stream<Original>> supplier) {
-      if (iteratorOperation == IteratorOperation.FLAT_MAP) {
-         return new ForEachFlatMapObjDoubleOperation(intermediateOperations, supplier, nonNullKeyFunction(),
-               distributedBatchSize, consumer);
-      } else {
-         return new ForEachObjDoubleOperation(intermediateOperations, supplier, nonNullKeyFunction(),
-               distributedBatchSize, consumer);
-      }
    }
 
    @Override
