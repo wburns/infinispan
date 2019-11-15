@@ -109,12 +109,9 @@ import org.infinispan.statetransfer.StateChunk;
 import org.infinispan.statetransfer.TransactionInfo;
 import org.infinispan.stats.impl.ClusterCacheStatsImpl;
 import org.infinispan.stream.StreamMarshalling;
-import org.infinispan.stream.impl.AbstractCacheStream;
 import org.infinispan.stream.impl.CacheStreamIntermediatePublisher;
 import org.infinispan.stream.impl.CacheStreamIntermediateReducer;
-import org.infinispan.stream.impl.EndIterator;
 import org.infinispan.stream.impl.intops.IntermediateOperationExternalizer;
-import org.infinispan.stream.impl.termop.TerminalOperationExternalizer;
 import org.infinispan.topology.CacheJoinInfo;
 import org.infinispan.topology.CacheStatusResponse;
 import org.infinispan.topology.CacheTopology;
@@ -236,7 +233,6 @@ final class InternalExternalizers {
       addInternalExternalizer(new SuccessfulResponse.Externalizer(), exts);
       addInternalExternalizer(new SyncConsistentHashFactory.Externalizer(), exts);
       addInternalExternalizer(new SyncReplicatedConsistentHashFactory.Externalizer(), exts);
-      addInternalExternalizer(new TerminalOperationExternalizer(), exts);
       addInternalExternalizer(new TopologyAwareConsistentHashFactory.Externalizer(), exts); // TODO: Untested in core
       addInternalExternalizer(new TopologyAwareSyncConsistentHashFactory.Externalizer(), exts);
       addInternalExternalizer(new TransactionInfo.Externalizer(), exts);
@@ -253,14 +249,11 @@ final class InternalExternalizers {
       addInternalExternalizer(new XSiteState.XSiteStateExternalizer(), exts);
       addInternalExternalizer(new TriangleAckExternalizer(), exts);
       addInternalExternalizer(new PublisherResponseExternalizer(), exts);
-      addInternalExternalizer(new IteratorResponses.IteratorResponsesExternalizer(), exts);
-      addInternalExternalizer(new EndIterator.EndIteratorExternalizer(), exts);
       addInternalExternalizer(XidImpl.EXTERNALIZER, exts);
       addInternalExternalizer(new EncoderKeyMapper.Externalizer(), exts);
       addInternalExternalizer(new EncoderValueMapper.Externalizer(), exts);
       addInternalExternalizer(new EncoderEntryMapper.Externalizer(), exts);
       addInternalExternalizer(new IntSetExternalizer(), exts);
-      addInternalExternalizer(new AbstractCacheStream.MapOpsExternalizer(), exts);
       addInternalExternalizer(new DataConversion.Externalizer(), exts);
       addInternalExternalizer(new ScopedState.Externalizer(), exts);
       addInternalExternalizer(new ScopeFilter.Externalizer(), exts);

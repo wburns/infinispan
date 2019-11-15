@@ -37,7 +37,7 @@ import org.infinispan.xsite.BackupReceiverRepositoryImpl;
       BackupReceiverRepository.class, CancellationService.class, EventLogManager.class,
       InboundInvocationHandler.class, PersistentUUIDManager.class,
       RemoteCommandsFactory.class, TimeService.class, DataOperationOrderer.class,
-      IteratorHandler.class, GlobalStateManager.class, GlobalConfigurationManager.class,
+      GlobalStateManager.class, GlobalConfigurationManager.class,
       SerializationContextRegistry.class
 })
 @Scope(Scopes.GLOBAL)
@@ -60,8 +60,6 @@ public class EmptyConstructorFactory extends AbstractComponentFactory implements
          return new EventLogManagerImpl();
       else if (componentName.equals(PersistentUUIDManager.class.getName()))
          return new PersistentUUIDManagerImpl();
-      else if (componentName.equals(IteratorHandler.class.getName()))
-         return new IteratorHandler();
       else if (componentName.equals(GlobalStateManager.class.getName()))
          return new GlobalStateManagerImpl();
       else if (componentName.equals(GlobalConfigurationManager.class.getName()))

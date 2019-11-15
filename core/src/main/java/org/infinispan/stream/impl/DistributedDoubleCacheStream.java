@@ -23,7 +23,6 @@ import java.util.function.ObjDoubleConsumer;
 import java.util.function.Supplier;
 import java.util.function.ToDoubleFunction;
 import java.util.stream.DoubleStream;
-import java.util.stream.Stream;
 
 import org.infinispan.Cache;
 import org.infinispan.CacheStream;
@@ -43,10 +42,6 @@ import org.infinispan.stream.impl.intops.primitive.d.MapToIntDoubleOperation;
 import org.infinispan.stream.impl.intops.primitive.d.MapToLongDoubleOperation;
 import org.infinispan.stream.impl.intops.primitive.d.MapToObjDoubleOperation;
 import org.infinispan.stream.impl.intops.primitive.d.PeekDoubleOperation;
-import org.infinispan.stream.impl.termop.primitive.ForEachDoubleOperation;
-import org.infinispan.stream.impl.termop.primitive.ForEachFlatMapDoubleOperation;
-import org.infinispan.stream.impl.termop.primitive.ForEachFlatMapObjDoubleOperation;
-import org.infinispan.stream.impl.termop.primitive.ForEachObjDoubleOperation;
 import org.infinispan.util.function.SerializableBiConsumer;
 import org.infinispan.util.function.SerializableBiFunction;
 import org.infinispan.util.function.SerializableBinaryOperator;
@@ -205,11 +200,8 @@ public class DistributedDoubleCacheStream<Original> extends AbstractCacheStream<
 
    @Override
    public void forEach(DoubleConsumer action) {
-      if (!rehashAware) {
-         performOperation(TerminalFunctions.forEachFunction(action), false, (v1, v2) -> null, null);
-      } else {
-         performRehashKeyTrackingOperation(s -> getForEach(action, s));
-      }
+      peek(action)
+         .iterator().forEachRemaining((double ignore) -> {});
    }
 
    @Override
@@ -219,11 +211,9 @@ public class DistributedDoubleCacheStream<Original> extends AbstractCacheStream<
 
    @Override
    public <K, V> void forEach(ObjDoubleConsumer<Cache<K, V>> action) {
-      if (!rehashAware) {
-         performOperation(TerminalFunctions.forEachFunction(action), false, (v1, v2) -> null, null);
-      } else {
-         performRehashKeyTrackingOperation(s -> getForEach(action, s));
-      }
+      // TODO: need to make peek command that does this
+      peek(v -> action.accept(null, v))
+         .iterator().forEachRemaining((double ignore) -> {});
    }
 
    @Override

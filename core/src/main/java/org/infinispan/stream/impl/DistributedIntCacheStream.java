@@ -24,7 +24,6 @@ import java.util.function.ObjIntConsumer;
 import java.util.function.Supplier;
 import java.util.function.ToIntFunction;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import org.infinispan.Cache;
 import org.infinispan.CacheStream;
@@ -46,10 +45,6 @@ import org.infinispan.stream.impl.intops.primitive.i.MapToDoubleIntOperation;
 import org.infinispan.stream.impl.intops.primitive.i.MapToLongIntOperation;
 import org.infinispan.stream.impl.intops.primitive.i.MapToObjIntOperation;
 import org.infinispan.stream.impl.intops.primitive.i.PeekIntOperation;
-import org.infinispan.stream.impl.termop.primitive.ForEachFlatMapIntOperation;
-import org.infinispan.stream.impl.termop.primitive.ForEachFlatMapObjIntOperation;
-import org.infinispan.stream.impl.termop.primitive.ForEachIntOperation;
-import org.infinispan.stream.impl.termop.primitive.ForEachObjIntOperation;
 import org.infinispan.util.function.SerializableBiConsumer;
 import org.infinispan.util.function.SerializableBiFunction;
 import org.infinispan.util.function.SerializableBinaryOperator;
@@ -221,11 +216,8 @@ public class DistributedIntCacheStream<Original> extends AbstractCacheStream<Ori
 
    @Override
    public void forEach(IntConsumer action) {
-      if (!rehashAware) {
-         performOperation(TerminalFunctions.forEachFunction(action), false, (v1, v2) -> null, null);
-      } else {
-         performRehashKeyTrackingOperation(s -> getForEach(action, s));
-      }
+      peek(action)
+         .iterator().forEachRemaining((int ignore) -> {});
    }
 
    @Override
@@ -235,11 +227,9 @@ public class DistributedIntCacheStream<Original> extends AbstractCacheStream<Ori
 
    @Override
    public <K, V> void forEach(ObjIntConsumer<Cache<K, V>> action) {
-      if (!rehashAware) {
-         performOperation(TerminalFunctions.forEachFunction(action), false, (v1, v2) -> null, null);
-      } else {
-         performRehashKeyTrackingOperation(s -> getForEach(action, s));
-      }
+      // TODO: need to make peek command that does this
+      peek(v -> action.accept(null, v))
+         .iterator().forEachRemaining((int ignore) -> {});
    }
 
    @Override
@@ -417,7 +407,7 @@ public class DistributedIntCacheStream<Original> extends AbstractCacheStream<Ori
 
    @Override
    public long count() {
-      return performOperation(TerminalFunctions.countIntFunction(), true, (i1, i2) -> i1 + i2, null);
+      return performPublisherOperation(PublisherReducers.count(), PublisherReducers.add());
    }
 
    // These are the custom added methods for cache streams

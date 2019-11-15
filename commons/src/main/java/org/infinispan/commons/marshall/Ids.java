@@ -115,7 +115,7 @@ public interface Ids {
    int EQUIVALENCE = 83;
 
    int INTERMEDIATE_OPERATIONS = 84;
-   int TERMINAL_OPERATIONS = 85;
+//   int TERMINAL_OPERATIONS = 85;
    int STREAM_MARSHALLING = 86;
 
    int CACHE_FILTERS = 87;

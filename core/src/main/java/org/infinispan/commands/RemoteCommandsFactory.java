@@ -308,21 +308,6 @@ public class RemoteCommandsFactory {
             case ClusteredGetAllCommand.COMMAND_ID:
                command = new ClusteredGetAllCommand(cacheName);
                break;
-            case StreamRequestCommand.COMMAND_ID:
-               command = new StreamRequestCommand(cacheName);
-               break;
-            case StreamResponseCommand.COMMAND_ID:
-               command = new StreamResponseCommand(cacheName);
-               break;
-            case StreamIteratorRequestCommand.COMMAND_ID:
-               command = new StreamIteratorRequestCommand<>(cacheName);
-               break;
-            case StreamIteratorNextCommand.COMMAND_ID:
-               command = new StreamIteratorNextCommand(cacheName);
-               break;
-            case StreamIteratorCloseCommand.COMMAND_ID:
-               command = new StreamIteratorCloseCommand(cacheName);
-               break;
             case SingleKeyBackupWriteCommand.COMMAND_ID:
                command = new SingleKeyBackupWriteCommand(cacheName);
                break;

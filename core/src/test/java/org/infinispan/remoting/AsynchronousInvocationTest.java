@@ -35,7 +35,6 @@ import org.infinispan.remoting.responses.ExceptionResponse;
 import org.infinispan.remoting.responses.Response;
 import org.infinispan.remoting.transport.Address;
 import org.infinispan.remoting.transport.Transport;
-import org.infinispan.stream.impl.TerminalOperation;
 import org.infinispan.test.AbstractInfinispanTest;
 import org.infinispan.test.TestException;
 import org.infinispan.test.TestingUtil;
@@ -98,9 +97,7 @@ public class AsynchronousInvocationTest extends AbstractInfinispanTest {
       commandsFactory = extractCommandsFactory(cache);
 
       //populate commands
-      blockingCacheRpcCommand = new StreamRequestCommand<>(cacheName, null, null, false,
-                                                           StreamRequestCommand.Type.TERMINAL, null, null, null, false,
-                                                           false, mock(TerminalOperation.class));
+      blockingCacheRpcCommand = new CacheTopologyControlCommand(null, CacheTopologyControlCommand.Type.GET_STATUS, null, 0);
       int segment = TestingUtil.getSegmentForKey("key", cache);
       nonBlockingCacheRpcCommand = new ClusteredGetCommand("key", cacheName, segment, EnumUtil.EMPTY_BIT_SET);
       blockingNonCacheRpcCommand = new CacheTopologyControlCommand(null, CacheTopologyControlCommand.Type.POLICY_GET_STATUS, null, 0);

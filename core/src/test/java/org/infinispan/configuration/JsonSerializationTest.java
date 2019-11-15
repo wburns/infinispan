@@ -55,6 +55,7 @@ import org.infinispan.globalstate.ConfigurationStorage;
 import org.infinispan.globalstate.LocalConfigurationStorage;
 import org.infinispan.interceptors.BaseAsyncInterceptor;
 import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.marshall.exts.EnumSetExternalizer;
 import org.infinispan.marshall.exts.MapExternalizer;
 import org.infinispan.partitionhandling.PartitionHandling;
 import org.infinispan.remoting.transport.jgroups.JGroupsTransport;
@@ -62,7 +63,6 @@ import org.infinispan.security.AuthorizationPermission;
 import org.infinispan.security.PrincipalRoleMapper;
 import org.infinispan.security.PrincipalRoleMapperContext;
 import org.infinispan.security.impl.IdentityRoleMapper;
-import org.infinispan.stream.impl.termop.TerminalOperationExternalizer;
 import org.infinispan.test.AbstractInfinispanTest;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.test.data.Person;
@@ -476,7 +476,7 @@ public class JsonSerializationTest extends AbstractInfinispanTest {
    public void testSerializationConfig() throws IOException {
       final String regexp = "org.infinispan.test.*";
       AdvancedExternalizer<?> mapExternalizer = new MapExternalizer();
-      AdvancedExternalizer<?> opExternalizer = new TerminalOperationExternalizer();
+      AdvancedExternalizer<?> opExternalizer = new EnumSetExternalizer();
       GlobalConfigurationBuilder globalConfigurationBuilder = new GlobalConfigurationBuilder();
       globalConfigurationBuilder.serialization()
             .marshaller(new JavaSerializationMarshaller())
@@ -494,7 +494,7 @@ public class JsonSerializationTest extends AbstractInfinispanTest {
       assertEquals(JavaSerializationMarshaller.class.getName(), serialization.get("marshaller").asText());
       JsonNode externalizerMap = serialization.get("advanced-externalizer");
       assertEquals(MapExternalizer.class.getName(), externalizerMap.get("1").asText());
-      assertEquals(TerminalOperationExternalizer.class.getName(), externalizerMap.get("2").asText());
+      assertEquals(EnumSetExternalizer.class.getName(), externalizerMap.get("2").asText());
 
       JsonNode whiteList = serialization.get("white-list");
       JsonNode classes = whiteList.get("classes");

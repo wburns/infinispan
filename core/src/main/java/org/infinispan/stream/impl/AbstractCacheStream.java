@@ -15,6 +15,7 @@ import java.util.stream.BaseStream;
 import org.infinispan.CacheStream;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.Util;
+import org.infinispan.context.InvocationContext;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.factories.ComponentRegistry;
@@ -38,16 +39,9 @@ import org.reactivestreams.Publisher;
  */
 public abstract class AbstractCacheStream<Original, T, S extends BaseStream<T, S>, S2 extends S> implements BaseStream<T, S> {
    protected final Queue<IntermediateOperation> intermediateOperations;
-   protected final Address localAddress;
-   protected final DistributionManager dm;
-   protected final Supplier<CacheStream<Original>> supplier;
-   protected final ClusterStreamManager csm;
    protected final ClusterPublisherManager cpm;
-   protected final Executor executor;
    protected final ComponentRegistry registry;
-   protected final PartitionHandlingManager partition;
-   protected final KeyPartitioner keyPartitioner;
-   protected final StateTransferLock stateTransferLock;
+   protected final InvocationContext ctx;
    protected final boolean includeLoader;
    protected final Function<? super Original, ?> toKeyFunction;
 
@@ -67,40 +61,25 @@ public abstract class AbstractCacheStream<Original, T, S extends BaseStream<T, S
    protected long timeout = 30;
    protected TimeUnit timeoutUnit = TimeUnit.SECONDS;
 
-   protected AbstractCacheStream(Address localAddress, boolean parallel, DistributionManager dm,
-           Supplier<CacheStream<Original>> supplier, ClusterStreamManager<Original, Object> csm,
-           boolean includeLoader, int distributedBatchSize, Executor executor,
+   protected AbstractCacheStream(boolean parallel, InvocationContext ctx,
+           boolean includeLoader, int distributedBatchSize,
          ComponentRegistry registry, Function<? super Original, ?> toKeyFunction) {
-      this.localAddress = localAddress;
       this.parallel = parallel;
-      this.dm = dm;
-      this.supplier = supplier;
-      this.csm = csm;
       this.includeLoader = includeLoader;
       this.distributedBatchSize = distributedBatchSize;
-      this.executor = executor;
       this.registry = registry;
       this.toKeyFunction = toKeyFunction;
-      this.partition = registry.getComponent(PartitionHandlingManager.class);
-      this.keyPartitioner = registry.getComponent(KeyPartitioner.class);
-      this.stateTransferLock = registry.getComponent(StateTransferLock.class);
       this.cpm = registry.getComponent(ClusterPublisherManager.class);
+      this.ctx = ctx;
       intermediateOperations = new ArrayDeque<>();
    }
 
    protected AbstractCacheStream(AbstractCacheStream<Original, T, S, S2> other) {
       this.intermediateOperations = other.intermediateOperations;
-      this.localAddress = other.localAddress;
-      this.dm = other.dm;
-      this.supplier = other.supplier;
-      this.csm = other.csm;
       this.includeLoader = other.includeLoader;
-      this.executor = other.executor;
       this.registry = other.registry;
       this.toKeyFunction = other.toKeyFunction;
-      this.partition = other.partition;
-      this.keyPartitioner = other.keyPartitioner;
-      this.stateTransferLock = other.stateTransferLock;
+      this.ctx = other.ctx;
       this.cpm = other.cpm;
 
       this.closeRunnable = other.closeRunnable;
@@ -154,10 +133,6 @@ public abstract class AbstractCacheStream<Original, T, S extends BaseStream<T, S
       return parallel;
    }
 
-   boolean getParallelDistribution() {
-      return parallelDistribution == null ? true : parallelDistribution;
-   }
-
    @Override
    public S2 sequential() {
       parallel = false;
@@ -205,10 +180,10 @@ public abstract class AbstractCacheStream<Original, T, S extends BaseStream<T, S
       DeliveryGuarantee guarantee = rehashAware ? DeliveryGuarantee.EXACTLY_ONCE : DeliveryGuarantee.AT_MOST_ONCE;
       CompletionStage<R> stage;
       if (toKeyFunction == null) {
-         stage = cpm.keyReduction(parallel, segmentsToFilter, keysToFilter, csm.getContext(), includeLoader, guarantee,
+         stage = cpm.keyReduction(parallel, segmentsToFilter, keysToFilter, ctx, includeLoader, guarantee,
                usedTransformer, finalizer);
       } else {
-         stage = cpm.entryReduction(parallel, segmentsToFilter, keysToFilter, csm.getContext(), includeLoader, guarantee,
+         stage = cpm.entryReduction(parallel, segmentsToFilter, keysToFilter, ctx, includeLoader, guarantee,
                usedTransformer, finalizer);
       }
       return CompletionStages.join(stage);

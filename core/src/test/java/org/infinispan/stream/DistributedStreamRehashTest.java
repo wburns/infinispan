@@ -64,10 +64,6 @@ public class DistributedStreamRehashTest extends MultipleCacheManagersTest {
       Cache<MagicKey, Object> nodeToBlockBeforeProcessing = cache(1, CACHE_NAME);
       Cache<MagicKey, Object> nodeToStop = cache(3, CACHE_NAME);
 
-      LocalStreamManager<Map.Entry<MagicKey, Object>, MagicKey> localStreamManager = TestingUtil.extractComponent(
-            nodeToBlockBeforeProcessing, LocalStreamManager.class);
-      LocalStreamManager<Map.Entry<MagicKey, Object>, MagicKey> spiedManager = spy(localStreamManager);
-
       CheckPoint checkPoint = new CheckPoint();
       // Always let it process the publisher
       checkPoint.triggerForever(Mocks.BEFORE_RELEASE);
