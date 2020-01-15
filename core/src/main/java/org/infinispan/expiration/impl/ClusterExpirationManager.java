@@ -412,8 +412,7 @@ public class ClusterExpirationManager<K, V> extends ExpirationManagerImpl<K, V> 
 
    @Override
    protected CompletionStage<Boolean> touchEntryAndReturnIfExpired(InternalCacheEntry ice, int segment) {
-      Object key = ice.getKey();
-      return attemptTouchAndReturnIfExpired(key, segment)
+      return attemptTouchAndReturnIfExpired(ice, segment)
             .handle((expired, t) -> {
                if (t != null) {
                   Throwable innerT = CompletableFutures.extractException(t);
@@ -421,7 +420,7 @@ public class ClusterExpirationManager<K, V> extends ExpirationManagerImpl<K, V> 
                      if (trace) {
                         log.tracef("Touch received OutdatedTopologyException, retrying");
                      }
-                     return attemptTouchAndReturnIfExpired(key, segment);
+                     return attemptTouchAndReturnIfExpired(ice, segment);
                   }
                   return CompletableFutures.<Boolean>completedExceptionFuture(t);
                } else {
@@ -431,18 +430,22 @@ public class ClusterExpirationManager<K, V> extends ExpirationManagerImpl<K, V> 
             .thenCompose(Function.identity());
    }
 
-   private CompletionStage<Boolean> attemptTouchAndReturnIfExpired(Object key, int segment) {
+   private CompletionStage<Boolean> attemptTouchAndReturnIfExpired(InternalCacheEntry ice, int segment) {
       LocalizedCacheTopology lct = distributionManager.getCacheTopology();
 
-      TouchCommand touchCommand = cf.running().buildTouchCommand(key, segment);
+      TouchCommand touchCommand = cf.running().buildTouchCommand(ice.getKey(), segment);
       touchCommand.setTopologyId(lct.getTopologyId());
 
       CompletionStage<Boolean> remoteStage = invokeTouchCommandRemotely(touchCommand, lct, segment);
       touchCommand.init(componentRegistry, false);
+      long accessTime = timeService.wallClockTime();
+      touchCommand.setAccessTime(accessTime);
       CompletableFuture<Object> localStage = touchCommand.invokeAsync();
 
       return remoteStage.thenCombine(localStage, (remoteTouch, localTouch) -> {
          if (remoteTouch == Boolean.TRUE && localTouch == Boolean.TRUE) {
+            // The ICE can be a copy in cases such as off heap - we need to update its time that is reported to the user
+            ice.touch(accessTime);
             return Boolean.FALSE;
          }
          return Boolean.TRUE;

@@ -36,6 +36,9 @@ public class TouchCommand extends BaseRpcCommand implements InitializableCommand
    private TimeService timeService;
    private DistributionManager distributionManager;
 
+   // This is not replicated - here solely to avoid additional time lookups in callers
+   private long accessTime = -1;
+
    // Only here for CommandIdUniquenessTest
    private TouchCommand() { super(null); }
 
@@ -91,9 +94,14 @@ public class TouchCommand extends BaseRpcCommand implements InitializableCommand
       this.topologyId = topologyId;
    }
 
+   public void setAccessTime(long currentTimeMillis) {
+      this.accessTime = currentTimeMillis;
+   }
+
    @Override
    public CompletableFuture<Object> invokeAsync() {
-      boolean touched = internalDataContainer.touch(segment, key, timeService.wallClockTime());
+      long accessTime = this.accessTime == -1 ? timeService.wallClockTime() : this.accessTime;
+      boolean touched = internalDataContainer.touch(segment, key, accessTime);
       // Hibernate currently disables clustered expiration manager, which means we can have a topology id of -1
       // when using a clustered cache mode
       if (distributionManager != null && topologyId != -1) {

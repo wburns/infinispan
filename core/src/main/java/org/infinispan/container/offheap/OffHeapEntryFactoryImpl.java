@@ -1,13 +1,14 @@
 package org.infinispan.container.offheap;
 
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
 import org.infinispan.commons.CacheException;
 import org.infinispan.commons.marshall.StreamingMarshaller;
 import org.infinispan.commons.marshall.WrappedByteArray;
 import org.infinispan.commons.marshall.WrappedBytes;
-import org.infinispan.commons.util.Util;
 import org.infinispan.commons.time.TimeService;
+import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.container.entries.ExpiryHelper;
 import org.infinispan.container.entries.InternalCacheEntry;
@@ -502,5 +503,107 @@ public class OffHeapEntryFactoryImpl implements OffHeapEntryFactory {
          }
       }
       return UnpooledOffHeapMemoryAllocator.estimateSizeOverhead(totalSize + metadataSize);
+   }
+
+   @Override
+   public long updateMaxIdle(long address, long currentTimeMillis) {
+      // 16 bytes for eviction if needed (optional)
+      // 8 bytes for linked pointer
+      long offset = evictionEnabled ? 24 : 8;
+
+      byte metadataType = MEMORY.getByte(address, offset);
+
+      if (metadataType == IMMORTAL || metadataType == MORTAL) {
+         return 0;
+      }
+
+      // skips over metadataType, hashCode
+      offset += 5;
+
+      int keySize = MEMORY.getInt(address, offset);
+      offset += 4;
+
+      switch (metadataType) {
+         case TRANSIENT:
+            // Skip the metdataSize and the actual keyBytes
+            offset += (4 + keySize);
+            // Skip the max idle value
+            storeLongLittleEndian(address, offset + 8, currentTimeMillis);
+            return 0;
+         case TRANSIENT_MORTAL:
+            // Skip the metdataSize and the actual keyBytes
+            offset += (4 + keySize);
+            // Skip the lifespan/max idle values and created
+            storeLongLittleEndian(address, offset + 24, currentTimeMillis);
+            return 0;
+         default:
+            // This means we had CUSTOM or HAS_VERSION which is handled below
+            break;
+      }
+
+      byte[] metadataBytes = new byte[MEMORY.getInt(address, offset)];
+      int metadataSize = metadataBytes.length;
+      offset += 4;
+
+      int valueSize = MEMORY.getInt(address, offset);
+      offset += 4;
+
+      // skips over the actual key bytes
+      offset += keySize;
+
+      MEMORY.getBytes(address, offset, metadataBytes, 0, metadataSize);
+
+      Metadata metadata;
+      try {
+         metadata = (Metadata) marshaller.objectFromByteBuffer(metadataBytes);
+      } catch (IOException | ClassNotFoundException e) {
+         throw new CacheException(e);
+      }
+
+      Metadata newMetadata = metadata.builder()
+            .maxIdle(currentTimeMillis, TimeUnit.MILLISECONDS)
+            .build();
+
+      byte[] newMetadataBytes;
+      try {
+         newMetadataBytes = marshaller.objectToByteBuffer(newMetadata, metadataSize);
+      } catch (IOException e) {
+         throw new CacheException(e);
+      } catch (InterruptedException e) {
+         Thread.currentThread().interrupt();
+         throw new CacheException(e);
+      }
+
+      int newMetdataSize = newMetadataBytes.length;
+      if (newMetdataSize != metadataSize) {
+         // The new marshalled size is different then before, we have to rewrite the object!
+         // Offset is still set to the end of the key bytes (before metadata)
+         long newPointer = MEMORY.allocate(newMetdataSize + offset + valueSize);
+         // This writes the next pointer, eviction pointers (if applicable),
+         // type, hashCode, keyLength, metadataLength, valueLength and key bytes.
+         MEMORY.copy(address, 0, newPointer, 0, offset);
+         // This copies the new metadata bytes to the new metadata location
+         MEMORY.putBytes(newMetadataBytes, 0, newPointer, offset, newMetdataSize);
+         // This copies the value bytes from the old to the new location
+         MEMORY.copy(address, offset + metadataSize, newPointer, offset + newMetdataSize, valueSize);
+
+         return newPointer;
+      }
+
+      // Replace the metadata bytes with the new ones in place
+      MEMORY.putBytes(metadataBytes, 0, address, offset, metadataSize);
+
+      return 0;
+   }
+
+   private void storeLongLittleEndian(long destAddres, long offset, long value) {
+      MEMORY.putByte(destAddres, offset, (byte) (value >> 56));
+      MEMORY.putByte(destAddres, offset + 1, (byte) (value >> 48));
+      MEMORY.putByte(destAddres, offset + 2, (byte) (value >> 40));
+      MEMORY.putByte(destAddres, offset + 3, (byte) (value >> 32));
+      MEMORY.putByte(destAddres, offset + 4, (byte) (value >> 24));
+      MEMORY.putByte(destAddres, offset + 5, (byte) (value >> 16));
+      MEMORY.putByte(destAddres, offset + 6, (byte) (value >> 8));
+      MEMORY.putByte(destAddres, offset + 7, (byte) value);
    }
 }

@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.Cache;
@@ -17,13 +18,13 @@ import org.infinispan.commons.time.TimeService;
 import org.infinispan.commons.util.CloseableIterator;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
+import org.infinispan.configuration.cache.StorageType;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.context.Flag;
 import org.infinispan.distribution.MagicKey;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.test.TestDataSCI;
 import org.infinispan.test.TestingUtil;
-import org.infinispan.transaction.LockingMode;
 import org.infinispan.util.ControlledTimeService;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
@@ -50,17 +51,38 @@ public class ClusterExpirationFunctionalTest extends MultipleCacheManagersTest {
 
    protected ConfigurationBuilder configurationBuilder;
 
+   protected StorageType storageType;
+
+   protected ClusterExpirationFunctionalTest storageType(StorageType storageType) {
+      this.storageType = storageType;
+      return this;
+   }
+
+   @Override
+   protected String[] parameterNames() {
+      return concat(super.parameterNames(), "storageType");
+   }
+
+   @Override
+   protected Object[] parameterValues() {
+      return concat(super.parameterValues(), storageType);
+   }
+
    @Override
    public Object[] factory() {
-      return new Object[] {
-            new ClusterExpirationFunctionalTest().cacheMode(CacheMode.DIST_SYNC).transactional(true).lockingMode(LockingMode.OPTIMISTIC),
-            new ClusterExpirationFunctionalTest().cacheMode(CacheMode.DIST_SYNC).transactional(true).lockingMode(LockingMode.PESSIMISTIC),
-            new ClusterExpirationFunctionalTest().cacheMode(CacheMode.DIST_SYNC).transactional(false),
-            new ClusterExpirationFunctionalTest().cacheMode(CacheMode.REPL_SYNC).transactional(true).lockingMode(LockingMode.OPTIMISTIC),
-            new ClusterExpirationFunctionalTest().cacheMode(CacheMode.REPL_SYNC).transactional(true).lockingMode(LockingMode.PESSIMISTIC),
-            new ClusterExpirationFunctionalTest().cacheMode(CacheMode.REPL_SYNC).transactional(false),
-            new ClusterExpirationFunctionalTest().cacheMode(CacheMode.SCATTERED_SYNC).transactional(false),
-      };
+//      return Arrays.stream(StorageType.values())
+      return Stream.of(StorageType.OFF_HEAP)
+            .flatMap(type ->
+               Stream.builder()
+//                     .add(new ClusterExpirationFunctionalTest().storageType(type).cacheMode(CacheMode.DIST_SYNC).transactional(true).lockingMode(LockingMode.OPTIMISTIC))
+//                     .add(new ClusterExpirationFunctionalTest().storageType(type).cacheMode(CacheMode.DIST_SYNC).transactional(true).lockingMode(LockingMode.PESSIMISTIC))
+//                     .add(new ClusterExpirationFunctionalTest().storageType(type).cacheMode(CacheMode.DIST_SYNC).transactional(false))
+//                     .add(new ClusterExpirationFunctionalTest().storageType(type).cacheMode(CacheMode.REPL_SYNC).transactional(true).lockingMode(LockingMode.OPTIMISTIC))
+//                     .add(new ClusterExpirationFunctionalTest().storageType(type).cacheMode(CacheMode.REPL_SYNC).transactional(true).lockingMode(LockingMode.PESSIMISTIC))
+                     .add(new ClusterExpirationFunctionalTest().storageType(type).cacheMode(CacheMode.REPL_SYNC).transactional(false))
+//                     .add(new ClusterExpirationFunctionalTest().storageType(type).cacheMode(CacheMode.SCATTERED_SYNC).transactional(false))
+                     .build()
+            ).toArray();
    }
 
    @Override
@@ -69,6 +91,7 @@ public class ClusterExpirationFunctionalTest extends MultipleCacheManagersTest {
       configurationBuilder.clustering().cacheMode(cacheMode);
       configurationBuilder.transaction().transactionMode(transactionMode()).lockingMode(lockingMode);
       configurationBuilder.expiration().disableReaper();
+      configurationBuilder.memory().storageType(storageType);
       createCluster(TestDataSCI.INSTANCE, configurationBuilder, 3);
       waitForClusterToForm();
       injectTimeServices();
