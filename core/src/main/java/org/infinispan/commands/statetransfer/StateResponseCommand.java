@@ -95,7 +95,7 @@ public class StateResponseCommand extends BaseRpcCommand implements TopologyAffe
 
    @Override
    public boolean canBlock() {
-      return true;
+      return false;
    }
 
    @Override

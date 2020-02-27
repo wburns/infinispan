@@ -98,7 +98,7 @@ public class ClearCommand extends AbstractTopologyAffectedCommand implements Wri
 
    @Override
    public boolean canBlock() {
-      return true;
+      return false;
    }
 
    @Override

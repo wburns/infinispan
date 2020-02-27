@@ -44,6 +44,6 @@ public abstract class AbstractCacheControlCommand implements GlobalRpcCommand {
 
    @Override
    public boolean canBlock() {
-      return true;
+      return false;
    }
 }

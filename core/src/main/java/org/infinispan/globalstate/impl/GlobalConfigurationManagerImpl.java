@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Collectors;
 
@@ -34,6 +35,7 @@ import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.registry.InternalCacheRegistry;
 import org.infinispan.topology.LocalTopologyManager;
 import org.infinispan.util.concurrent.CompletableFutures;
+import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 
@@ -96,7 +98,7 @@ public class GlobalConfigurationManagerImpl implements GlobalConfigurationManage
             CacheState cacheState = (CacheState) e.getValue();
             Configuration persisted = persistedConfigurations.get(cacheName);
             if (persisted != null) {
-               Configuration configuration = buildConfiguration(cacheName, cacheState);
+               Configuration configuration = CompletionStages.join(buildConfiguration(cacheName, cacheState));
                if (!persisted.matches(configuration)) {
                   throw CONFIG.incompatibleClusterConfiguration(cacheName, configuration, persisted);
                } else {
@@ -196,13 +198,16 @@ public class GlobalConfigurationManagerImpl implements GlobalConfigurationManage
 
    CompletableFuture<Void> createCacheLocally(String name, CacheState state) {
       log.debugf("Create cache %s", name);
-      Configuration configuration = buildConfiguration(name, state);
-      return localConfigurationManager.createCache(name, state.getTemplate(), configuration, state.getFlags());
+      CompletionStage<Configuration> configurationStage = buildConfiguration(name, state);
+      return configurationStage.thenCompose(configuration -> localConfigurationManager.createCache(name, state.getTemplate(), configuration, state.getFlags()))
+            .toCompletableFuture();
    }
 
-   private Configuration buildConfiguration(String name, CacheState state) {
-      ConfigurationBuilderHolder builderHolder = parserRegistry.parse(state.getConfiguration());
-      return builderHolder.getNamedConfigurationBuilders().get(name).build(configurationManager.getGlobalConfiguration());
+   private CompletionStage<Configuration> buildConfiguration(String name, CacheState state) {
+      return CompletableFuture.supplyAsync(() -> {
+         ConfigurationBuilderHolder builderHolder = parserRegistry.parse(state.getConfiguration());
+         return builderHolder.getNamedConfigurationBuilders().get(name).build(configurationManager.getGlobalConfiguration());
+      }, blockingExecutor);
    }
 
    @Override

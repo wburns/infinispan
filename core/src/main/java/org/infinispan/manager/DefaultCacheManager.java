@@ -1140,7 +1140,8 @@ public class DefaultCacheManager implements EmbeddedCacheManager {
       if (transport != null) {
          long time = configurationManager.getGlobalConfiguration().transport().distributedSyncTimeout();
          return ClusterExecutors.allSubmissionExecutor(null, this, transport, time, TimeUnit.MILLISECONDS,
-               globalComponentRegistry.getComponent(ExecutorService.class, KnownComponentNames.REMOTE_COMMAND_EXECUTOR),
+               // This can run arbitrary code, including user - assume it is blocking
+               globalComponentRegistry.getComponent(ExecutorService.class, KnownComponentNames.BLOCKING_EXECUTOR),
                globalComponentRegistry.getComponent(ScheduledExecutorService.class, KnownComponentNames.TIMEOUT_SCHEDULE_EXECUTOR));
       } else {
          return ClusterExecutors.allSubmissionExecutor(null, this, null,

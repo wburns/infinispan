@@ -208,7 +208,7 @@ public class PutMapCommand extends AbstractTopologyAffectedCommand implements Wr
 
    @Override
    public boolean canBlock() {
-      return true;
+      return false;
    }
 
    @Override

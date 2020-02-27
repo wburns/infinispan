@@ -7,6 +7,7 @@ import org.infinispan.container.offheap.OffHeapConcurrentMap;
 import org.infinispan.executors.LimitedExecutor;
 import org.infinispan.expiration.impl.ClusterExpirationManager;
 import org.infinispan.factories.impl.BasicComponentRegistryImpl;
+import org.infinispan.interceptors.impl.PrefetchInterceptor;
 import org.infinispan.manager.DefaultCacheManager;
 import org.infinispan.statetransfer.StateTransferLockImpl;
 import org.infinispan.topology.ClusterTopologyManagerImpl;
@@ -47,6 +48,10 @@ public class CoreBlockHoundIntegration implements BlockHoundIntegration {
 
          // This shouldn't block long when held - but it is a write lock which can be delayed
          builder.allowBlockingCallsInside(KeyAffinityServiceImpl.class.getName(), "handleViewChange");
+
+         // Let the lock acquisition be blocking
+         builder.allowBlockingCallsInside(ClusterTopologyManagerImpl.class.getName(), "acquireUpdateLock");
+         builder.allowBlockingCallsInside(ClusterTopologyManagerImpl.class.getName(), "releaseUpdateLock");
       }
       // This invokes the actual runnable - we have to make sure it doesn't block as normal
       builder.disallowBlockingCallsInside(LimitedExecutor.class.getName(), "actualRun");
@@ -70,6 +75,10 @@ public class CoreBlockHoundIntegration implements BlockHoundIntegration {
       // The internal map only supports local mode - we need to replace with Caffeine
       // https://issues.redhat.com/browse/ISPN-11272
       builder.allowBlockingCallsInside(RecoveryManagerImpl.class.getName(), "registerInDoubtTransaction");
+
+      // Scattered prefetch iteration is currently blocking - needs to be rewritten to be non blocking
+      // https://issues.redhat.com/browse/ISPN-10864
+      builder.allowBlockingCallsInside(PrefetchInterceptor.class.getName() + "$BackingIterator", "hasNext");
    }
 
    private static void registerBlockingMethods(BlockHound.Builder builder) {
