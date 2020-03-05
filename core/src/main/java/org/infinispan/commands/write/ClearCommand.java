@@ -97,11 +97,6 @@ public class ClearCommand extends AbstractTopologyAffectedCommand implements Wri
    }
 
    @Override
-   public boolean canBlock() {
-      return false;
-   }
-
-   @Override
    public LoadType loadType() {
       return LoadType.DONT_LOAD;
    }

@@ -87,11 +87,6 @@ public abstract class AbstractWriteManyCommand<K, V> implements WriteCommand, Fu
    }
 
    @Override
-   public boolean canBlock() {
-      return false;
-   }
-
-   @Override
    public void fail() {
       throw new UnsupportedOperationException();
    }

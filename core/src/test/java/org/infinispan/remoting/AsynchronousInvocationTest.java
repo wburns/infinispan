@@ -123,6 +123,7 @@ public class AsynchronousInvocationTest extends AbstractInfinispanTest {
       if (cacheManager != null) {
          // BlockingTaskAwareExecutorServiceImpl doesn't have a @Stop annotation so we need to stop it manually
          extractGlobalComponent(cacheManager, ExecutorService.class, KnownComponentNames.NON_BLOCKING_EXECUTOR).shutdownNow();
+         extractGlobalComponent(cacheManager, ExecutorService.class, KnownComponentNames.BLOCKING_EXECUTOR).shutdownNow();
          cacheManager.stop();
       }
    }
