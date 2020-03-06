@@ -209,8 +209,6 @@ public class CacheContainerConfigurationBuilder implements Builder<GlobalConfigu
             if (topology != null) {
                 transportBuilder.siteId(topology.getSite()).rackId(topology.getRack()).machineId(topology.getMachine());
             }
-
-            transportBuilder.remoteCommandThreadPool().read(this.remoteCommandThreadPool.getValue());
         }
 
         GlobalStateLocationConfiguration statePersistence = (this.globalStateLocation != null) ? this.globalStateLocation.getValue() : null;
