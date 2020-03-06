@@ -3,28 +3,24 @@ package org.infinispan.server.core;
 import java.net.InetSocketAddress;
 import java.util.Collections;
 import java.util.Set;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.ExecutorService;
 
 import javax.management.ObjectName;
 
 import org.eclipse.microprofile.metrics.MetricID;
 import org.infinispan.commons.CacheException;
-import org.infinispan.commons.IllegalLifecycleStateException;
 import org.infinispan.commons.logging.LogFactory;
 import org.infinispan.configuration.global.GlobalConfiguration;
 import org.infinispan.factories.impl.BasicComponentRegistry;
+import org.infinispan.factories.KnownComponentNames;
 import org.infinispan.jmx.CacheManagerJmxRegistration;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.metrics.impl.CacheManagerMetricsRegistration;
 import org.infinispan.server.core.configuration.ProtocolServerConfiguration;
 import org.infinispan.server.core.logging.Log;
 import org.infinispan.server.core.transport.NettyTransport;
-import org.infinispan.server.core.utils.ManageableThreadPoolExecutorService;
+import org.infinispan.server.core.utils.ManageableExecutorService;
 import org.infinispan.tasks.TaskManager;
-
-import io.netty.util.concurrent.DefaultThreadFactory;
 
 /**
  * A common protocol server dealing with common property parameter validation and assignment and transport lifecycle.
@@ -45,7 +41,6 @@ public abstract class AbstractProtocolServer<C extends ProtocolServerConfigurati
    private CacheIgnoreManager cacheIgnore;
    private ObjectName transportObjName;
    private CacheManagerJmxRegistration jmxRegistration;
-   private ThreadPoolExecutor executor;
    private ManageableThreadPoolExecutorService manageableThreadPoolExecutorService;
    private ObjectName executorObjName;
    private CacheManagerMetricsRegistration metricsRegistration;
@@ -152,8 +147,8 @@ public abstract class AbstractProtocolServer<C extends ProtocolServerConfigurati
       registerMetrics();
    }
 
-   public ThreadPoolExecutor getExecutor() {
-      return executor;
+   public ExecutorService getExecutor() {
+      return cacheManager.getGlobalComponentRegistry().getComponent(ExecutorService.class, KnownComponentNames.BLOCKING_EXECUTOR);
    }
 
    protected void registerServerMBeans() {
@@ -163,7 +158,7 @@ public abstract class AbstractProtocolServer<C extends ProtocolServerConfigurati
          String groupName = String.format("type=Server,name=%s-%d", getQualifiedName(), configuration.port());
          try {
             transportObjName = jmxRegistration.registerExternalMBean(transport, groupName);
-            executorObjName = jmxRegistration.registerExternalMBean(manageableThreadPoolExecutorService, groupName);
+            executorObjName = jmxRegistration.registerExternalMBean(new ManageableExecutorService(getExecutor()), groupName);
          } catch (Exception e) {
             throw new RuntimeException(e);
          }
@@ -205,8 +200,7 @@ public abstract class AbstractProtocolServer<C extends ProtocolServerConfigurati
       if (isDebug && configuration != null)
          log.debugf("Stopping server %s listening at %s:%d", getQualifiedName(), configuration.host(), configuration.port());
 
-      if (executor != null)
-         executor.shutdownNow();
+      if (executor != null) executor.shutdownNow();
 
       if (transport != null)
          transport.stop();

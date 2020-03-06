@@ -62,7 +62,7 @@ public interface StrongCounter {
    CompletableFuture<Void> reset();
 
    /**
-    * Registers a {@link CounterListener} to this counter.
+    * Registers a {@link CounterListener} to this counter. This method may block.
     *
     * @param listener The listener to register.
     * @param <T>      The concrete type of the listener. It must implement {@link CounterListener}.
@@ -95,6 +95,7 @@ public interface StrongCounter {
    CompletableFuture<Long> compareAndSwap(long expect, long update);
 
    /**
+    * This method may block.
     * @return the {@link CounterConfiguration} used by this counter.
     */
    CounterConfiguration getConfiguration();
@@ -110,7 +111,7 @@ public interface StrongCounter {
    CompletableFuture<Void> remove();
 
    /**
-    * It returns a synchronous strong counter for this instance.
+    * It returns a synchronous strong counter for this instance. This method may block.
     *
     * @return a {@link SyncStrongCounter}.
     */
