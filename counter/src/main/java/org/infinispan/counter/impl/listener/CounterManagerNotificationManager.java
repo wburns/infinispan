@@ -1,14 +1,15 @@
 package org.infinispan.counter.impl.listener;
 
-import static org.infinispan.counter.logging.Log.CONTAINER;
-
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 import org.infinispan.Cache;
@@ -29,6 +30,7 @@ import org.infinispan.notifications.cachelistener.annotation.TopologyChanged;
 import org.infinispan.notifications.cachelistener.event.CacheEntryEvent;
 import org.infinispan.notifications.cachelistener.event.TopologyChangedEvent;
 import org.infinispan.util.ByteString;
+import org.infinispan.util.concurrent.CompletableFutures;
 import org.infinispan.util.concurrent.WithinThreadExecutor;
 import org.infinispan.util.logging.LogFactory;
 
@@ -57,6 +59,7 @@ public class CounterManagerNotificationManager {
    private final CounterValueListener valueListener;
    private final TopologyListener topologyListener;
    private volatile Executor userListenerExecutor = new WithinThreadExecutor();
+   private volatile ScheduledExecutorService scheduledThreadPoolExecutor;
    @GuardedBy("this")
    private boolean listenersRegistered;
    @GuardedBy("this")
@@ -72,12 +75,14 @@ public class CounterManagerNotificationManager {
     * The executor to use where the user's {@link CounterListener} is invoked.
     *
     * @param asyncExecutor The {@link Executor} implementation.
+    * @param scheduledExecutorService The scheduled executor to use when a task has timed out
     */
-   public void useExecutor(Executor asyncExecutor) {
+   public void useExecutor(Executor asyncExecutor, ScheduledExecutorService scheduledExecutorService) {
       if (asyncExecutor == null) {
          return;
       }
       userListenerExecutor = new LimitedExecutor("counter-listener", asyncExecutor, 1);
+      this.scheduledThreadPoolExecutor = scheduledExecutorService;
    }
 
    /**
@@ -113,21 +118,23 @@ public class CounterManagerNotificationManager {
     *
     * @param cache The {@link Cache} to register the listener.
     */
-   public synchronized void listenOn(Cache<CounterKey, CounterValue> cache) throws InterruptedException {
-      if (!topologyListener.registered) {
+   public synchronized CompletionStage<Void> listenOn(Cache<CounterKey, CounterValue> cache) {
+      CompletionStage<Void> stage;
+      if (topologyListener.topologyReceivedFuture == null) {
          this.cache = cache;
-         topologyListener.register(cache);
+         stage = topologyListener.register(cache);
+      } else {
+         stage = CompletableFutures.completedNull();
       }
       if (!listenersRegistered) {
-         this.cache.addListener(valueListener, CounterKeyFilter.getInstance());
          listenersRegistered = true;
+         stage = stage.thenCompose(ignore -> this.cache.addListenerAsync(valueListener, CounterKeyFilter.getInstance(), null));
       }
+      return stage;
    }
 
    public synchronized void stop() {
-      if (topologyListener.registered) {
-         topologyListener.unregister(cache);
-      }
+      topologyListener.unregister(cache);
       // Too late to remove the listener now, because internal caches are already stopped
       // But because clustered listeners are removed automatically when the originator leaves,
       // it's not really necessary.
@@ -263,35 +270,46 @@ public class CounterManagerNotificationManager {
    @Listener(sync = false)
    private class TopologyListener {
 
-      private volatile boolean registered = false;
-      private volatile CountDownLatch topologyReceived;
+      private volatile CompletableFuture<Void> topologyReceivedFuture;
 
-      private void register(Cache<?, ?> cache) throws InterruptedException {
-         topologyReceived = new CountDownLatch(1);
-         cache.addListener(this);
+      private synchronized CompletionStage<Void> register(Cache<?, ?> cache) {
+         if (topologyReceivedFuture != null) {
+            throw new IllegalStateException("Listener was already registered!");
+         }
+         topologyReceivedFuture = new CompletableFuture<>();
+         cache.addListenerAsync(this).whenComplete((ignore, t) -> {
+            if (t != null) {
+               topologyReceivedFuture.completeExceptionally(t);
+            }
+         });
          if (!cache.getCacheConfiguration().clustering().cacheMode().isClustered() ||
                SecurityActions.getComponentRegistry(cache).getStateTransferManager().isJoinComplete()) {
-            topologyReceived.countDown();
+            topologyReceivedFuture.complete(null);
+         } else {
+            ScheduledFuture<Void> future = scheduledThreadPoolExecutor.schedule(() -> {
+                     topologyReceivedFuture.completeExceptionally(Log.CONTAINER.unableToFetchCaches());
+                     return null;
+                  },
+                  cache.getCacheConfiguration().clustering().stateTransfer().timeout(), TimeUnit.MILLISECONDS);
+            topologyReceivedFuture.whenComplete((ignore, t) -> future.cancel(false));
          }
-         if (!topologyReceived.await(cache.getCacheConfiguration().clustering().stateTransfer().timeout(), TimeUnit.MILLISECONDS)) {
-            throw CONTAINER.unableToFetchCaches();
-         }
-         registered = true;
+         return topologyReceivedFuture;
       }
 
-      private void unregister(Cache<?, ?> cache) {
-         if (topologyReceived != null) {
-            topologyReceived.countDown();
+      private synchronized void unregister(Cache<?, ?> cache) {
+         if (topologyReceivedFuture != null) {
+            cache.removeListenerAsync(this)
+                  .whenComplete((ignore, t) ->
+                        log.tracef(t, "There was a problem removing listener %s from cache %s", this, cache)
+                  );
+            topologyReceivedFuture = null;
          }
-         cache.removeListener(this);
-         registered = false;
-         topologyReceived = null;
       }
 
       @TopologyChanged
       public void topologyChanged(TopologyChangedEvent<?, ?> event) {
-         if (topologyReceived != null) {
-            topologyReceived.countDown();
+         if (topologyReceivedFuture != null && !topologyReceivedFuture.isDone()) {
+            topologyReceivedFuture.complete(null);
          }
          counters.values().parallelStream()
                .map(Holder::getTopologyChangeListener)

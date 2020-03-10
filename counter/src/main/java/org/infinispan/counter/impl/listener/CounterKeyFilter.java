@@ -10,6 +10,9 @@ import org.infinispan.commons.marshall.AdvancedExternalizer;
 import org.infinispan.counter.impl.entries.CounterKey;
 import org.infinispan.counter.impl.externalizers.ExternalizerIds;
 import org.infinispan.filter.KeyFilter;
+import org.infinispan.metadata.Metadata;
+import org.infinispan.notifications.cachelistener.filter.CacheEventFilter;
+import org.infinispan.notifications.cachelistener.filter.EventType;
 
 /**
  * A {@link KeyFilter} to produce events for all counters in the cache.
@@ -17,7 +20,7 @@ import org.infinispan.filter.KeyFilter;
  * @author Pedro Ruivo
  * @since 9.2
  */
-public final class CounterKeyFilter implements KeyFilter<Object> {
+public final class CounterKeyFilter implements CacheEventFilter<Object, Object> {
 
    public static final AdvancedExternalizer<CounterKeyFilter> EXTERNALIZER = new Externalizer();
    private static final CounterKeyFilter INSTANCE = new CounterKeyFilter();
@@ -35,7 +38,7 @@ public final class CounterKeyFilter implements KeyFilter<Object> {
    }
 
    @Override
-   public boolean accept(Object key) {
+   public boolean accept(Object key, Object oldValue, Metadata oldMetadata, Object newValue, Metadata newMetadata, EventType eventType) {
       return key instanceof CounterKey;
    }
 

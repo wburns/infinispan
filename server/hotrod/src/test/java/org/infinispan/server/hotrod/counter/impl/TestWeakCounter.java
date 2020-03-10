@@ -5,6 +5,7 @@ import static org.infinispan.server.hotrod.HotRodOperation.COUNTER_REMOVE;
 import static org.infinispan.server.hotrod.HotRodOperation.COUNTER_RESET;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 import org.infinispan.counter.api.CounterConfiguration;
 import org.infinispan.counter.api.CounterListener;
@@ -59,6 +60,11 @@ class TestWeakCounter implements WeakCounter {
          default:
             throw new CounterException("unknown response " + response);
       }
+   }
+
+   @Override
+   public CompletionStage<Long> getValueAsync() {
+      return CompletableFuture.completedFuture(getValue());
    }
 
    @Override

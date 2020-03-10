@@ -1,8 +1,8 @@
 package org.infinispan.counter.impl.strong;
 
 import static org.infinispan.counter.impl.Util.awaitCounterOperation;
-import static org.infinispan.counter.impl.entries.CounterValue.newCounterValue;
 import static org.infinispan.counter.impl.Utils.getPersistenceMode;
+import static org.infinispan.counter.impl.entries.CounterValue.newCounterValue;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -85,9 +85,9 @@ public abstract class AbstractStrongCounter implements StrongCounter, CounterEve
       cache.remove(new StrongCounterKey(counterName));
    }
 
-   public final void init() {
+   public final CompletionStage<StrongCounter> init() {
       registerListener();
-      awaitCounterOperation(readOnlyMap.eval(key, ReadFunction.getInstance()).thenAccept(this::initCounterState));
+      return readOnlyMap.eval(key, ReadFunction.getInstance()).thenApply(this::initCounterState);
    }
 
    @Override
@@ -137,6 +137,7 @@ public abstract class AbstractStrongCounter implements StrongCounter, CounterEve
    }
 
    public CompletableFuture<Void> remove() {
+      removeListener();
       return readWriteMap.eval(key, RemoveFunction.getInstance());
    }
 
@@ -188,12 +189,13 @@ public abstract class AbstractStrongCounter implements StrongCounter, CounterEve
     *
     * @param currentValue The current value.
     */
-   private synchronized void initCounterState(Long currentValue) {
+   private synchronized StrongCounter initCounterState(Long currentValue) {
       if (weakCounter == null) {
          weakCounter = currentValue == null ?
                newCounterValue(configuration) :
                newCounterValue(currentValue, configuration);
       }
+      return this;
    }
 
    /**

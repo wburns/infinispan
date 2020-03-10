@@ -1,6 +1,7 @@
 package org.infinispan.counter.api;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * A weak consistent counter interface.
@@ -26,8 +27,19 @@ public interface WeakCounter {
     * This value may be not the mot up-to-data value.
     *
     * @return The counter's value.
+    * @deprecated since 11.0 - replaced by {@link #getValueAsync()}
     */
+   @Deprecated
    long getValue();
+
+   /**
+    * It returns the counter's value.
+    * <p>
+    * This value may be not the mot up-to-data value.
+    *
+    * @return The counter's value.
+    */
+   CompletionStage<Long> getValueAsync();
 
    /**
     * Increments the counter.

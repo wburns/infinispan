@@ -7,6 +7,7 @@ import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.Cache;
@@ -36,6 +37,7 @@ import org.infinispan.functional.impl.FunctionalMapImpl;
 import org.infinispan.functional.impl.ReadOnlyMapImpl;
 import org.infinispan.functional.impl.ReadWriteMapImpl;
 import org.infinispan.util.ByteString;
+import org.infinispan.util.concurrent.ActionSequencer;
 import org.infinispan.util.concurrent.CompletableFutures;
 
 import net.jcip.annotations.GuardedBy;
@@ -123,14 +125,24 @@ public class WeakCounterImpl implements WeakCounter, CounterEventGenerator, Topo
     * <p>
     * Only one key will have the initial value and the remaining is zero.
     */
-   public void init() {
+   public CompletionStage<WeakCounter> init() {
       registerListener();
+
+      CompletionStage<WeakCounter> stage = CompletableFutures.completedNull();
+      ActionSequencer sequencer = cache.getComponentRegistry().getComponent(ActionSequencer.class);
       for (int i = 0; i < entries.length; ++i) {
          final int index = i;
-         awaitCounterOperation(readOnlyMap.eval(entries[index].key, ReadFunction.getInstance())
-               .thenAccept(value -> initEntry(index, value)));
+         stage = sequencer.orderOnKey(this, () -> readOnlyMap.eval(entries[index].key, ReadFunction.getInstance())
+               .thenApply(value -> {
+                  initEntry(index, value);
+                  return WeakCounterImpl.this;
+               }));
       }
-      selector.updatePreferredKeys();
+      return stage.whenComplete((ignore, t) -> {
+         if (t == null) {
+            selector.updatePreferredKeys();
+         }
+      });
    }
 
    @Override
@@ -143,6 +155,11 @@ public class WeakCounterImpl implements WeakCounter, CounterEventGenerator, Topo
       //return the initial value if it doesn't have a valid snapshot!
       Long snapshot = getCachedValue();
       return snapshot == null ? configuration.initialValue() : snapshot;
+   }
+
+   @Override
+   public CompletionStage<Long> getValueAsync() {
+      return CompletableFuture.completedFuture(getValue());
    }
 
    @Override
@@ -193,6 +210,7 @@ public class WeakCounterImpl implements WeakCounter, CounterEventGenerator, Topo
 
    @Override
    public CompletableFuture<Void> remove() {
+      removeListener();
       final int size = entries.length;
       CompletableFuture[] futures = new CompletableFuture[size];
       for (int i = 0; i < size; ++i) {
@@ -204,11 +222,6 @@ public class WeakCounterImpl implements WeakCounter, CounterEventGenerator, Topo
    @Override
    public SyncWeakCounter sync() {
       return new SyncWeakCounterAdapter(this);
-   }
-
-   public void destroyAndRemove() {
-      removeListener();
-      awaitCounterOperation(remove());
    }
 
    @Override

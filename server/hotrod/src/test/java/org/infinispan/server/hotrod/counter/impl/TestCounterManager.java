@@ -22,6 +22,7 @@ import org.infinispan.server.hotrod.counter.response.CounterNamesTestResponse;
 import org.infinispan.server.hotrod.test.HotRodClient;
 import org.infinispan.server.hotrod.test.Op;
 import org.infinispan.server.hotrod.test.TestResponse;
+import org.testng.AssertJUnit;
 
 /**
  * A {@link CounterManager} for Hot Rod server testing.
@@ -104,7 +105,8 @@ public class TestCounterManager implements CounterManager {
    public void remove(String counterName) {
       CounterOp op = new CounterOp(client.protocolVersion(), COUNTER_REMOVE, counterName);
       client.writeOp(op);
-      client.getResponse(op);
+      TestResponse testResponse = client.getResponse(op);
+      AssertJUnit.assertNotNull(testResponse);
    }
 
    public Collection<String> getCounterNames() {

@@ -8,8 +8,10 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ScheduledExecutorService;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.commons.logging.LogFactory;
@@ -21,7 +23,6 @@ import org.infinispan.counter.api.PropertyFormatter;
 import org.infinispan.counter.api.Storage;
 import org.infinispan.counter.api.StrongCounter;
 import org.infinispan.counter.api.WeakCounter;
-import org.infinispan.counter.exception.CounterException;
 import org.infinispan.counter.impl.CounterModuleLifecycle;
 import org.infinispan.counter.impl.entries.CounterKey;
 import org.infinispan.counter.impl.entries.CounterValue;
@@ -31,6 +32,8 @@ import org.infinispan.counter.impl.strong.BoundedStrongCounter;
 import org.infinispan.counter.impl.strong.UnboundedStrongCounter;
 import org.infinispan.counter.impl.weak.WeakCounterImpl;
 import org.infinispan.counter.logging.Log;
+import org.infinispan.counter.util.InitializingStrongCounter;
+import org.infinispan.counter.util.InitializingWeakCounter;
 import org.infinispan.factories.KnownComponentNames;
 import org.infinispan.factories.annotations.ComponentName;
 import org.infinispan.factories.annotations.Inject;
@@ -64,6 +67,8 @@ public class EmbeddedCounterManager implements CounterManager {
 
    @Inject @ComponentName(KnownComponentNames.BLOCKING_EXECUTOR)
    Executor blockingExecutor;
+   @Inject @ComponentName(KnownComponentNames.TIMEOUT_SCHEDULE_EXECUTOR)
+   ScheduledExecutorService scheduledExecutorService;
 
    public EmbeddedCounterManager(EmbeddedCacheManager cacheManager) {
       this.cacheManager = cacheManager;
@@ -85,7 +90,7 @@ public class EmbeddedCounterManager implements CounterManager {
       if (trace) {
          log.trace("Starting EmbeddedCounterManager");
       }
-      notificationManager.useExecutor(blockingExecutor);
+      notificationManager.useExecutor(blockingExecutor, scheduledExecutorService);
 
       configurationManager.start();
       started = true;
@@ -141,14 +146,14 @@ public class EmbeddedCounterManager implements CounterManager {
    @Override
    public StrongCounter getStrongCounter(String name) {
       checkStarted();
-      Object counter = counters.computeIfAbsent(name, this::createCounter);
+      Object counter = counters.computeIfAbsent(name, n -> createCounter(n, true));
       return validateCounter(StrongCounter.class, counter);
    }
 
    @Override
    public WeakCounter getWeakCounter(String name) {
       checkStarted();
-      Object counter = counters.computeIfAbsent(name, this::createCounter);
+      Object counter = counters.computeIfAbsent(name, n -> createCounter(n, false));
       return validateCounter(WeakCounter.class, counter);
    }
 
@@ -184,11 +189,10 @@ public class EmbeddedCounterManager implements CounterManager {
       return configurationManager.getConfiguration(name);
    }
 
-   private StrongCounter createBoundedStrongCounter(String counterName, CounterConfiguration configuration) {
+   private CompletionStage<StrongCounter> createBoundedStrongCounter(String counterName, CounterConfiguration configuration) {
       BoundedStrongCounter counter = new BoundedStrongCounter(counterName, cache(configuration), configuration,
             notificationManager);
-      counter.init();
-      return counter;
+      return counter.init();
    }
 
    @ManagedOperation(
@@ -238,18 +242,16 @@ public class EmbeddedCounterManager implements CounterManager {
       return PropertyFormatter.getInstance().format(configuration);
    }
 
-   private StrongCounter createUnboundedStrongCounter(String counterName, CounterConfiguration configuration) {
+   private CompletionStage<StrongCounter> createUnboundedStrongCounter(String counterName, CounterConfiguration configuration) {
       UnboundedStrongCounter counter = new UnboundedStrongCounter(counterName, cache(configuration), configuration,
             notificationManager);
-      counter.init();
-      return counter;
+      return counter.init();
    }
 
-   private WeakCounter createWeakCounter(String counterName, CounterConfiguration configuration) {
+   private CompletionStage<WeakCounter> createWeakCounter(String counterName, CounterConfiguration configuration) {
       WeakCounterImpl counter = new WeakCounterImpl(counterName, cache(configuration), configuration,
             notificationManager);
-      counter.init();
-      return counter;
+      return counter.init();
    }
 
    public CompletableFuture<Boolean> isDefinedAsync(String name) {
@@ -282,14 +284,14 @@ public class EmbeddedCounterManager implements CounterManager {
             //no instance stored locally. Remove from cache only.
             WeakCounterImpl.removeWeakCounter(cache(), configuration, name);
          } else {
-            ((WeakCounterImpl) counter).destroyAndRemove();
+            ((WeakCounter) counter).remove();
          }
       } else {
          if (counter == null) {
             //no instance stored locally. Remove from cache only.
             AbstractStrongCounter.removeStrongCounter(cache(), name);
          } else {
-            ((AbstractStrongCounter) counter).destroyAndRemove();
+            ((StrongCounter) counter).remove();
          }
       }
    }
@@ -300,31 +302,40 @@ public class EmbeddedCounterManager implements CounterManager {
       }
    }
 
-   private Object createCounter(String counterName) {
-      CounterConfiguration configuration = getConfiguration(counterName);
-      if (configuration == null) {
-         throw CONTAINER.undefinedCounter(counterName);
-      }
+   private Object createCounter(String counterName, boolean strong) {
+      CompletableFuture<CounterConfiguration> configurationFuture = getConfigurationAsync(counterName);
 
-      //puts the listeners in there (topology and for counter's event)
-      //this method only registers only once
-      //cache() ensures the cache is started!
-      try {
-         notificationManager.listenOn(cache());
-      } catch (InterruptedException e) {
-         Thread.currentThread().interrupt();
-         throw new CounterException(e);
-      }
+      configurationFuture = configurationFuture.thenCompose(config -> {
+         if (config == null) {
+            throw CONTAINER.undefinedCounter(counterName);
+         }
+         //puts the listeners in there (topology and for counter's event)
+         //this method only registers only once
+         //cache() ensures the cache is started!
+         CompletionStage<Void> stage = notificationManager.listenOn(cache());
+         return stage.thenApply(ignore -> config);
+      });
 
-      switch (configuration.type()) {
-         case WEAK:
-            return createWeakCounter(counterName, configuration);
-         case BOUNDED_STRONG:
-            return createBoundedStrongCounter(counterName, configuration);
-         case UNBOUNDED_STRONG:
-            return createUnboundedStrongCounter(counterName, configuration);
-         default:
-            throw new IllegalStateException("[should never happen] unknown counter type: " + configuration.type());
+      if (strong) {
+         return new InitializingStrongCounter(counterName, configurationFuture,
+               configurationFuture.thenCompose(config -> {
+                  switch (config.type()) {
+                     case BOUNDED_STRONG:
+                        return createBoundedStrongCounter(counterName, config);
+                     case UNBOUNDED_STRONG:
+                        return createUnboundedStrongCounter(counterName, config);
+                     default:
+                        throw new IllegalStateException("[should never happen] unknown counter type: " + config.type());
+                  }
+               }));
+      } else {
+         return new InitializingWeakCounter(counterName, configurationFuture,
+               configurationFuture.thenCompose(config -> {
+                  if (config.type() != CounterType.WEAK) {
+                     throw new IllegalStateException("[should never happen] unknown counter type: " + config.type());
+                  }
+                  return createWeakCounter(counterName, config);
+               }));
       }
    }
 }

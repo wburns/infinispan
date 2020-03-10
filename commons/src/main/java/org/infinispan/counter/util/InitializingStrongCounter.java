@@ -9,12 +9,15 @@ import org.infinispan.counter.api.Handle;
 import org.infinispan.counter.api.StrongCounter;
 import org.infinispan.counter.api.SyncStrongCounter;
 
-public class InitializingCounter implements StrongCounter {
+public class InitializingStrongCounter implements StrongCounter {
    private final String name;
+   private final CompletionStage<CounterConfiguration> configuration;
    private final CompletionStage<StrongCounter> initializingCounter;
 
-   public InitializingCounter(String name, CompletionStage<StrongCounter> initializingCounter) {
+   public InitializingStrongCounter(String name, CompletionStage<CounterConfiguration> configuration,
+         CompletionStage<StrongCounter> initializingCounter) {
       this.name = name;
+      this.configuration = configuration;
       this.initializingCounter = initializingCounter;
    }
 
@@ -65,7 +68,7 @@ public class InitializingCounter implements StrongCounter {
 
    @Override
    public CounterConfiguration getConfiguration() {
-      return initializingCounter.toCompletableFuture().join().getConfiguration();
+      return configuration.toCompletableFuture().join();
    }
 
    @Override
