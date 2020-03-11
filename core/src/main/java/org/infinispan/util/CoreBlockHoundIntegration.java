@@ -79,6 +79,9 @@ public class CoreBlockHoundIntegration implements BlockHoundIntegration {
       // Scattered prefetch iteration is currently blocking - needs to be rewritten to be non blocking
       // https://issues.redhat.com/browse/ISPN-10864
       builder.allowBlockingCallsInside(PrefetchInterceptor.class.getName() + "$BackingIterator", "hasNext");
+
+      // This method blocks waiting on rpc response
+      builder.allowBlockingCallsInside(RecoveryManagerImpl.class.getName(), "sendTxCompletionNotification");
    }
 
    private static void registerBlockingMethods(BlockHound.Builder builder) {

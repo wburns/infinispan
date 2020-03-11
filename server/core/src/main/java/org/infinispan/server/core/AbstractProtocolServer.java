@@ -4,15 +4,19 @@ import java.net.InetSocketAddress;
 import java.util.Collections;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 import javax.management.ObjectName;
 
 import org.eclipse.microprofile.metrics.MetricID;
 import org.infinispan.commons.CacheException;
+import org.infinispan.commons.IllegalLifecycleStateException;
 import org.infinispan.commons.logging.LogFactory;
 import org.infinispan.configuration.global.GlobalConfiguration;
-import org.infinispan.factories.impl.BasicComponentRegistry;
 import org.infinispan.factories.KnownComponentNames;
+import org.infinispan.factories.impl.BasicComponentRegistry;
 import org.infinispan.jmx.CacheManagerJmxRegistration;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.metrics.impl.CacheManagerMetricsRegistration;
@@ -21,6 +25,8 @@ import org.infinispan.server.core.logging.Log;
 import org.infinispan.server.core.transport.NettyTransport;
 import org.infinispan.server.core.utils.ManageableExecutorService;
 import org.infinispan.tasks.TaskManager;
+
+import io.netty.util.concurrent.DefaultThreadFactory;
 
 /**
  * A common protocol server dealing with common property parameter validation and assignment and transport lifecycle.
@@ -41,7 +47,8 @@ public abstract class AbstractProtocolServer<C extends ProtocolServerConfigurati
    private CacheIgnoreManager cacheIgnore;
    private ObjectName transportObjName;
    private CacheManagerJmxRegistration jmxRegistration;
-   private ManageableThreadPoolExecutorService manageableThreadPoolExecutorService;
+   private ThreadPoolExecutor executor;
+   private ManageableExecutorService manageableThreadPoolExecutorService;
    private ObjectName executorObjName;
    private CacheManagerMetricsRegistration metricsRegistration;
    private Set<MetricID> metricIds;
@@ -115,7 +122,7 @@ public abstract class AbstractProtocolServer<C extends ProtocolServerConfigurati
                }
             });
 
-      manageableThreadPoolExecutorService = new ManageableThreadPoolExecutorService(executor);
+      manageableThreadPoolExecutorService = new ManageableExecutorService(executor);
 
       try {
          startInternal();

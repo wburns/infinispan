@@ -1,6 +1,5 @@
 package org.infinispan.counter.impl.weak;
 
-import static org.infinispan.counter.impl.Util.awaitCounterOperation;
 import static org.infinispan.counter.impl.Utils.getPersistenceMode;
 
 import java.math.BigInteger;
@@ -129,15 +128,25 @@ public class WeakCounterImpl implements WeakCounter, CounterEventGenerator, Topo
       registerListener();
 
       CompletionStage<WeakCounter> stage = CompletableFutures.completedNull();
-      ActionSequencer sequencer = cache.getComponentRegistry().getComponent(ActionSequencer.class);
-      for (int i = 0; i < entries.length; ++i) {
-         final int index = i;
-         stage = sequencer.orderOnKey(this, () -> readOnlyMap.eval(entries[index].key, ReadFunction.getInstance())
+
+      if (entries.length == 1) {
+         stage = readOnlyMap.eval(entries[0].key, ReadFunction.getInstance())
                .thenApply(value -> {
-                  initEntry(index, value);
+                  initEntry(0, value);
                   return WeakCounterImpl.this;
-               }));
+               });
+      } else if (entries.length > 1) {
+         ActionSequencer sequencer = new ActionSequencer(null, false, null);
+         for (int i = 0; i < entries.length; ++i) {
+            final int index = i;
+            stage = sequencer.orderOnKey(this, () -> readOnlyMap.eval(entries[index].key, ReadFunction.getInstance())
+                  .thenApply(value -> {
+                     initEntry(index, value);
+                     return WeakCounterImpl.this;
+                  }));
+         }
       }
+
       return stage.whenComplete((ignore, t) -> {
          if (t == null) {
             selector.updatePreferredKeys();

@@ -55,6 +55,7 @@ class CacheRequestProcessor extends BaseRequestProcessor {
 
    void stats(HotRodHeader header, Subject subject) {
       AdvancedCache<byte[], byte[]> cache = server.cache(server.getCacheInfo(header), header, subject);
+      // stats collection calls size which is blocking
       writeResponse(header, header.encoder().statsResponse(header, server, channel, cache.getStats(), server.getTransport(), SecurityActions.getCacheComponentRegistry(cache)));
    }
 

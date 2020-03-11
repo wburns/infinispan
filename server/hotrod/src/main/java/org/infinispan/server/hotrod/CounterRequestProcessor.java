@@ -104,7 +104,7 @@ class CounterRequestProcessor extends BaseRequestProcessor {
    }
 
    private void handleGetWeak(HotRodHeader header, WeakCounter counter) {
-      longResultHandler(header, counter.getValue(), null);
+      counter.getValueAsync().whenComplete((value, throwable) -> longResultHandler(header, value, throwable));
    }
 
    void counterReset(HotRodHeader header, Subject subject, String counterName) {

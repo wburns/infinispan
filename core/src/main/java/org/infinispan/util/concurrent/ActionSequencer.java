@@ -193,7 +193,11 @@ public class ActionSequencer {
          statCollector.taskCreated();
          CompletionStage<?> previousStage = putInMap();
          if (previousStage != null) {
-            previousStage.handleAsync(this, executor);
+            if (forceExecutor) {
+               previousStage.handleAsync(this, executor);
+            } else {
+               previousStage.handle(this);
+            }
          } else if (forceExecutor) {
             //execute the action in another thread.
             executor.submit(this);
