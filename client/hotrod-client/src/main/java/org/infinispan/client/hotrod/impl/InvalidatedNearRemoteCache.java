@@ -6,11 +6,13 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
-import org.infinispan.client.hotrod.Flag;
+import javax.management.ObjectName;
+
 import org.infinispan.client.hotrod.MetadataValue;
-import org.infinispan.client.hotrod.RemoteCacheManager;
+import org.infinispan.client.hotrod.configuration.Configuration;
+import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.near.NearCacheService;
-import org.infinispan.commons.time.TimeService;
+import org.infinispan.commons.marshall.Marshaller;
 
 /**
  * Near {@link org.infinispan.client.hotrod.RemoteCache} implementation enabling
@@ -18,12 +20,25 @@ import org.infinispan.commons.time.TimeService;
  * @param <K>
  * @param <V>
  */
-public class InvalidatedNearRemoteCache<K, V> extends RemoteCacheImpl<K, V> {
+public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V> {
    private final NearCacheService<K, V> nearcache;
+   private final ClientStatistics clientStatistics;
 
-   public InvalidatedNearRemoteCache(RemoteCacheManager rcm, String name, TimeService timeService, NearCacheService<K, V> nearcache) {
-      super(rcm, name, new ClientStatistics(rcm.getConfiguration().statistics().enabled(), timeService, nearcache));
+   InvalidatedNearRemoteCache(InternalRemoteCache<K, V> remoteCache, ClientStatistics clientStatistics,
+         NearCacheService<K, V> nearcache) {
+      super(remoteCache);
+      this.clientStatistics = clientStatistics;
       this.nearcache = nearcache;
+   }
+
+   @Override
+   <Key, Value> InternalRemoteCache<Key, Value> newDelegatingCache(InternalRemoteCache<Key, Value> innerCache) {
+      return new InvalidatedNearRemoteCache<>(innerCache, clientStatistics, (NearCacheService<Key, Value>) nearcache);
+   }
+
+   public static <K, V> InvalidatedNearRemoteCache<K, V> delegatingNearCache(RemoteCacheImpl<K, V> remoteCache,
+         NearCacheService<K, V> nearCacheService) {
+      return new InvalidatedNearRemoteCache<>(remoteCache, remoteCache.clientStatistics, nearCacheService);
    }
 
    @Override
@@ -76,9 +91,7 @@ public class InvalidatedNearRemoteCache<K, V> extends RemoteCacheImpl<K, V> {
    public CompletableFuture<V> replaceAsync(K key, V value, long lifespan, TimeUnit lifespanUnit, long maxIdleTime, TimeUnit maxIdleTimeUnit) {
       if (maxIdleTime > 0)
          HOTROD.nearCacheMaxIdleUnsupported();
-      return invalidateNearCacheIfNeeded(
-            operationsFactory.hasFlag(Flag.FORCE_RETURN_VALUE),
-            key,
+      return invalidateNearCacheIfNeeded(delegate.hasForceReturnFlag(), key,
             super.replaceAsync(key, value, lifespan, lifespanUnit, maxIdleTime, maxIdleTimeUnit)
       );
    }
@@ -96,7 +109,7 @@ public class InvalidatedNearRemoteCache<K, V> extends RemoteCacheImpl<K, V> {
 
    @Override
    public CompletableFuture<V> removeAsync(Object key) {
-      return invalidateNearCacheIfNeeded(operationsFactory.hasFlag(Flag.FORCE_RETURN_VALUE), key, super.removeAsync(key));
+      return invalidateNearCacheIfNeeded(delegate.hasForceReturnFlag(), key, super.removeAsync(key));
    }
 
    @Override
@@ -132,5 +145,25 @@ public class InvalidatedNearRemoteCache<K, V> extends RemoteCacheImpl<K, V> {
    public void stop() {
       nearcache.stop(this);
       super.stop();
+   }
+
+   @Override
+   public void init(Marshaller marshaller, OperationsFactory operationsFactory, Configuration configuration, ObjectName jmxParent) {
+      delegate.init(marshaller, operationsFactory, configuration, jmxParent);
+   }
+
+   @Override
+   public void init(Marshaller marshaller, OperationsFactory operationsFactory, Configuration configuration) {
+      delegate.init(marshaller, operationsFactory, configuration);
+   }
+
+   @Override
+   public OperationsFactory getOperationsFactory() {
+      return delegate.getOperationsFactory();
+   }
+
+   @Override
+   public boolean isObjectStorage() {
+      return delegate.isObjectStorage();
    }
 }

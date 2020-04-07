@@ -156,7 +156,8 @@ public class SecureExecTest extends AbstractAuthenticationTest {
          uploadScript(scriptName, script);
       }
 
-      String result = remoteCacheManager.getCache(CACHE_NAME).execute(scriptName, params);
+      String result = remoteCacheManager.getCache(CACHE_NAME)
+            .execute(scriptName, params);
       assertEquals("guinness", result);
       assertEquals("guinness", remoteCacheManager.getCache(CACHE_NAME).get("a"));
    }

@@ -120,11 +120,6 @@ abstract class RemoteCacheWrapper<K, V> implements RemoteCache<K, V> {
    }
 
    @Override
-   public VersionedValue<V> getVersioned(K key) {
-      return delegate.getVersioned(key);
-   }
-
-   @Override
    public MetadataValue<V> getWithMetadata(K key) {
       return delegate.getWithMetadata(key);
    }

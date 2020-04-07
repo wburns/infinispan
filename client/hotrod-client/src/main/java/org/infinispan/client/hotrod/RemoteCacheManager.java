@@ -33,6 +33,7 @@ import javax.transaction.xa.XAResource;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
 import org.infinispan.client.hotrod.configuration.NearCacheConfiguration;
+import org.infinispan.client.hotrod.configuration.NearCacheMode;
 import org.infinispan.client.hotrod.configuration.StatisticsConfiguration;
 import org.infinispan.client.hotrod.configuration.TransactionMode;
 import org.infinispan.client.hotrod.counter.impl.RemoteCounterManager;
@@ -40,6 +41,7 @@ import org.infinispan.client.hotrod.event.impl.ClientListenerNotifier;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
+import org.infinispan.client.hotrod.impl.InternalRemoteCache;
 import org.infinispan.client.hotrod.impl.MarshallerRegistry;
 import org.infinispan.client.hotrod.impl.RemoteCacheImpl;
 import org.infinispan.client.hotrod.impl.RemoteCacheManagerAdminImpl;
@@ -351,12 +353,6 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
       syncTransactionTable.start(txOperationFactory);
       xaTransactionTable.start(txOperationFactory);
 
-      synchronized (cacheName2RemoteCache) {
-         for (RemoteCacheHolder rcc : cacheName2RemoteCache.values()) {
-            startRemoteCache(rcc);
-         }
-      }
-
       // Print version to help figure client version run
       HOTROD.version(Version.printVersion());
 
@@ -431,7 +427,7 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
          RemoteCacheKey key = new RemoteCacheKey(cacheName, forceReturnValueOverride);
          if (!cacheName2RemoteCache.containsKey(key)) {
             TransactionMode transactionMode = getTransactionMode(transactionModeOverride);
-            RemoteCacheImpl<K, V> result;
+            InternalRemoteCache<K, V> result;
             if (transactionMode == TransactionMode.NONE) {
                result = createRemoteCache(cacheName);
             } else {
@@ -442,18 +438,17 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
                result = createRemoteTransactionalCache(cacheName, forceReturnValueOverride,
                      transactionMode == TransactionMode.FULL_XA, transactionMode, transactionManager);
             }
-            RemoteCacheHolder rcc = new RemoteCacheHolder(result, forceReturnValueOverride);
-            startRemoteCache(rcc);
+            startRemoteCache(result, forceReturnValueOverride);
 
             PingResponse pingResponse = result.resolveStorage();
             // If ping not successful assume that the cache does not exist
             if (pingResponse.isCacheNotFound()) {
+               result.stop();
                return null;
             }
 
-            result.start();
             // If ping on startup is disabled, or cache is defined in server
-            cacheName2RemoteCache.put(key, rcc);
+            cacheName2RemoteCache.put(key, new RemoteCacheHolder(result, forceReturnValueOverride));
             return result;
          } else {
             return cacheName2RemoteCache.get(key).remoteCache();
@@ -461,22 +456,19 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
       }
    }
 
-   private <K, V> RemoteCacheImpl<K, V> createRemoteCache(String cacheName) {
-      switch (configuration.nearCache().mode()) {
-         case INVALIDATED:
-            Pattern pattern = configuration.nearCache().cacheNamePattern();
-            if (pattern == null || pattern.matcher(cacheName).matches()) {
-               if (log.isTraceEnabled()) {
-                  log.tracef("Enabling near-caching for cache '%s'", cacheName);
-               }
-               return new InvalidatedNearRemoteCache<>(this, cacheName, timeService,
-                     createNearCacheService(cacheName, configuration.nearCache()));
+   private <K, V> InternalRemoteCache<K, V> createRemoteCache(String cacheName) {
+      if (configuration.nearCache().mode() == NearCacheMode.INVALIDATED) {
+         Pattern pattern = configuration.nearCache().cacheNamePattern();
+         if (pattern == null || pattern.matcher(cacheName).matches()) {
+            if (log.isTraceEnabled()) {
+               log.tracef("Enabling near-caching for cache '%s'", cacheName);
             }
-            // else fallthrough
-         case DISABLED:
-         default:
-            return new RemoteCacheImpl<>(this, cacheName, timeService);
+            NearCacheService<K, V> nearCacheService = createNearCacheService(cacheName, configuration.nearCache());
+            return InvalidatedNearRemoteCache.delegatingNearCache(
+                  new RemoteCacheImpl<>(this, cacheName, timeService, nearCacheService) , nearCacheService);
+         }
       }
+      return new RemoteCacheImpl<>(this, cacheName, timeService);
    }
 
    protected <K, V> NearCacheService<K, V> createNearCacheService(String cacheName, NearCacheConfiguration cfg) {
@@ -491,22 +483,19 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
       return NearCacheService.create(cfg, listenerNotifier);
    }
 
-   private void startRemoteCache(RemoteCacheHolder remoteCacheHolder) {
-      RemoteCacheImpl<?, ?> remoteCache = remoteCacheHolder.remoteCache();
+   private void startRemoteCache(InternalRemoteCache<?, ?> remoteCache, boolean forceReturnValue) {
       OperationsFactory operationsFactory = createOperationFactory(remoteCache.getName(),
-            remoteCacheHolder.forceReturnValue, remoteCache.getClientStatistics());
+            forceReturnValue, remoteCache.clientStatistics());
       initRemoteCache(remoteCache, operationsFactory);
       remoteCache.start();
    }
 
    // Method that handles cache initialization - needed as a placeholder
-   private void initRemoteCache(RemoteCacheImpl remoteCache, OperationsFactory operationsFactory) {
+   private void initRemoteCache(InternalRemoteCache remoteCache, OperationsFactory operationsFactory) {
       if (configuration.statistics().jmxEnabled()) {
-         remoteCache.init(marshaller, operationsFactory, configuration.keySizeEstimate(),
-               configuration.valueSizeEstimate(), configuration.batchSize(), mbeanObjectName);
+         remoteCache.init(marshaller, operationsFactory, configuration, mbeanObjectName);
       } else {
-         remoteCache.init(marshaller, operationsFactory, configuration.keySizeEstimate(),
-               configuration.valueSizeEstimate(), configuration.batchSize());
+         remoteCache.init(marshaller, operationsFactory, configuration);
       }
    }
 
@@ -668,17 +657,16 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
    }
 
    private static class RemoteCacheHolder {
-      final RemoteCacheImpl<?, ?> remoteCache;
+      final InternalRemoteCache<?, ?> remoteCache;
       final boolean forceReturnValue;
 
-      RemoteCacheHolder(RemoteCacheImpl<?, ?> remoteCache, boolean forceReturnValue) {
+      RemoteCacheHolder(InternalRemoteCache<?, ?> remoteCache, boolean forceReturnValue) {
          this.remoteCache = remoteCache;
          this.forceReturnValue = forceReturnValue;
       }
 
-      <K, V> RemoteCacheImpl<K, V> remoteCache() {
-         //noinspection unchecked
-         return (RemoteCacheImpl<K, V>) remoteCache;
+      <K, V> InternalRemoteCache<K, V> remoteCache() {
+         return (InternalRemoteCache) remoteCache;
       }
    }
 }

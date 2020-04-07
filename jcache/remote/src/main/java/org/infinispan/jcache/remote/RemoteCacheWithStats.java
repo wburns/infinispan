@@ -1,6 +1,8 @@
 package org.infinispan.jcache.remote;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 
 import org.infinispan.client.hotrod.RemoteCache;
 
@@ -12,9 +14,7 @@ public class RemoteCacheWithStats<K, V> extends RemoteCacheWrapper<K, V> {
       this.stats = stats;
    }
 
-   @Override
-   public V get(Object key) {
-      V v = delegate.get(key);
+   private final Function<V, V> getFunction = v -> {
       if (v == null) {
          stats.incrementCacheMisses();
       } else {
@@ -22,6 +22,17 @@ public class RemoteCacheWithStats<K, V> extends RemoteCacheWrapper<K, V> {
       }
       stats.incrementCacheGets();
       return v;
+   };
+
+   @Override
+   public CompletableFuture<V> getAsync(K key) {
+      return super.getAsync(key)
+            .thenApply(getFunction);
+   }
+
+   @Override
+   public CompletableFuture<V> putAsync(K key, V value) {
+      return super.putAsync(key, value);
    }
 
    @Override
