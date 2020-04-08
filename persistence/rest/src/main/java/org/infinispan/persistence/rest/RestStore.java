@@ -2,8 +2,10 @@ package org.infinispan.persistence.rest;
 
 import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -13,6 +15,7 @@ import org.infinispan.client.rest.RestCacheClient;
 import org.infinispan.client.rest.RestClient;
 import org.infinispan.client.rest.RestEntity;
 import org.infinispan.client.rest.RestResponse;
+import org.infinispan.client.rest.configuration.Protocol;
 import org.infinispan.client.rest.configuration.RestClientConfiguration;
 import org.infinispan.client.rest.configuration.RestClientConfigurationBuilder;
 import org.infinispan.commons.CacheException;
@@ -35,12 +38,15 @@ import org.infinispan.persistence.spi.InitializationContext;
 import org.infinispan.persistence.spi.MarshallableEntry;
 import org.infinispan.persistence.spi.MarshallableEntryFactory;
 import org.infinispan.persistence.spi.PersistenceException;
+import org.infinispan.reactive.RxJavaInterop;
 import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.logging.LogFactory;
+import org.reactivestreams.Publisher;
 
 import com.fasterxml.jackson.core.JsonFactory;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.JsonToken;
+
 import io.reactivex.Flowable;
 import net.jcip.annotations.ThreadSafe;
 
@@ -162,26 +168,90 @@ public class RestStore<K, V> implements AdvancedLoadWriteStore<K, V> {
    @Override
    public void write(MarshallableEntry<? extends K, ? extends V> entry) {
       try {
-         String contentType = metadataHelper.getContentType(entry);
-         String key = encodeKey(entry.getKey());
-         byte[] payload = marshall(contentType, entry);
-         RestEntity restEntity = RestEntity.create(MediaType.fromString(contentType), payload);
-         Metadata metadata = entry.getMetadata();
-         CompletionStage<RestResponse> req;
-         if (metadata != null && entry.expiryTime() > -1) {
-            long ttl = timeoutToSeconds(metadata.lifespan());
-            long maxIdle = timeoutToSeconds(metadata.maxIdle());
-            req = cacheClient.put(key, restEntity, ttl, maxIdle);
-         } else {
-            req = cacheClient.put(key, restEntity);
-         }
-         RestResponse response = CompletionStages.join(req);
+         RestResponse response = CompletionStages.join(writeAsync(entry));
          if (!isSuccessful(response.getStatus())) {
             throw new PersistenceException("Error writing entry");
          }
       } catch (Exception e) {
          throw new PersistenceException(e);
       }
+   }
+
+   private CompletionStage<RestResponse> writeAsync(MarshallableEntry<? extends K, ? extends V> entry) {
+      String contentType = metadataHelper.getContentType(entry);
+      String key = encodeKey(entry.getKey());
+      byte[] payload = marshall(contentType, entry);
+      RestEntity restEntity = RestEntity.create(MediaType.fromString(contentType), payload);
+      Metadata metadata = entry.getMetadata();
+      if (metadata != null && entry.expiryTime() > -1) {
+         long ttl = timeoutToSeconds(metadata.lifespan());
+         long maxIdle = timeoutToSeconds(metadata.maxIdle());
+         return cacheClient.put(key, restEntity, ttl, maxIdle);
+      } else {
+         return cacheClient.put(key, restEntity);
+      }
+   }
+
+   private class EmptyRestResponse implements RestResponse {
+
+      @Override
+      public int getStatus() {
+         return 0;
+      }
+
+      @Override
+      public Map<String, List<String>> headers() {
+         return null;
+      }
+
+      @Override
+      public InputStream getBodyAsStream() {
+         return null;
+      }
+
+      @Override
+      public byte[] getBodyAsByteArray() {
+         return new byte[0];
+      }
+
+      @Override
+      public Protocol getProtocol() {
+         return null;
+      }
+
+      @Override
+      public void close() {
+
+      }
+
+      @Override
+      public String getBody() {
+         return null;
+      }
+
+      @Override
+      public MediaType contentType() {
+         return null;
+      }
+   }
+
+   @Override
+   public CompletionStage<Void> bulkUpdate(Publisher<MarshallableEntry<? extends K, ? extends V>> publisher) {
+      return Flowable.fromPublisher(publisher)
+            .concatMapSingle(me -> {
+               CompletionStage<RestResponse> restResponseStage = writeAsync(me);
+               return RxJavaInterop.completionStageToMaybe(restResponseStage)
+                     .doAfterSuccess(rr -> {
+                        rr.close();
+                        if (!isSuccessful(rr.getStatus())) {
+                           throw new PersistenceException("Failed to clear remote store");
+                        }
+                     })
+                     // Just here in case if we didn't get a rest response back from the client (don't know the contract)
+                     .toSingle(new EmptyRestResponse());
+            })
+            .rebatchRequests(configuration.maxBatchSize())
+            .to(RxJavaInterop.flowableToCompletionStage());
    }
 
    @Override
