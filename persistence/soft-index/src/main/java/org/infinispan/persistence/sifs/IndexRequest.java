@@ -18,10 +18,7 @@ class IndexRequest extends CompletableFuture<Object> {
       DROPPED,
       FOUND_OLD,
       CLEAR,
-      // TODO: this can probably be removed and just let compactor delete the file - no reason for index to do that
-      DELETE_FILE,
-      // TODO: NEED TO REMOVE THIS
-      STOP,
+      SYNC_REQUEST,
       SIZE
    }
 
@@ -70,12 +67,8 @@ class IndexRequest extends CompletableFuture<Object> {
       return new IndexRequest(Type.CLEAR, -1, null, null, -1, -1, -1, -1, -1);
    }
 
-   public static IndexRequest deleteFileRequest(int deletedFile) {
-      return new IndexRequest(Type.DELETE_FILE, -1, null, null, deletedFile, -1, -1, -1, -1);
-   }
-
-   public static IndexRequest stopRequest() {
-      return new IndexRequest(Type.STOP, -1,null, null, -1, -1, -1, -1, -1);
+   public static IndexRequest syncRequest(Runnable runnable) {
+      return new IndexRequest(Type.SYNC_REQUEST, -1, runnable, null, -1, -1, -1, -1, -1);
    }
 
    public static IndexRequest sizeRequest() {
