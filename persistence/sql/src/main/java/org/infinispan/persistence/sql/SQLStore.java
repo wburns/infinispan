@@ -1,5 +1,7 @@
 package org.infinispan.persistence.sql;
 
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.concurrent.CompletionStage;
 
 import org.infinispan.persistence.spi.InitializationContext;
@@ -7,6 +9,11 @@ import org.infinispan.persistence.spi.MarshallableEntry;
 import org.infinispan.persistence.spi.NonBlockingStore;
 
 public class SQLStore<K, V> implements NonBlockingStore<K, V> {
+   @Override
+   public Set<Characteristic> characteristics() {
+      return EnumSet.of(Characteristic.BULK_READ);
+   }
+
    @Override
    public CompletionStage<Void> start(InitializationContext ctx) {
       return null;

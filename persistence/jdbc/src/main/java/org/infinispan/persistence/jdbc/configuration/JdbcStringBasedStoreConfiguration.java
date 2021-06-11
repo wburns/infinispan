@@ -1,6 +1,6 @@
 package org.infinispan.persistence.jdbc.configuration;
 
-import static org.infinispan.persistence.jdbc.configuration.Element.STRING_KEYED_JDBC_STORE;
+import static org.infinispan.persistence.jdbc.common.configuration.Element.STRING_KEYED_JDBC_STORE;
 
 import org.infinispan.commons.configuration.BuiltBy;
 import org.infinispan.commons.configuration.ConfigurationFor;
@@ -12,6 +12,8 @@ import org.infinispan.commons.configuration.elements.DefaultElementDefinition;
 import org.infinispan.commons.configuration.elements.ElementDefinition;
 import org.infinispan.configuration.cache.AsyncStoreConfiguration;
 import org.infinispan.configuration.serializing.SerializedWith;
+import org.infinispan.persistence.jdbc.common.configuration.AbstractJdbcStoreConfiguration;
+import org.infinispan.persistence.jdbc.common.configuration.ConnectionFactoryConfiguration;
 import org.infinispan.persistence.jdbc.stringbased.JdbcStringBasedStore;
 import org.infinispan.persistence.keymappers.DefaultTwoWayKey2StringMapper;
 

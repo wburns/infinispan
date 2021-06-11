@@ -1,6 +1,6 @@
 package org.infinispan.persistence.jdbc.configuration;
 
-import static org.infinispan.persistence.jdbc.configuration.Element.TIMESTAMP_COLUMN;
+import static org.infinispan.persistence.jdbc.common.configuration.Element.TIMESTAMP_COLUMN;
 
 import org.infinispan.commons.configuration.ConfigurationInfo;
 import org.infinispan.commons.configuration.attributes.Attribute;

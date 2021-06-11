@@ -1,8 +1,8 @@
 package org.infinispan.persistence.jdbc.impl.table;
 
-import static org.infinispan.persistence.jdbc.JdbcUtil.marshall;
-import static org.infinispan.persistence.jdbc.JdbcUtil.unmarshall;
-import static org.infinispan.persistence.jdbc.logging.Log.PERSISTENCE;
+import static org.infinispan.persistence.jdbc.common.JdbcUtil.marshall;
+import static org.infinispan.persistence.jdbc.common.JdbcUtil.unmarshall;
+import static org.infinispan.persistence.jdbc.common.logging.Log.PERSISTENCE;
 
 import java.io.ByteArrayInputStream;
 import java.sql.Connection;
@@ -16,11 +16,10 @@ import java.util.Objects;
 import org.infinispan.commons.io.ByteBuffer;
 import org.infinispan.commons.marshall.ProtoStreamTypeIds;
 import org.infinispan.commons.util.Version;
-import org.infinispan.persistence.jdbc.JdbcUtil;
+import org.infinispan.persistence.jdbc.common.JdbcUtil;
+import org.infinispan.persistence.jdbc.common.connectionfactory.ConnectionFactory;
+import org.infinispan.persistence.jdbc.common.logging.Log;
 import org.infinispan.persistence.jdbc.configuration.TableManipulationConfiguration;
-import org.infinispan.persistence.jdbc.connectionfactory.ConnectionFactory;
-import org.infinispan.persistence.jdbc.impl.PersistenceContextInitializerImpl;
-import org.infinispan.persistence.jdbc.logging.Log;
 import org.infinispan.persistence.spi.InitializationContext;
 import org.infinispan.persistence.spi.PersistenceException;
 import org.infinispan.protostream.annotations.ProtoFactory;

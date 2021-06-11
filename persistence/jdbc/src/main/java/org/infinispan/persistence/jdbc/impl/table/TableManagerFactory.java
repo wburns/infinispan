@@ -1,17 +1,28 @@
 package org.infinispan.persistence.jdbc.impl.table;
 
+import static org.infinispan.persistence.jdbc.common.DatabaseType.DB2;
+import static org.infinispan.persistence.jdbc.common.DatabaseType.DB2_390;
+import static org.infinispan.persistence.jdbc.common.DatabaseType.H2;
+import static org.infinispan.persistence.jdbc.common.DatabaseType.MARIA_DB;
+import static org.infinispan.persistence.jdbc.common.DatabaseType.MYSQL;
+import static org.infinispan.persistence.jdbc.common.DatabaseType.ORACLE;
+import static org.infinispan.persistence.jdbc.common.DatabaseType.POSTGRES;
+import static org.infinispan.persistence.jdbc.common.DatabaseType.SQLITE;
+import static org.infinispan.persistence.jdbc.common.DatabaseType.SQL_SERVER;
+import static org.infinispan.persistence.jdbc.common.DatabaseType.SYBASE;
+
 import java.sql.Connection;
 import java.sql.DatabaseMetaData;
 import java.sql.SQLException;
 import java.util.Arrays;
 
 import org.infinispan.commons.CacheConfigurationException;
-import org.infinispan.persistence.jdbc.DatabaseType;
-import org.infinispan.persistence.jdbc.configuration.AbstractJdbcStoreConfiguration;
+import org.infinispan.persistence.jdbc.common.DatabaseType;
+import org.infinispan.persistence.jdbc.common.configuration.AbstractJdbcStoreConfiguration;
+import org.infinispan.persistence.jdbc.common.connectionfactory.ConnectionFactory;
+import org.infinispan.persistence.jdbc.common.logging.Log;
 import org.infinispan.persistence.jdbc.configuration.JdbcStringBasedStoreConfiguration;
 import org.infinispan.persistence.jdbc.configuration.TableManipulationConfiguration;
-import org.infinispan.persistence.jdbc.connectionfactory.ConnectionFactory;
-import org.infinispan.persistence.jdbc.logging.Log;
 import org.infinispan.persistence.spi.InitializationContext;
 import org.infinispan.util.logging.LogFactory;
 
