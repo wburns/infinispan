@@ -1,9 +1,9 @@
 package org.infinispan.persistence.jdbc.configuration;
 
-import static org.infinispan.persistence.jdbc.configuration.Element.CONNECTION_POOL;
-import static org.infinispan.persistence.jdbc.configuration.Element.DATA_SOURCE;
-import static org.infinispan.persistence.jdbc.configuration.Element.SIMPLE_CONNECTION;
-import static org.infinispan.persistence.jdbc.configuration.Element.STRING_KEYED_TABLE;
+import static org.infinispan.persistence.jdbc.common.configuration.Element.CONNECTION_POOL;
+import static org.infinispan.persistence.jdbc.common.configuration.Element.DATA_SOURCE;
+import static org.infinispan.persistence.jdbc.common.configuration.Element.SIMPLE_CONNECTION;
+import static org.infinispan.persistence.jdbc.common.configuration.Element.STRING_KEYED_TABLE;
 import static org.infinispan.persistence.jdbc.configuration.JdbcStringBasedStoreConfiguration.KEY2STRING_MAPPER;
 import static org.infinispan.persistence.jdbc.configuration.JdbcStringBasedStoreConfiguration.PROPERTIES;
 
@@ -20,6 +20,9 @@ import org.infinispan.commons.util.TypedProperties;
 import org.infinispan.configuration.cache.PersistenceConfigurationBuilder;
 import org.infinispan.configuration.global.GlobalConfiguration;
 import org.infinispan.configuration.parsing.XmlConfigHelper;
+import org.infinispan.persistence.jdbc.common.configuration.AbstractJdbcStoreConfigurationBuilder;
+import org.infinispan.persistence.jdbc.common.configuration.ManagedConnectionFactoryConfigurationBuilder;
+import org.infinispan.persistence.jdbc.common.configuration.PooledConnectionFactoryConfigurationBuilder;
 import org.infinispan.persistence.keymappers.DefaultTwoWayKey2StringMapper;
 import org.infinispan.persistence.keymappers.Key2StringMapper;
 

@@ -12,7 +12,12 @@ import org.infinispan.configuration.parsing.ConfigurationParser;
 import org.infinispan.configuration.parsing.Namespace;
 import org.infinispan.configuration.parsing.ParseUtils;
 import org.infinispan.configuration.parsing.Parser;
-import org.infinispan.persistence.jdbc.DatabaseType;
+import org.infinispan.persistence.jdbc.common.DatabaseType;
+import org.infinispan.persistence.jdbc.common.configuration.Attribute;
+import org.infinispan.persistence.jdbc.common.configuration.Element;
+import org.infinispan.persistence.jdbc.common.configuration.ManagedConnectionFactoryConfigurationBuilder;
+import org.infinispan.persistence.jdbc.common.configuration.PooledConnectionFactoryConfigurationBuilder;
+import org.infinispan.persistence.jdbc.common.configuration.SimpleConnectionFactoryConfigurationBuilder;
 import org.kohsuke.MetaInfServices;
 
 /**

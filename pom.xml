@@ -102,11 +102,14 @@
       <module>remote-query/remote-query-server</module>
       <module>persistence</module>
       <module>persistence/jdbc</module>
+      <module>persistence/jdbc-common</module>
       <module>persistence/jpa</module>
       <module>persistence/remote</module>
       <module>persistence/rocksdb</module>
       <module>persistence/soft-index</module>
+      <!-- TODO: reenable this later
       <module>persistence/sql</module>
+      -->
       <module>server</module>
       <module>server/core</module>
       <module>server/memcached</module>

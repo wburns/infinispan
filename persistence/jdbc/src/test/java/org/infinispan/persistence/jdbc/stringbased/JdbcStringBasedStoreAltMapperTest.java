@@ -13,7 +13,7 @@ import org.infinispan.marshall.TestObjectStreamMarshaller;
 import org.infinispan.marshall.persistence.PersistenceMarshaller;
 import org.infinispan.marshall.persistence.impl.MarshalledEntryUtil;
 import org.infinispan.persistence.jdbc.configuration.JdbcStringBasedStoreConfigurationBuilder;
-import org.infinispan.persistence.jdbc.connectionfactory.ConnectionFactory;
+import org.infinispan.persistence.jdbc.common.connectionfactory.ConnectionFactory;
 import org.infinispan.persistence.jdbc.impl.table.TableManager;
 import org.infinispan.persistence.jdbc.impl.table.TableName;
 import org.infinispan.persistence.keymappers.UnsupportedKeyTypeException;

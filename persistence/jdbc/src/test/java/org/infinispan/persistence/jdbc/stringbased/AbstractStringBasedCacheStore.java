@@ -22,7 +22,7 @@ import org.infinispan.marshall.persistence.PersistenceMarshaller;
 import org.infinispan.persistence.DummyInitializationContext;
 import org.infinispan.persistence.jdbc.configuration.JdbcStringBasedStoreConfigurationBuilder;
 import org.infinispan.persistence.jdbc.configuration.TableManipulationConfiguration;
-import org.infinispan.persistence.jdbc.connectionfactory.ConnectionFactory;
+import org.infinispan.persistence.jdbc.common.connectionfactory.ConnectionFactory;
 import org.infinispan.persistence.jdbc.impl.table.TableManager;
 import org.infinispan.persistence.jdbc.impl.table.TableManagerFactory;
 import org.infinispan.persistence.spi.InitializationContext;

@@ -19,6 +19,13 @@
       </dependency>
 
       <dependency>
+         <groupId>org.infinispan</groupId>
+         <artifactId>infinispan-cachestore-jdbc-common</artifactId>
+         <!-- TODO: move this to build pom.xml -->
+         <version>13.0.0-SNAPSHOT</version>
+      </dependency>
+
+      <dependency>
          <groupId>org.testng</groupId>
          <artifactId>testng</artifactId>
          <scope>test</scope>

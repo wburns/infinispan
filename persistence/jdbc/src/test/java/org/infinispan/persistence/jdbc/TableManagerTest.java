@@ -14,13 +14,11 @@ import org.infinispan.Cache;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.marshall.TestObjectStreamMarshaller;
 import org.infinispan.persistence.DummyInitializationContext;
-import org.infinispan.persistence.jdbc.configuration.ConnectionFactoryConfiguration;
+import org.infinispan.persistence.jdbc.common.JdbcUtil;
 import org.infinispan.persistence.jdbc.configuration.JdbcStringBasedStoreConfigurationBuilder;
-import org.infinispan.persistence.jdbc.configuration.PooledConnectionFactoryConfiguration;
-import org.infinispan.persistence.jdbc.configuration.SimpleConnectionFactoryConfiguration;
-import org.infinispan.persistence.jdbc.connectionfactory.ConnectionFactory;
-import org.infinispan.persistence.jdbc.impl.connectionfactory.PooledConnectionFactory;
-import org.infinispan.persistence.jdbc.impl.connectionfactory.SimpleConnectionFactory;
+import org.infinispan.persistence.jdbc.common.connectionfactory.ConnectionFactory;
+import org.infinispan.persistence.jdbc.common.impl.connectionfactory.PooledConnectionFactory;
+import org.infinispan.persistence.jdbc.common.impl.connectionfactory.SimpleConnectionFactory;
 import org.infinispan.persistence.jdbc.impl.table.TableManager;
 import org.infinispan.persistence.jdbc.impl.table.TableManagerFactory;
 import org.infinispan.persistence.jdbc.impl.table.TableName;
@@ -137,7 +135,7 @@ public class TableManagerTest extends AbstractInfinispanTest {
          ps.setLong(4, 1);
          assert 1 == ps.executeUpdate();
       } finally {
-         JdbcUtil.safeClose(ps);
+         org.infinispan.persistence.jdbc.common.JdbcUtil.safeClose(ps);
       }
       tableManager.dropTables(connection);
       assert !tableManager.tableExists(connection, dataTableName);
@@ -161,7 +159,7 @@ public class TableManagerTest extends AbstractInfinispanTest {
       } catch (SQLException e) {
          return false;
       } finally {
-         JdbcUtil.safeClose(rs);
+         org.infinispan.persistence.jdbc.common.JdbcUtil.safeClose(rs);
          JdbcUtil.safeClose(st);
       }
    }

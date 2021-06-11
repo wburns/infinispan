@@ -1,6 +1,6 @@
 package org.infinispan.persistence.jdbc.configuration;
 
-import static org.infinispan.persistence.jdbc.configuration.Element.STRING_KEYED_TABLE;
+import static org.infinispan.persistence.jdbc.common.configuration.Element.STRING_KEYED_TABLE;
 
 import java.util.Arrays;
 import java.util.List;

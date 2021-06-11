@@ -6,6 +6,7 @@ import java.nio.file.Paths;
 
 import org.infinispan.configuration.cache.StoreConfiguration;
 import org.infinispan.configuration.serializer.AbstractConfigurationSerializerTest;
+import org.infinispan.persistence.jdbc.common.configuration.AbstractJdbcStoreConfiguration;
 import org.testng.annotations.DataProvider;
 import org.testng.annotations.Test;
 

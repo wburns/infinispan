@@ -1,8 +1,8 @@
 package org.infinispan.persistence.jdbc.stringbased;
 
-import static org.infinispan.persistence.jdbc.JdbcUtil.marshall;
-import static org.infinispan.persistence.jdbc.JdbcUtil.unmarshall;
-import static org.infinispan.persistence.jdbc.logging.Log.PERSISTENCE;
+import static org.infinispan.persistence.jdbc.common.JdbcUtil.marshall;
+import static org.infinispan.persistence.jdbc.common.JdbcUtil.unmarshall;
+import static org.infinispan.persistence.jdbc.common.logging.Log.PERSISTENCE;
 
 import java.io.InputStream;
 import java.sql.Connection;
@@ -36,12 +36,12 @@ import org.infinispan.distribution.ch.KeyPartitioner;
 import org.infinispan.marshall.persistence.PersistenceMarshaller;
 import org.infinispan.metadata.Metadata;
 import org.infinispan.metadata.impl.PrivateMetadata;
-import org.infinispan.persistence.jdbc.JdbcUtil;
+import org.infinispan.persistence.jdbc.common.JdbcUtil;
 import org.infinispan.persistence.jdbc.configuration.JdbcStringBasedStoreConfiguration;
-import org.infinispan.persistence.jdbc.connectionfactory.ConnectionFactory;
+import org.infinispan.persistence.jdbc.common.connectionfactory.ConnectionFactory;
 import org.infinispan.persistence.jdbc.impl.table.TableManager;
 import org.infinispan.persistence.jdbc.impl.table.TableManagerFactory;
-import org.infinispan.persistence.jdbc.logging.Log;
+import org.infinispan.persistence.jdbc.common.logging.Log;
 import org.infinispan.persistence.keymappers.Key2StringMapper;
 import org.infinispan.persistence.keymappers.TwoWayKey2StringMapper;
 import org.infinispan.persistence.keymappers.UnsupportedKeyTypeException;

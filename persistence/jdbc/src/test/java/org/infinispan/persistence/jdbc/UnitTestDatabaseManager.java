@@ -7,12 +7,12 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import org.infinispan.persistence.jdbc.configuration.AbstractJdbcStoreConfigurationBuilder;
-import org.infinispan.persistence.jdbc.configuration.ConnectionFactoryConfigurationBuilder;
+import org.infinispan.persistence.jdbc.common.DatabaseType;
+import org.infinispan.persistence.jdbc.common.JdbcUtil;
 import org.infinispan.persistence.jdbc.configuration.TableManipulationConfigurationBuilder;
-import org.infinispan.persistence.jdbc.connectionfactory.ConnectionFactory;
-import org.infinispan.persistence.jdbc.impl.connectionfactory.PooledConnectionFactory;
-import org.infinispan.persistence.jdbc.impl.connectionfactory.SimpleConnectionFactory;
+import org.infinispan.persistence.jdbc.common.connectionfactory.ConnectionFactory;
+import org.infinispan.persistence.jdbc.common.impl.connectionfactory.PooledConnectionFactory;
+import org.infinispan.persistence.jdbc.common.impl.connectionfactory.SimpleConnectionFactory;
 import org.infinispan.persistence.jdbc.impl.table.TableName;
 
 /**
@@ -28,14 +28,14 @@ public class UnitTestDatabaseManager {
    private static final String DB_TYPE = System.getProperty("infinispan.test.jdbc.db", "H2");
    private static final String H2_DRIVER = org.h2.Driver.class.getName();
    private static final String NON_EXISTENT_DRIVER = "non.existent.Driver";
-   private static final DatabaseType dt;
+   private static final org.infinispan.persistence.jdbc.common.DatabaseType dt;
 
    static {
       String driver = "";
       try {
          if (DB_TYPE.equalsIgnoreCase("mysql")) {
             driver = com.mysql.jdbc.Driver.class.getName();
-            dt = DatabaseType.MYSQL;
+            dt = org.infinispan.persistence.jdbc.common.DatabaseType.MYSQL;
          } else {
             driver = H2_DRIVER;
             dt = DatabaseType.H2;
@@ -133,7 +133,7 @@ public class UnitTestDatabaseManager {
       } catch (Exception ex) {
          throw new RuntimeException(ex);
       } finally {
-         JdbcUtil.safeClose(resultSet);
+         org.infinispan.persistence.jdbc.common.JdbcUtil.safeClose(resultSet);
          JdbcUtil.safeClose(statement);
          connectionFactory.releaseConnection(conn);
       }
