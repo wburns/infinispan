@@ -38,7 +38,7 @@ public abstract class AbstractJdbcStoreConfiguration extends AbstractStoreConfig
       dbMinorVersion = attributes.attribute(DB_MINOR_VERSION);
       readQueryTimeout = attributes.attribute(READ_QUERY_TIMEOUT);
       writeQueryTimeout = attributes.attribute(WRITE_QUERY_TIMEOUT);
-//      subElements.add(connectionFactory);
+      subElements().add(connectionFactory);
    }
 
    public ConnectionFactoryConfiguration connectionFactory() {

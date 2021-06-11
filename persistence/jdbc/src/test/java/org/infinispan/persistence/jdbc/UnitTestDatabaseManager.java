@@ -9,6 +9,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.persistence.jdbc.common.DatabaseType;
 import org.infinispan.persistence.jdbc.common.JdbcUtil;
+import org.infinispan.persistence.jdbc.common.configuration.AbstractJdbcStoreConfigurationBuilder;
+import org.infinispan.persistence.jdbc.common.configuration.ConnectionFactoryConfigurationBuilder;
 import org.infinispan.persistence.jdbc.configuration.TableManipulationConfigurationBuilder;
 import org.infinispan.persistence.jdbc.common.connectionfactory.ConnectionFactory;
 import org.infinispan.persistence.jdbc.common.impl.connectionfactory.PooledConnectionFactory;

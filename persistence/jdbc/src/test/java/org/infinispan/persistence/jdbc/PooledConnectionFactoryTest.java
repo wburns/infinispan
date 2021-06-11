@@ -4,6 +4,9 @@ import java.sql.Connection;
 import java.util.HashSet;
 import java.util.Set;
 
+import org.infinispan.persistence.jdbc.common.configuration.ConnectionFactoryConfiguration;
+import org.infinispan.persistence.jdbc.common.configuration.ConnectionFactoryConfigurationBuilder;
+import org.infinispan.persistence.jdbc.common.configuration.PooledConnectionFactoryConfiguration;
 import org.infinispan.persistence.jdbc.configuration.JdbcStringBasedStoreConfigurationBuilder;
 import org.infinispan.persistence.jdbc.common.impl.connectionfactory.PooledConnectionFactory;
 import org.infinispan.persistence.spi.PersistenceException;

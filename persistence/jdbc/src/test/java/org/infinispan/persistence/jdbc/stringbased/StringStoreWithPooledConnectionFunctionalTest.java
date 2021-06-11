@@ -1,5 +1,7 @@
 package org.infinispan.persistence.jdbc.stringbased;
 
+import org.infinispan.persistence.jdbc.common.configuration.ConnectionFactoryConfiguration;
+import org.infinispan.persistence.jdbc.common.configuration.PooledConnectionFactoryConfiguration;
 import org.infinispan.persistence.jdbc.configuration.JdbcStringBasedStoreConfigurationBuilder;
 import org.infinispan.persistence.jdbc.common.connectionfactory.ConnectionFactory;
 import org.infinispan.persistence.jdbc.common.impl.connectionfactory.PooledConnectionFactory;
