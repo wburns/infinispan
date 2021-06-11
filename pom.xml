@@ -107,9 +107,7 @@
       <module>persistence/remote</module>
       <module>persistence/rocksdb</module>
       <module>persistence/soft-index</module>
-      <!-- TODO: reenable this later
       <module>persistence/sql</module>
-      -->
       <module>server</module>
       <module>server/core</module>
       <module>server/memcached</module>
