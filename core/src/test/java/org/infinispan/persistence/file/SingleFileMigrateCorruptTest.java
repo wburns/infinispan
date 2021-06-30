@@ -1,20 +1,26 @@
 package org.infinispan.persistence.file;
 
 import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertNotNull;
+import static org.testng.AssertJUnit.assertNull;
 
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
 
+import org.infinispan.AdvancedCache;
 import org.infinispan.Cache;
 import org.infinispan.commons.test.CommonsTestingUtil;
 import org.infinispan.commons.util.FileLookupFactory;
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.parsing.ConfigurationBuilderHolder;
+import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.manager.DefaultCacheManager;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.test.AbstractInfinispanTest;
@@ -64,7 +70,7 @@ public class SingleFileMigrateCorruptTest extends AbstractInfinispanTest {
          Cache<Object, Object> cache = cacheManager.getCache(CACHE_NAME);
 
          // Ensure all expected values are readable
-         assertContent(cache);
+         assertContent(cache.getAdvancedCache(), false);
 
          // Write to a migrated key
          cache.put(0, "RuntimeValue");
@@ -77,7 +83,7 @@ public class SingleFileMigrateCorruptTest extends AbstractInfinispanTest {
       try (EmbeddedCacheManager cacheManager = new DefaultCacheManager(cbh, true)) {
          Cache<Object, Object> cache = cacheManager.getCache(CACHE_NAME);
          // Ensure all expected values are readable
-         assertContent(cache);
+         assertContent(cache.getAdvancedCache(), true);
 
          // Ensure that the entry updated after migration can be read
          assertEquals("RuntimeValue", cache.get(0));
@@ -87,8 +93,8 @@ public class SingleFileMigrateCorruptTest extends AbstractInfinispanTest {
       }
    }
 
-   private void assertContent(Cache<Object, Object> cache) {
-      IntStream.range(0, 1000).forEach(i -> {
+   private void assertContent(AdvancedCache<Object, Object> cache, boolean skip0) {
+      IntStream.range(skip0 ? 1 : 0, 1000).forEach(i -> {
          if (i % 4 == 0) {
             // Ensure that we have the expected values from SFSCorruptedMigration12_1
             assertEquals(i + "-updated-12.1", cache.get(i));
@@ -99,22 +105,39 @@ public class SingleFileMigrateCorruptTest extends AbstractInfinispanTest {
       });
 
       IntStream.range(1000, 2000).forEach(i -> {
-         if (i % 4 == 0) {
+         CacheEntry<Object, Object> entry = cache.getCacheEntry(i);
+         if (i % 8 == 0) {
+            assertNotNull("No entry found for key: " + i, entry);
             // Ensure that we have the expected values from SFSCorruptedMigration12_1
-            assertEquals(i + "-updated-12.1", cache.get(i));
+            assertEquals(i + "-updated-12.1", entry.getValue());
+
+            // We overrode the expiration lifespan
+            assertEquals(-1, entry.getLifespan());
+         } else if (i % 4 == 0) {
+            // These should have expired since they were inserted after the corruption occurred
+           assertNull("Entry was supposed to be expired for key: " + i, entry);
          } else {
+            assertNotNull("No entry found for key: " + i, entry);
             // Ensure that we have the expected values from SFSCreator11_0
-            assertEquals(i, cache.get(i));
+            assertEquals(i, entry.getValue());
+
+            assertEquals(longTimeMilliseconds(), entry.getLifespan());
          }
       });
 
       IntStream.range(2000, 3000).forEach(i -> {
-         if (i % 2 == 0) {
+         if (i % 4 == 0) {
             assertEquals(i + "-12.1-with-expiration", cache.get(i));
+         } else if (i % 2 == 0) {
+            assertNull(cache.get(i));
          } else {
             assertEquals(i + "-12.1", cache.get(i));
          }
       });
+   }
+
+   static long longTimeMilliseconds() {
+      return TimeUnit.DAYS.toMillis(365 * 50);
    }
 }
 
@@ -144,8 +167,8 @@ public class SingleFileMigrateCorruptTest extends AbstractInfinispanTest {
 //         // Primitive values
 //         IntStream.range(0, 1000).forEach(i -> cache.put(i, i));
 //
-//         // Values with expiration. Need to verify that this is still loaded and timestamp restarted.
-//         IntStream.range(1000, 2000).forEach(i -> cache.put(i, i, 1, TimeUnit.MINUTES));
+//         // Values with expiration.
+//         IntStream.range(1000, 2000).forEach(i -> cache.put(i, i, SingleFileMigrateCorruptTest.longTimeMilliseconds(), TimeUnit.MILLISECONDS));
 //
 //         // WrappedByteArrays
 //         WrappedByteArray wba = new WrappedByteArray("wrapped-bytes".getBytes(StandardCharsets.UTF_8));
@@ -181,7 +204,6 @@ public class SingleFileMigrateCorruptTest extends AbstractInfinispanTest {
 //      cbh.newConfigurationBuilder(CACHE_NAME)
 //            .persistence()
 //            .addSingleFileStore()
-//            .purgeOnStartup(true)
 //            .segmented(false)
 //            .location(sfsPath.toString());
 //
@@ -199,13 +221,18 @@ public class SingleFileMigrateCorruptTest extends AbstractInfinispanTest {
 //         // Values with expiration. Need to verify that this is still loaded and timestamp restarted.
 //         IntStream.range(1000, 2000).forEach(i -> {
 //            // Overwrite a subset of values
-//            if (i % 4 == 0)
-//               cache.put(i, i + "-updated-12.1", 1, TimeUnit.MINUTES);
+//            if (i % 8 == 0) {
+//               cache.put(i, i + "-updated-12.1");
+//            } else if (i % 4 == 0) {
+//               cache.put(i, i + "-updated-12.1", 1, TimeUnit.SECONDS);
+//            }
 //         });
 //
 //         IntStream.range(2000, 3000).forEach(i -> {
-//            if (i % 2 == 0) {
-//               cache.put(i, i + "-12.1-with-expiration", 1, TimeUnit.MINUTES);
+//            if (i % 4 == 0) {
+//               cache.put(i, i + "-12.1-with-expiration", SingleFileMigrateCorruptTest.longTimeMilliseconds(), TimeUnit.MILLISECONDS);
+//            } else if (i % 2 == 0) {
+//               cache.put(i, i + "-12.1-with-expiration", 1, TimeUnit.SECONDS);
 //            } else {
 //               cache.put(i, i + "-12.1");
 //            }

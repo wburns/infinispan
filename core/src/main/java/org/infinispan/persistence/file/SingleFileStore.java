@@ -329,7 +329,7 @@ public class SingleFileStore<K, V> implements AdvancedLoadWriteStore<K, V> {
       try (FileChannel newChannel = SecurityActions.openFileChannel(newFile)) {
          //Write Magic
          newChannel.truncate(0);
-         newChannel.write(ByteBuffer.wrap(MAGIC_12_0), 0);
+         newChannel.write(ByteBuffer.wrap(MAGIC_LATEST), 0);
 
          long oldFilePos = MAGIC_12_0.length;
          while (true) {
@@ -378,13 +378,16 @@ public class SingleFileStore<K, V> implements AdvancedLoadWriteStore<K, V> {
                created = buf.getLong();
                lastUsed = buf.getLong();
 
-
                // If the Timestamps are in the future or < sanityEpoch, then we're migrating corrupt data so set the value to current wallClockTime
-               if (created != -1 && (created > currentTs || created < sanityEpoch))
-                  created = currentTs;
+               if (created != -1 && (created > currentTs || created < sanityEpoch)) {
+                  long lifespan = metadata.lifespan();
+                  created = lifespan > 0 ? fe.expiryTime - lifespan : currentTs;
+               }
 
-               if (lastUsed != -1 && (lastUsed > currentTs || lastUsed < sanityEpoch))
-                  lastUsed = currentTs;
+               if (lastUsed != -1 && (lastUsed > currentTs || lastUsed < sanityEpoch)) {
+                  long maxIdle = metadata.maxIdle();
+                  lastUsed = maxIdle > 0 ? fe.expiryTime - maxIdle : currentTs;
+               }
 
                oldFilePos = offset.get();
             }
@@ -399,6 +402,14 @@ public class SingleFileStore<K, V> implements AdvancedLoadWriteStore<K, V> {
                   internalMeta = generateMissingInternalMetadata();
                }
             }
+
+            // Last expiration check before writing as expiryTime is considered good now
+            // This check is required as write below doesn't verify expiration or not and
+            // just creates a new expiryTime.
+            if (fe.expiryTime > 0 && fe.expiryTime < currentTs) {
+               continue;
+            }
+
             MarshallableEntry<? extends K, ? extends V> me = (MarshallableEntry<? extends K, ? extends V>) ctx.getMarshallableEntryFactory().create(key, value, metadata, internalMeta, created, lastUsed);
             write(me, newChannel);
          }
