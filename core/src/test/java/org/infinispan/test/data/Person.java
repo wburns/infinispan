@@ -1,6 +1,7 @@
 package org.infinispan.test.data;
 
 import java.io.Serializable;
+import java.util.Date;
 
 import org.infinispan.commons.dataconversion.internal.Json;
 import org.infinispan.commons.dataconversion.internal.JsonSerialization;
@@ -11,19 +12,21 @@ public class Person implements Serializable, JsonSerialization {
 
    String name;
    Address address;
+   Date birthDate;
 
    public Person() {
       // Needed for serialization
    }
 
    public Person(String name) {
-      this(name, null);
+      this(name, null, null);
    }
 
    @ProtoFactory
-   public Person(String name, Address address) {
+   public Person(String name, Address address, Date birthDate) {
       this.name = name;
       this.address = address;
+      this.birthDate = birthDate;
    }
 
    @ProtoField(1)
@@ -44,14 +47,25 @@ public class Person implements Serializable, JsonSerialization {
       this.address = address;
    }
 
+   @ProtoField(3)
+   public Date getBirthDate() {
+      return birthDate;
+   }
+
+   public void setBirthDate(Date birthDate) {
+      this.birthDate = birthDate;
+   }
+
    @Override
    public String toString() {
       return "Person{" +
             "name='" + name + '\'' +
             ", address=" + address +
+            ", birthDate=" + birthDate +
             '}';
    }
 
+   @Override
    public boolean equals(Object o) {
       if (this == o) return true;
       if (o == null || getClass() != o.getClass()) return false;
@@ -60,14 +74,17 @@ public class Person implements Serializable, JsonSerialization {
 
       if (address != null ? !address.equals(person.address) : person.address != null) return false;
       if (name != null ? !name.equals(person.name) : person.name != null) return false;
+      if (birthDate != null ? !birthDate.equals(person.birthDate) : person.birthDate != null) return false;
 
       return true;
    }
 
+   @Override
    public int hashCode() {
       int result;
       result = (name != null ? name.hashCode() : 0);
       result = 29 * result + (address != null ? address.hashCode() : 0);
+      result = 29 * result + (birthDate != null ? birthDate.hashCode() : 0);
       return result;
    }
 
@@ -75,6 +92,7 @@ public class Person implements Serializable, JsonSerialization {
    public Json toJson() {
       return Json.object()
             .set("name", name)
-            .set("address", Json.make(address));
+            .set("address", Json.make(address)
+                  .set("birthDate", birthDate));
    }
 }
