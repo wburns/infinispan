@@ -860,7 +860,7 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
             }
 
             CompletionStage<R> stage = collator.apply(innerFlowable);
-            // This will always be true unless there is a store
+            // This will always be true unless there is a store or the cache is scattered
             if (CompletionStages.isCompletedSuccessfully(stage)) {
                if (listener.segmentsLost.contains(segment)) {
                   return CompletableFutures.completedNull();
