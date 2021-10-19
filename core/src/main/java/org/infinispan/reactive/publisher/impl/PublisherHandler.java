@@ -692,6 +692,7 @@ public class PublisherHandler {
       // with the last entry that we didn't notify of the segment completion - this should be pretty rare though
       @Override
       public void segmentComplete(int segment) {
+         Object k = keyForSegmentCompletion;
          // This means the consumer was sent the value immediately - this is most likely caused by the transformer
          // didn't have flatMap or anything else fancy (or we had an empty segment)
          if (keyForSegmentCompletion == null) {
@@ -702,10 +703,11 @@ public class PublisherHandler {
          } else {
             if (log.isTraceEnabled()) {
                log.tracef("Delaying segment %d completion until key %s is fully consumed for %s", segment,
-                     keyForSegmentCompletion, requestId);
+                     k, requestId);
             }
             keySegmentCompletions.put(keyForSegmentCompletion, segment);
-            keyForSegmentCompletion = null;
+            assert keyForSegmentCompletion != null;
+            this.keyForSegmentCompletion = null;
          }
       }
 
