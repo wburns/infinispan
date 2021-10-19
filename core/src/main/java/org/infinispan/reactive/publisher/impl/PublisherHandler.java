@@ -617,7 +617,7 @@ public class PublisherHandler {
          // This means we processed a key without fetching another - thus we must allow if a segment completion
          // comes next to actually complete
          if (keyForSegmentCompletion == key) {
-            if (log.isTraceEnabled()) log.tracef("Completed segment %d from key %s", keySegmentCompletions.get(key), keyForSegmentCompletion);
+            if (log.isTraceEnabled()) log.tracef("Completed key %s", keyForSegmentCompletion);
             keyForSegmentCompletion = null;
          }
 
