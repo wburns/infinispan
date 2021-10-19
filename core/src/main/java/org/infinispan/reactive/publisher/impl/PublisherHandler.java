@@ -526,7 +526,10 @@ public class PublisherHandler {
          Flowable.fromPublisher(s -> sap.subscribe(s, this::segmentComplete, this::segmentLost))
                // We need to do this first because it is a PASS_THROUGH operation - so we can maintain segment
                // completion ordering with the assignment of this variable
-               .doOnNext(originalValue -> keyForSegmentCompletion = originalValue)
+               .doOnNext(originalValue -> {
+                  if (log.isTraceEnabled()) log.tracef("Update key for segment completion %s", originalValue);
+                  keyForSegmentCompletion = originalValue;
+               })
                // This is a FULL backpressure operation that buffers values thus causes values to not immediatelly
                // be published
                .concatMap(originalValue -> {
@@ -558,11 +561,12 @@ public class PublisherHandler {
                                  // Also null out our key for segment completion if needed since this key will never be
                                  // found published
                                  if (keyForSegmentCompletion == originalValue) {
+                                    if (log.isTraceEnabled()) log.tracef("Discard key for segment completion %s", keyForSegmentCompletion);
                                     keyForSegmentCompletion = null;
                                  }
                               }
                         });
-               })
+               }, 1)
                .subscribe(this);
       }
 
@@ -613,6 +617,7 @@ public class PublisherHandler {
          // This means we processed a key without fetching another - thus we must allow if a segment completion
          // comes next to actually complete
          if (keyForSegmentCompletion == key) {
+            if (log.isTraceEnabled()) log.tracef("Completed segment %d from key %s", keySegmentCompletions.get(key), keyForSegmentCompletion);
             keyForSegmentCompletion = null;
          }
 
@@ -625,6 +630,7 @@ public class PublisherHandler {
             keys = null;
             keyPos = 0;
          } else {
+            if (log.isTraceEnabled()) log.tracef("No segment to complete for key %s", key);
             // We don't need to track the key for a segment that just completed
             if (keys == null) {
                keys = new Object[batchSize];
@@ -695,7 +701,7 @@ public class PublisherHandler {
             actualCompleteSegment(segment);
          } else {
             if (log.isTraceEnabled()) {
-               log.tracef("Delaying segment completion for %s until key %s is fully consumed for %s", segment,
+               log.tracef("Delaying segment %d completion until key %s is fully consumed for %s", segment,
                      keyForSegmentCompletion, requestId);
             }
             keySegmentCompletions.put(keyForSegmentCompletion, segment);
