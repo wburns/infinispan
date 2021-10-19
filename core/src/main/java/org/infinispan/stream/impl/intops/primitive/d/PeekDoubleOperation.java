@@ -43,7 +43,7 @@ public class PeekDoubleOperation implements IntermediateOperation<Double, Double
 
    @Override
    public Flowable<Double> mapFlowable(Flowable<Double> input) {
-      return input.flatMapSingle(t -> Single.fromCompletionStage(
+      return input.concatMapSingle(t -> Single.fromCompletionStage(
             blockingManager.supplyBlocking(() -> {
                consumer.accept(t);
                return t;

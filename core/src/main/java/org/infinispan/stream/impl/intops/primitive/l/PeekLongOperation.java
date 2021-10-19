@@ -43,7 +43,7 @@ public class PeekLongOperation implements IntermediateOperation<Long, LongStream
 
    @Override
    public Flowable<Long> mapFlowable(Flowable<Long> input) {
-      return input.flatMapSingle(t -> Single.fromCompletionStage(
+      return input.concatMapSingle(t -> Single.fromCompletionStage(
             blockingManager.supplyBlocking(() -> {
                consumer.accept(t);
                return t;

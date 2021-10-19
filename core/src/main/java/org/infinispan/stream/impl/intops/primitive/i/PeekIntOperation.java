@@ -43,7 +43,7 @@ public class PeekIntOperation implements IntermediateOperation<Integer, IntStrea
 
    @Override
    public Flowable<Integer> mapFlowable(Flowable<Integer> input) {
-      return input.flatMapSingle(t -> Single.fromCompletionStage(
+      return input.concatMapSingle(t -> Single.fromCompletionStage(
             blockingManager.supplyBlocking(() -> {
                consumer.accept(t);
                return t;
