@@ -236,21 +236,54 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
    private <I, R> SegmentAwarePublisher<R> specificKeyPublisher(IntSet segment, Set<K> keysToInclude,
          FlowableConverter<K, Flowable<I>> conversionFunction,
          Function<? super Publisher<I>, ? extends Publisher<R>> transformer) {
-      return (subscriber, completedSegmentConsumer, lostSegmentConsumer) ->
-            Flowable.fromIterable(keysToInclude)
+      return new BaseSegmentAwarePublisher<R>() {
+         private Publisher<R> actualPublisherValues() {
+            return Flowable.fromIterable(keysToInclude)
                   .to(conversionFunction)
-                  .doOnComplete(() -> {
-                     for (PrimitiveIterator.OfInt iter = segment.iterator(); iter.hasNext(); ) {
-                        completedSegmentConsumer.accept(iter.nextInt());
-                     }
-                  })
-                  .to(transformer::apply)
-                  .subscribe(subscriber);
+                  .to(transformer::apply);
+         }
 
+         @Override
+         public void subscribe(Subscriber<? super R> s) {
+            actualPublisherValues().subscribe(s);
+         }
 
+         @Override
+         Flowable<NotificationWithLost<R>> flowableWithNotifications() {
+            // Need to use defer so returned value can be subscribed to multiple times
+            return Flowable.defer(() -> {
+               FlowableProcessor<NotificationWithLost<R>> flowableProcessor = UnicastProcessor.create();
+               Flowable.fromPublisher(actualPublisherValues())
+                     .map(Notifications::value)
+                     .subscribe(flowableProcessor::onNext, flowableProcessor::onError, () -> {
+                        for (PrimitiveIterator.OfInt iter = segment.iterator(); iter.hasNext(); ) {
+                           flowableProcessor.onNext(Notifications.segmentComplete(iter.nextInt()));
+                        }
+                        flowableProcessor.onComplete();
+                     });
+               return flowableProcessor;
+            });
+         }
+      };
    }
 
-   private class SegmentAwarePublisherImpl<I, R> implements SegmentAwarePublisher<R> {
+   private abstract static class BaseSegmentAwarePublisher<R> implements SegmentAwarePublisher<R> {
+      @Override
+      public void subscribeWithSegments(Subscriber<? super Notification<R>> subscriber) {
+         flowableWithNotifications().filter(notification -> !notification.isLostSegment())
+               .map(n -> (Notification<R>) n)
+               .subscribe(subscriber);
+      }
+
+      @Override
+      public void subscribeWithLostSegments(Subscriber<? super NotificationWithLost<R>> subscriber) {
+         flowableWithNotifications().subscribe(subscriber);
+      }
+
+      abstract Flowable<NotificationWithLost<R>> flowableWithNotifications();
+   }
+
+   private class SegmentAwarePublisherImpl<I, R> extends BaseSegmentAwarePublisher<R> {
       private final IntSet segments;
       private final CacheSet<I> set;
       private final Predicate<? super I> predicate;
@@ -268,54 +301,70 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
       }
 
       @Override
-      public void subscribe(Subscriber<? super R> s, IntConsumer completedSegmentConsumer, IntConsumer lostSegmentConsumer) {
-         Flowable<R> resultPublisher;
-         switch (deliveryGuarantee) {
-            case AT_MOST_ONCE:
-               resultPublisher = Flowable.fromIterable(segments).concatMap(segment -> {
-                  Publisher<I> publisher = set.localPublisher(segment);
-                  if (predicate != null) {
-                     publisher = Flowable.fromPublisher(publisher)
-                           .filter(predicate);
-                  }
-                  return Flowable.fromPublisher(transformer.apply(publisher))
-                        .doOnComplete(() -> completedSegmentConsumer.accept(segment));
-               });
-               break;
-            case AT_LEAST_ONCE:
-            case EXACTLY_ONCE:
-               IntSet concurrentSet = IntSets.concurrentCopyFrom(segments, maxSegment);
-               RemoveSegmentListener listener = new RemoveSegmentListener(concurrentSet);
+      public void subscribe(Subscriber<? super R> s) {
+         Flowable.fromIterable(segments).concatMap(segment -> {
+            Publisher<I> publisher = set.localPublisher(segment);
+            if (predicate != null) {
+               publisher = Flowable.fromPublisher(publisher)
+                     .filter(predicate);
+            }
+            return Flowable.fromPublisher(transformer.apply(publisher));
+         }).subscribe(s);
+      }
 
-               changeListener.add(listener);
-
-               // Check topology before submitting
-               listener.verifyTopology(distributionManager.getCacheTopology());
-
-               resultPublisher = Flowable.fromIterable(segments).concatMap(segment -> {
-                  if (!concurrentSet.contains(segment)) {
-                     return Flowable.empty();
-                  }
-                  Publisher<I> publisher = set.localPublisher(segment);
-                  if (predicate != null) {
-                     publisher = Flowable.fromPublisher(publisher)
-                           .filter(predicate);
-                  }
-                  return Flowable.fromPublisher(transformer.apply(publisher))
-                        .doOnComplete(() -> {
-                           if (concurrentSet.remove(segment)) {
-                              completedSegmentConsumer.accept(segment);
-                           } else {
-                              lostSegmentConsumer.accept(segment);
+      Flowable<NotificationWithLost<R>> flowableWithNotifications() {
+         // Need to use defer so returned value can be subscribed to multiple times
+         return Flowable.defer(() -> {
+            FlowableProcessor<NotificationWithLost<R>> flowableProcessor = UnicastProcessor.create();
+            switch (deliveryGuarantee) {
+               case AT_MOST_ONCE:
+                  Flowable.fromIterable(segments).concatMap(segment -> {
+                           Publisher<I> publisher = set.localPublisher(segment);
+                           if (predicate != null) {
+                              publisher = Flowable.fromPublisher(publisher)
+                                    .filter(predicate);
                            }
-                        });
-               }).doFinally(() -> changeListener.remove(listener));
-               break;
-            default:
-               throw new UnsupportedOperationException("Unsupported delivery guarantee: " + deliveryGuarantee);
-         }
+                           return Flowable.fromPublisher(transformer.apply(publisher))
+                                 .doOnComplete(() -> flowableProcessor.onNext(Notifications.segmentComplete(segment)));
+                        }).map(Notifications::value)
+                        .subscribe(flowableProcessor::onNext, flowableProcessor::onError, flowableProcessor::onComplete);
+                  break;
+               case AT_LEAST_ONCE:
+               case EXACTLY_ONCE:
+                  IntSet concurrentSet = IntSets.concurrentCopyFrom(segments, maxSegment);
+                  RemoveSegmentListener listener = new RemoveSegmentListener(concurrentSet);
 
-         resultPublisher.subscribe(s);
+                  changeListener.add(listener);
+
+                  // Check topology before submitting
+                  listener.verifyTopology(distributionManager.getCacheTopology());
+
+                  Flowable<R> flowable = Flowable.fromIterable(segments).concatMap(segment -> {
+                     if (!concurrentSet.contains(segment)) {
+                        return Flowable.empty();
+                     }
+                     Publisher<I> publisher = set.localPublisher(segment);
+                     if (predicate != null) {
+                        publisher = Flowable.fromPublisher(publisher)
+                              .filter(predicate);
+                     }
+                     return Flowable.fromPublisher(transformer.apply(publisher))
+                           .doOnComplete(() -> {
+                              NotificationWithLost<R> notification = concurrentSet.remove(segment) ?
+                                    Notifications.segmentComplete(segment) : Notifications.segmentLost(segment);
+                              flowableProcessor.onNext(notification);
+                           });
+                  });
+                  flowable
+                        .doFinally(() -> changeListener.remove(listener))
+                        .map(Notifications::value)
+                        .subscribe(flowableProcessor::onNext, flowableProcessor::onError, flowableProcessor::onComplete);
+                  break;
+               default:
+                  throw new UnsupportedOperationException("Unsupported delivery guarantee: " + deliveryGuarantee);
+            }
+            return flowableProcessor;
+         });
       }
    }
 
@@ -584,17 +633,17 @@ public class LocalPublisherManagerImpl<K, V> implements LocalPublisherManager<K,
          Function<? super Publisher<I>, ? extends CompletionStage<R>> collator,
          Function<? super Publisher<R>, ? extends CompletionStage<R>> finalizer) {
       Flowable<R> stageFlowable = Flowable.fromIterable(segments)
-                                          .parallel(cpuCount)
-                                          .runOn(nonBlockingScheduler)
-                                          .flatMap(segment -> {
-                                             Flowable<I> innerFlowable = Flowable.fromPublisher(cacheSet.localPublisher(segment));
-                                             if (keysToExclude != null) {
-                                                innerFlowable = innerFlowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
-                                             }
-                                             // TODO Make the collator return a Flowable/Maybe
-                                             CompletionStage<R> stage = collator.apply(innerFlowable);
-                                             return Maybe.fromCompletionStage(stage).toFlowable();
-                                          }, false, cpuCount)
+            .parallel(cpuCount)
+            .runOn(nonBlockingScheduler)
+            .concatMap(segment -> {
+               Flowable<I> innerFlowable = Flowable.fromPublisher(cacheSet.localPublisher(segment));
+               if (keysToExclude != null) {
+                  innerFlowable = innerFlowable.filter(i -> !keysToExclude.contains(toKeyFunction.apply(i)));
+               }
+               // TODO Make the collator return a Flowable/Maybe
+               CompletionStage<R> stage = collator.apply(innerFlowable);
+               return Maybe.fromCompletionStage(stage).toFlowable();
+            })
                                           .sequential();
 
       return finalizer.apply(stageFlowable);

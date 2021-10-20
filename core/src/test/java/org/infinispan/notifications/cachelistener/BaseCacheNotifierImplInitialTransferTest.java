@@ -59,6 +59,7 @@ import org.infinispan.notifications.cachelistener.filter.CacheEventConverter;
 import org.infinispan.notifications.cachelistener.filter.CacheEventFilter;
 import org.infinispan.notifications.cachelistener.filter.EventType;
 import org.infinispan.reactive.publisher.impl.ClusterPublisherManager;
+import org.infinispan.reactive.publisher.impl.DefaultSegmentCompletionPublisher;
 import org.infinispan.remoting.rpc.RpcManager;
 import org.infinispan.test.AbstractInfinispanTest;
 import org.infinispan.test.TestingUtil;
@@ -179,7 +180,7 @@ public abstract class BaseCacheNotifierImplInitialTransferTest extends AbstractI
       }
 
       when(mockPublisherManager.entryPublisher(any(), any(), any(), anyBoolean(), any(), anyInt(), any()))
-            .thenReturn((s, intConsumer) -> Flowable.fromIterable(initialValues).subscribe(s));
+            .thenReturn((DefaultSegmentCompletionPublisher<CacheEntry<String, String>>) s -> Flowable.fromIterable(initialValues).subscribe(s));
 
       n.addListener(listener);
       verifyEvents(isClustered(listener), listener, initialValues);
@@ -201,7 +202,7 @@ public abstract class BaseCacheNotifierImplInitialTransferTest extends AbstractI
       // the filter/converter are not used by us
 
       when(mockPublisherManager.entryPublisher(any(), any(), any(), anyBoolean(), any(), anyInt(), any()))
-            .thenReturn((s, intConsumer) -> Flowable.fromIterable(initialValues).subscribe(s));
+            .thenReturn((DefaultSegmentCompletionPublisher<CacheEntry<String, String>>) (s) -> Flowable.fromIterable(initialValues).subscribe(s));
 
       CacheEventFilter filter = mock(CacheEventFilter.class, withSettings().serializable());
       CacheEventConverter converter = mock(CacheEventConverter.class, withSettings().serializable());
@@ -225,7 +226,7 @@ public abstract class BaseCacheNotifierImplInitialTransferTest extends AbstractI
       // Note we don't actually use the filter/converter to retrieve values since it is being mocked, thus we can assert
       // the filter/converter are not used by us
       when(mockPublisherManager.entryPublisher(any(), any(), any(), anyBoolean(), any(), anyInt(), any()))
-            .thenReturn((s, intConsumer) -> Flowable.fromIterable(initialValues).subscribe(s));
+            .thenReturn((DefaultSegmentCompletionPublisher<CacheEntry<String, String>>) (s) -> Flowable.fromIterable(initialValues).subscribe(s));
 
       CacheEventFilter filter = mock(CacheEventFilter.class, withSettings().serializable());
       CacheEventConverter converter = mock(CacheEventConverter.class, withSettings().serializable());
@@ -320,7 +321,7 @@ public abstract class BaseCacheNotifierImplInitialTransferTest extends AbstractI
       final CyclicBarrier barrier = new CyclicBarrier(2);
 
       when(mockPublisherManager.entryPublisher(any(), any(), any(), anyBoolean(), any(), anyInt(), any()))
-            .thenReturn((s, intConsumer) -> Flowable.defer(() -> {
+            .thenReturn((DefaultSegmentCompletionPublisher<CacheEntry<String, String>>) (s) -> Flowable.defer(() -> {
                barrier.await(10, TimeUnit.SECONDS);
                barrier.await(10, TimeUnit.SECONDS);
                return Flowable.fromIterable(initialValues);
@@ -420,7 +421,7 @@ public abstract class BaseCacheNotifierImplInitialTransferTest extends AbstractI
       final CyclicBarrier barrier = new CyclicBarrier(2);
 
       when(mockPublisherManager.entryPublisher(any(), any(), any(), anyBoolean(), any(), anyInt(), any()))
-            .thenReturn((s, intConsumer) -> Flowable.fromIterable(initialValues)
+            .thenReturn((DefaultSegmentCompletionPublisher<CacheEntry<String, String>>) (s) -> Flowable.fromIterable(initialValues)
                   .doOnComplete(() -> {
                      barrier.await(10, TimeUnit.SECONDS);
                      barrier.await(10, TimeUnit.SECONDS);

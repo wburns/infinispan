@@ -17,20 +17,22 @@ import org.reactivestreams.Subscriber;
  * implementors to optimize for the case when segment completion is not needed as this may require additional overhead.
  * @param <R> value type
  */
-@FunctionalInterface
 public interface SegmentCompletionPublisher<R> extends Publisher<R> {
-   IntConsumer EMPTY_CONSUMER = v -> { };
+   interface Notification<R> {
+      boolean isValue();
+
+      boolean isSegmentComplete();
+
+      R value();
+
+      int completedSegment();
+   }
 
    /**
     * Same as {@link org.reactivestreams.Publisher#subscribe(Subscriber)}, except that we also can notify a listener
     * when a segment has published all of its entries
-    * @param s subscriber to be notified of values and completion
-    * @param completedSegmentConsumer segment notifier to notify
+    *
+    * @param subscriber subscriber to be notified of values and segment completion
     */
-   void subscribe(Subscriber<? super R> s, IntConsumer completedSegmentConsumer);
-
-   @Override
-   default void subscribe(Subscriber<? super R> s) {
-      subscribe(s, EMPTY_CONSUMER);
-   }
+   void subscribeWithSegments(Subscriber<? super Notification<R>> subscriber);
 }

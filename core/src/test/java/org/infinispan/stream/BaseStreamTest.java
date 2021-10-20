@@ -1850,6 +1850,7 @@ public abstract class BaseStreamTest extends MultipleCacheManagersTest {
                   synchronized (stats) {
                      stats.accept(e);
                   }
+                  log.fatal("Completed " + e);
                });
          DoubleSummaryStatistics stats = getForEachObject(offset);
          assertEquals(2.25, stats.getAverage());

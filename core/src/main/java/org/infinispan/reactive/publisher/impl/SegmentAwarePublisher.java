@@ -1,8 +1,5 @@
 package org.infinispan.reactive.publisher.impl;
 
-import java.util.function.IntConsumer;
-
-import org.reactivestreams.Publisher;
 import org.reactivestreams.Subscriber;
 
 /**
@@ -11,26 +8,38 @@ import org.reactivestreams.Subscriber;
  * <p>
  * This interface is normally just for internal Infinispan usage as users shouldn't normally have to care about retrying.
  * <p>
- * If segment completion is not needed, use the {@link Publisher#subscribe(Subscriber)} or provided
- * {@link #EMPTY_CONSUMER} as the argument to both of the arguments in the
- * {@link #subscribe(Subscriber, IntConsumer, IntConsumer)} method. This allows implementors to optimize for the case
- * when segment completion/loss is not needed as this may require additional overhead.
+ * Implementors of this do not do retries and instead notify of lost segments instead of retrying, which implementors
+ * of {@link SegmentCompletionPublisher} normally do.
+ *
  * @param <R> value type
  */
-@FunctionalInterface
 public interface SegmentAwarePublisher<R> extends SegmentCompletionPublisher<R> {
 
+   interface NotificationWithLost<R> extends SegmentCompletionPublisher.Notification<R> {
+      boolean isLostSegment();
+
+      int lostSegment();
+   }
+
    /**
-    * Same as {@link SegmentCompletionPublisher#subscribe(Subscriber, IntConsumer)}, except that we also can notify a
+    * Same as {@link SegmentCompletionPublisher#subscribeWithSegments(Subscriber)} , except that we also can notify a
     * listener when a segment has been lost before publishing all its entries
-    * @param s subscriber to be notified of values and completion
-    * @param completedSegmentConsumer segment notifier to notify
-    * @param lostSegmentConsumer segment notifier to notify of lost segments
+    *
+    * @param subscriber subscriber to be notified of values, segment completion and segment lost
     */
-   void subscribe(Subscriber<? super R> s, IntConsumer completedSegmentConsumer, IntConsumer lostSegmentConsumer);
+   void subscribeWithLostSegments(Subscriber<? super NotificationWithLost<R>> subscriber);
 
    @Override
-   default void subscribe(Subscriber<? super R> s, IntConsumer completedSegmentConsumer) {
-      subscribe(s, completedSegmentConsumer, EMPTY_CONSUMER);
+   default void subscribeWithSegments(Subscriber<? super Notification<R>> subscriber) {
+
    }
+
+   /**
+    * When this method is used the {@link DeliveryGuarantee} is ignored as the user isn't listening to completion or
+    * lost segments
+    *
+    * @param s
+    */
+   @Override
+   void subscribe(Subscriber<? super R> s);
 }

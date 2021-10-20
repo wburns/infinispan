@@ -34,6 +34,10 @@ public class FlatMapDoubleOperation implements FlatMappingOperation<Double, Doub
 
    @Override
    public Flowable<Double> mapFlowable(Flowable<Double> input) {
-      return input.concatMapStream(d -> function.apply(d).boxed());
+      return input.concatMapIterable(d -> {
+         DoubleStream doubleStream = function.apply(d);
+         return doubleStream::iterator;
+      });
+//      return input.concatMapStream(d -> function.apply(d).boxed());
    }
 }

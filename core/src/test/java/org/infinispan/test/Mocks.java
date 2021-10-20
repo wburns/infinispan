@@ -18,8 +18,8 @@ import java.util.function.Predicate;
 
 import org.infinispan.Cache;
 import org.infinispan.commands.remote.CacheRpcCommand;
+import org.infinispan.commons.util.ByRef;
 import org.infinispan.factories.KnownComponentNames;
-import org.infinispan.reactive.publisher.impl.SegmentCompletionPublisher;
 import org.infinispan.remoting.inboundhandler.AbstractDelegatingHandler;
 import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.inboundhandler.Reply;
@@ -31,7 +31,6 @@ import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.mockito.stubbing.Stubber;
 import org.reactivestreams.Publisher;
-import org.reactivestreams.Subscriber;
 
 import io.reactivex.rxjava3.core.Flowable;
 
@@ -217,28 +216,57 @@ public class Mocks {
 
    public static <E> Publisher<E> blockingPublisher(Publisher<E> publisher, CheckPoint checkPoint) {
       return Flowable.fromPublisher(publisher)
-                     .doOnSubscribe(s -> {
-                        checkPoint.trigger(BEFORE_INVOCATION);
-                        checkPoint.awaitStrict(BEFORE_RELEASE, 20, TimeUnit.SECONDS);
-                     })
-                     .doOnComplete(() -> {
-                        checkPoint.trigger(AFTER_INVOCATION);
-                        checkPoint.awaitStrict(AFTER_RELEASE, 20, TimeUnit.SECONDS);
-                     });
+            .doOnSubscribe(s -> {
+               checkPoint.trigger(BEFORE_INVOCATION);
+               checkPoint.awaitStrict(BEFORE_RELEASE, 20, TimeUnit.SECONDS);
+            })
+            .doOnComplete(() -> {
+               checkPoint.trigger(AFTER_INVOCATION);
+               checkPoint.awaitStrict(AFTER_RELEASE, 20, TimeUnit.SECONDS);
+            });
    }
 
-   public static <E> SegmentCompletionPublisher<E> blockingPublisher(SegmentCompletionPublisher<E> publisher,
-                                                                     CheckPoint checkPoint) {
-      return (s, complete) -> {
-         blockingPublisher((Subscriber<? super E> innerSubscriber) -> publisher.subscribe(innerSubscriber, complete),
-                           checkPoint).subscribe(s);
-      };
+   /**
+    * Returns a publisher that will block just before sending an element that matches the given predicate and then
+    * subsequently unblocks after it finds the next element or is completed. Uses the same checkpoint names as
+    * {@link Mocks#blockingMock(CheckPoint, Class, Cache, BiConsumer, Class[])}. This method can work with multiple
+    * entries that pass the predicate but there is no way to distinguish which is which.
+    *
+    * @param publisher the publisher to use as the upstream source
+    * @param checkPoint the checkpoint to block on with the mock names
+    * @param predicate the predicate to test
+    * @param <E> the type of the values
+    * @return Publisher that will block the checkpoint while processing the elements that pass the predicate
+    */
+   public static <E> Publisher<E> blockingWhileProcessingElement(Publisher<E> publisher, CheckPoint checkPoint,
+         Predicate<? super E> predicate) {
+      return Flowable.defer(() -> {
+         ByRef.Boolean byRef = new ByRef.Boolean(false);
+         return Flowable.fromPublisher(publisher)
+               .doOnNext(e -> {
+                  if (byRef.get()) {
+                     byRef.set(false);
+                     checkPoint.trigger(AFTER_INVOCATION);
+                     checkPoint.awaitStrict(AFTER_RELEASE, 20, TimeUnit.SECONDS);
+                  }
+                  if (predicate.test(e)) {
+                     byRef.set(true);
+                     checkPoint.trigger(BEFORE_INVOCATION);
+                     checkPoint.awaitStrict(BEFORE_RELEASE, 20, TimeUnit.SECONDS);
+                  }
+               }).doFinally(() -> {
+                  if (byRef.get()) {
+                     checkPoint.trigger(AFTER_INVOCATION);
+                     checkPoint.awaitStrict(AFTER_RELEASE, 20, TimeUnit.SECONDS);
+                  }
+               });
+      });
    }
 
    public static AbstractDelegatingHandler blockInboundCacheRpcCommand(Cache<?, ?> cache, CheckPoint checkPoint,
-                                                                       Predicate<? super CacheRpcCommand> predicate) {
+         Predicate<? super CacheRpcCommand> predicate) {
       Executor executor = extractGlobalComponent(cache.getCacheManager(), ExecutorService.class,
-                                                 KnownComponentNames.NON_BLOCKING_EXECUTOR);
+            KnownComponentNames.NON_BLOCKING_EXECUTOR);
       return TestingUtil.wrapInboundInvocationHandler(cache, handler -> new AbstractDelegatingHandler(handler) {
          @Override
          public void handle(CacheRpcCommand command, Reply reply, DeliverOrder order) {

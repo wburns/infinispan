@@ -205,6 +205,8 @@ public class PublisherHandler {
       // entry to see segment completion, this is the tradeoff
       @GuardedBy("this")
       private CompletableFuture<PublisherResponse> futureResponse = null;
+      @GuardedBy("this")
+      private long requestAmount;
 
       Subscription upstream;
 
@@ -226,6 +228,21 @@ public class PublisherHandler {
          results = new Object[batchSize];
       }
 
+      <R> Flowable<R> handleSegmentAwarePublisher(SegmentAwarePublisher<R> sap) {
+         return Flowable.<SegmentAwarePublisher.NotificationWithLost<R>>fromPublisher(sap::subscribeWithLostSegments)
+               .doOnNext(notification -> {
+                  if (!notification.isValue()) {
+                     if (notification.isSegmentComplete()) {
+                        segmentComplete(notification.completedSegment());
+                     } else {
+                        segmentLost(notification.lostSegment());
+                     }
+                  }
+               })
+               .filter(SegmentAwarePublisher.Notification::isValue)
+               .map(SegmentCompletionPublisher.Notification::value);
+      }
+
       void startProcessing(InitialPublisherCommand command) {
          SegmentAwarePublisher sap;
          if (command.isEntryStream()) {
@@ -236,7 +253,7 @@ public class PublisherHandler {
                   command.isIncludeLoader(), command.getDeliveryGuarantee(), command.getTransformer());
          }
 
-         sap.subscribe(this, this::segmentComplete, this::segmentLost);
+         handleSegmentAwarePublisher(sap).subscribe(this);
       }
 
       @Override
@@ -523,50 +540,51 @@ public class PublisherHandler {
 
          Function<Publisher<Object>, Publisher<Object>> functionToApply = command.getTransformer();
 
-         Flowable.fromPublisher(s -> sap.subscribe(s, this::segmentComplete, this::segmentLost))
+         handleSegmentAwarePublisher(sap)
                // We need to do this first because it is a PASS_THROUGH operation - so we can maintain segment
                // completion ordering with the assignment of this variable
                .doOnNext(originalValue -> {
                   if (log.isTraceEnabled()) log.tracef("Update key for segment completion %s", originalValue);
                   keyForSegmentCompletion = originalValue;
                })
-               // This is a FULL backpressure operation that buffers values thus causes values to not immediatelly
+               // This is a FULL backpressure operation that buffers values thus causes values to not immediately
                // be published
                .concatMap(originalValue -> {
                   ByRef.Integer size = new ByRef.Integer(0);
                   return Flowable.fromPublisher(functionToApply.apply(Flowable.just(originalValue)))
                         .doOnNext(ignore -> size.inc())
                         .doOnComplete(() -> {
-                              int total = size.get();
-                              if (total > 0) {
-                                 publisherOffset += total;
-                                 // Means our values were consumed downstream immediately and thus our key is complete
-                                 if (publisherOffset == consumerOffset) {
-                                    keyCompleted(originalValue);
-                                    previousValueFinishedKey = true;
-                                 } else {
-                                    keyCompletionPosition.put(publisherOffset, originalValue);
-                                 }
+                           int total = size.get();
+                           if (total > 0) {
+                              publisherOffset += total;
+                              // Means our values were consumed downstream immediately and thus our key is complete
+                              if (publisherOffset == consumerOffset) {
+                                 keyCompleted(originalValue);
+                                 previousValueFinishedKey = true;
                               } else {
-                                 // If there are no values for the key it is complete but also doesn't need to
-                                 // be tracked, so complete any segment tied to it if possible
-                                 Integer segment = keySegmentCompletions.remove(originalValue);
-                                 if (segment != null) {
-                                    if (log.isTraceEnabled()) {
-                                       log.tracef("Completing segment %s due to empty resulting value of %s for %s",
-                                             segment, originalValue, requestId);
-                                    }
-                                    actualCompleteSegment(segment);
-                                 }
-                                 // Also null out our key for segment completion if needed since this key will never be
-                                 // found published
-                                 if (keyForSegmentCompletion == originalValue) {
-                                    if (log.isTraceEnabled()) log.tracef("Discard key for segment completion %s", keyForSegmentCompletion);
-                                    keyForSegmentCompletion = null;
-                                 }
+                                 keyCompletionPosition.put(publisherOffset, originalValue);
                               }
+                           } else {
+                              // If there are no values for the key it is complete but also doesn't need to
+                              // be tracked, so complete any segment tied to it if possible
+                              Integer segment = keySegmentCompletions.remove(originalValue);
+                              if (segment != null) {
+                                 if (log.isTraceEnabled()) {
+                                    log.tracef("Completing segment %s due to empty resulting value of %s for %s",
+                                          segment, originalValue, requestId);
+                                 }
+                                 actualCompleteSegment(segment);
+                              }
+                              // Also null out our key for segment completion if needed since this key will never be
+                              // found published
+                              if (keyForSegmentCompletion == originalValue) {
+                                 if (log.isTraceEnabled())
+                                    log.tracef("Discard key for segment completion %s", keyForSegmentCompletion);
+                                 keyForSegmentCompletion = null;
+                              }
+                           }
                         });
-               }, 1)
+               })
                .subscribe(this);
       }
 
@@ -706,7 +724,10 @@ public class PublisherHandler {
                      k, requestId);
             }
             keySegmentCompletions.put(keyForSegmentCompletion, segment);
-            assert keyForSegmentCompletion != null;
+            if (keyForSegmentCompletion == null) {
+               System.currentTimeMillis();
+            }
+            assert keyForSegmentCompletion != null : "Segment key " + k + " was removed for " + segment;
             this.keyForSegmentCompletion = null;
          }
       }

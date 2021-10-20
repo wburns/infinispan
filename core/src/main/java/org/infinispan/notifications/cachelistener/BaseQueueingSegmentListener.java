@@ -10,6 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.notifications.cachelistener.event.Event;
+import org.infinispan.reactive.publisher.impl.SegmentCompletionPublisher;
 import org.infinispan.util.concurrent.CompletableFutures;
 import org.infinispan.util.logging.Log;
 
@@ -32,6 +33,25 @@ abstract class BaseQueueingSegmentListener<K, V, E extends Event<K, V>> implemen
 
    protected BaseQueueingSegmentListener() {
       this.notifiedKeys = new ConcurrentHashMap<>();
+   }
+
+   @Override
+   public boolean test(SegmentCompletionPublisher.Notification<CacheEntry<K, V>> cacheEntryNotification) throws Throwable {
+      if (cacheEntryNotification.isValue()) {
+         CacheEntry<K, V> cacheEntry = cacheEntryNotification.value();
+         K key = cacheEntry.getKey();
+         // By putting the NOTIFIED value it has signaled that any more updates for this key have to be enqueud instead
+         // of taking the last one
+         Object value = notifiedKeys.put(key, NOTIFIED);
+         if (value != null) {
+            if (getLog().isTraceEnabled()) {
+               getLog().tracef("Processing key %s as a concurrent update occurred with value %s", key, value);
+            }
+         }
+         return value != QueueingSegmentListener.REMOVED;
+      }
+      segmentComplete(cacheEntryNotification.completedSegment());
+      return false;
    }
 
    @Override
@@ -76,8 +96,7 @@ abstract class BaseQueueingSegmentListener<K, V, E extends Event<K, V>> implemen
       return CompletableFutures.completedNull();
    }
 
-   @Override
-   public void accept(int segment) {
+   void segmentComplete(int segment) {
       // Don't do anything here - should implement accept if segment completions are desired
    }
 

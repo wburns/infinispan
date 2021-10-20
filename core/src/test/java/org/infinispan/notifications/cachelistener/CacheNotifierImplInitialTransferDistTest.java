@@ -4,7 +4,6 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.mock;
 import static org.testng.Assert.assertEquals;
 import static org.testng.Assert.assertNull;
 import static org.testng.Assert.assertTrue;
@@ -23,7 +22,6 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.function.IntConsumer;
 import java.util.stream.Stream;
 
 import org.infinispan.Cache;
@@ -42,9 +40,7 @@ import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.test.fwk.CheckPoint;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
-import org.mockito.AdditionalAnswers;
-import org.mockito.Mockito;
-import org.reactivestreams.Subscriber;
+import org.reactivestreams.Publisher;
 import org.testng.annotations.Test;
 
 
@@ -677,13 +673,10 @@ public class CacheNotifierImplInitialTransferDistTest extends MultipleCacheManag
 
       doAnswer(invocation -> {
          SegmentCompletionPublisher<?> publisher = (SegmentCompletionPublisher<?>) invocation.callRealMethod();
-         SegmentCompletionPublisher<Object> mockPublisher = (Subscriber<Object> s, IntConsumer segmentCompletion) -> {
-            IntConsumer mock = mock(IntConsumer.class);
-            Mockito.doAnswer(Mocks.blockingAnswer(AdditionalAnswers.delegatesTo(segmentCompletion), checkPoint))
-               .when(mock).accept(segment);
-            publisher.subscribe(s, mock);
-         };
-         return mockPublisher;
+
+         Publisher<SegmentCompletionPublisher.Notification<?>> notificationPublisher = publisher::subscribeWithSegments;
+         return Mocks.blockingWhileProcessingElement(notificationPublisher, checkPoint,
+               n -> n.isSegmentComplete() && n.completedSegment() == segment);
       }).when(spy).entryPublisher(any(), any(), any(), anyBoolean(), any(), anyInt(), any());
    }
 

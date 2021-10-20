@@ -149,7 +149,6 @@ import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.function.TriConsumer;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
-import org.reactivestreams.Publisher;
 
 import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Flowable;
@@ -1128,12 +1127,11 @@ public class CacheNotifierImpl<K, V> extends AbstractListenerImpl<Event<K, V>, C
 
       Completable delayCompletable = Completable.defer(() -> Completable.fromCompletionStage(handler.delayProcessing()));
 
-      Publisher<CacheEntry<K, V>> p = s -> publisher.subscribe(s, handler);
-
       currentStage = currentStage.thenCompose(ignore ->
-            Flowable.fromPublisher(p)
+            Flowable.<SegmentCompletionPublisher.Notification<CacheEntry<K, V>>>fromPublisher(publisher::subscribeWithSegments)
                   .startWith(delayCompletable)
-                  .filter(ice -> handler.markKeyAsProcessing(ice.getKey()) != QueueingSegmentListener.REMOVED)
+                  .filter(handler)
+                  .map(SegmentCompletionPublisher.Notification::value)
                   .delay(ice -> RxJavaInterop.voidCompletionStageToFlowable(
                         raiseEventForInitialTransfer(generatedId, ice, l.clustered(), kc, kv)))
                   // Only request up to 20 at a time
@@ -1141,8 +1139,7 @@ public class CacheNotifierImpl<K, V> extends AbstractListenerImpl<Event<K, V>, C
                   .ignoreElements()
                   // Make sure there are no more delays for processing after we have retrieved all values
                   .andThen(delayCompletable)
-                  .toCompletionStage(null)
-      );
+                  .toCompletionStage(null));
 
       currentStage = currentStage.thenCompose(ignore -> {
          if (log.isTraceEnabled()) {

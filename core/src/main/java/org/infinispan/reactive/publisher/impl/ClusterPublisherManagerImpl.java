@@ -856,11 +856,11 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
    class SubscriberHandler<I, R> implements ObjIntConsumer<I> {
       final AbstractSegmentAwarePublisher<I, R> publisher;
       final Subscriber<? super R> subscriber;
+      final Subscriber<? super SegmentCompletionPublisher.Notification<R>> notificationSubscriber;
       final String requestId;
 
       final AtomicReferenceArray<Set<K>> keysBySegment;
       final IntSet segmentsToComplete;
-      final IntConsumer completedSegmentConsumer;
       final Map<Object, IntSet> enqueuedSegmentNotifiers;
       // Only allow the first child publisher to use the context values
       final AtomicBoolean useContext = new AtomicBoolean(true);
@@ -868,17 +868,29 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       // Variable used to ensure we only read the context once - so it is not read again during a retry
       volatile int currentTopology = -1;
 
-      SubscriberHandler(AbstractSegmentAwarePublisher<I, R> publisher, Subscriber<? super R> subscriber,
-            IntConsumer completedSegmentConsumer) {
+      SubscriberHandler(AbstractSegmentAwarePublisher<I, R> publisher, Subscriber<? super R> subscriber) {
          this.publisher = publisher;
          this.subscriber = subscriber;
+         this.notificationSubscriber = null;
          this.requestId = rpcManager.getAddress() + "#" + requestCounter.incrementAndGet();
 
          this.keysBySegment = publisher.deliveryGuarantee == DeliveryGuarantee.EXACTLY_ONCE ?
                new AtomicReferenceArray<>(maxSegment) : null;
          this.segmentsToComplete = IntSets.concurrentCopyFrom(publisher.segments, maxSegment);
-         this.completedSegmentConsumer = completedSegmentConsumer;
-         this.enqueuedSegmentNotifiers = completedSegmentConsumer == null ? null : new ConcurrentHashMap<>();
+         this.enqueuedSegmentNotifiers = null;
+      }
+
+      SubscriberHandler(AbstractSegmentAwarePublisher<I, R> publisher,
+            Subscriber<? super SegmentCompletionPublisher.Notification<R>> subscriber, Object ignore) {
+         this.publisher = publisher;
+         this.subscriber = null;
+         this.notificationSubscriber = subscriber;
+         this.requestId = rpcManager.getAddress() + "#" + requestCounter.incrementAndGet();
+
+         this.keysBySegment = publisher.deliveryGuarantee == DeliveryGuarantee.EXACTLY_ONCE ?
+               new AtomicReferenceArray<>(maxSegment) : null;
+         this.segmentsToComplete = IntSets.concurrentCopyFrom(publisher.segments, maxSegment);
+         this.enqueuedSegmentNotifiers = new ConcurrentHashMap<>();
       }
 
       /**
@@ -967,9 +979,14 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
                   return complete;
                });
 
-         if (completedSegmentConsumer != null) {
+         if (subscriber != null) {
+            valuesFlowable.subscribe(subscriber);
+         } else {
             ByRef<R> previousValue = new ByRef<>(null);
-            valuesFlowable = valuesFlowable.doOnNext(value -> {
+            FlowableProcessor<SegmentCompletionPublisher.Notification<R>> flowableProcessor = UnicastProcessor.create();
+            flowableProcessor.subscribe(notificationSubscriber);
+
+            valuesFlowable.subscribe(value -> {
                R previous = previousValue.get();
                if (previous != null) {
                   IntSet segments = enqueuedSegmentNotifiers.remove(previous);
@@ -978,20 +995,21 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
                         log.tracef("Enqueued value %s has been returned, completing segments %s",
                               Util.toStr(previous), segments);
                      }
-                     segments.forEach(completedSegmentConsumer);
+                     segments.forEach((IntConsumer) segment -> flowableProcessor.onNext(Notifications.segmentComplete(segment)));
                   }
+                  previousValue.set(value);
                }
-               previousValue.set(value);
-            }).doOnComplete(() -> enqueuedSegmentNotifiers.forEach(
-                  (k, segments) -> {
-                     if (log.isTraceEnabled()) {
-                        log.tracef("Notifying of completed segments %s due to publisher is complete", segments);
-                     }
-                     segments.forEach(completedSegmentConsumer);
-                  })
-            );
+            }, flowableProcessor::onError, () -> {
+               enqueuedSegmentNotifiers.forEach(
+                     (k, segments) -> {
+                        if (log.isTraceEnabled()) {
+                           log.tracef("Notifying of completed segments %s due to publisher is complete", segments);
+                        }
+                        segments.forEach((IntConsumer) segment -> flowableProcessor.onNext(Notifications.segmentComplete(segment)));
+                     });
+               flowableProcessor.onComplete();
+            });
          }
-         valuesFlowable.subscribe(subscriber);
       }
 
       void completeSegment(int segment) {
@@ -1005,7 +1023,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       // that all entries have been consumed by the downstream and we can immediately notify of segment completion,
       // otherwise we must wait until the given enqueued value is consumed before notifying of segment completion
       void notifySegmentsComplete(IntSet segments, Object lastValue) {
-         if (completedSegmentConsumer != null) {
+         if (enqueuedSegmentNotifiers != null) {
             if (lastValue == null) {
                if (log.isTraceEnabled()) {
                   log.tracef("Delaying completed segments %s to be notified when current publisher is complete" +
@@ -1185,14 +1203,17 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
       }
 
       @Override
-      public void subscribe(Subscriber<? super R> s, IntConsumer completedSegmentConsumer) {
-         IntConsumer consumerToUse = completedSegmentConsumer == SegmentCompletionPublisher.EMPTY_CONSUMER ? null :
-               Objects.requireNonNull(completedSegmentConsumer);
-         new SubscriberHandler<I, R>(this, s, consumerToUse).start();
+      public void subscribe(Subscriber<? super R> s) {
+         new SubscriberHandler<I, R>(this, s).start();
+      }
+
+      @Override
+      public void subscribeWithSegments(Subscriber<? super Notification<R>> subscriber) {
+         new SubscriberHandler<I, R>(this, subscriber, null).start();
       }
 
       abstract InitialPublisherCommand buildInitialCommand(Address target, String requestId, IntSet segments,
-                                                           Set<K> excludedKeys, int batchSize, boolean useContext);
+            Set<K> excludedKeys, int batchSize, boolean useContext);
 
       NextPublisherCommand buildNextCommand(String requestId) {
          return commandsFactory.buildNextPublisherCommand(requestId);
