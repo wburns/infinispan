@@ -75,6 +75,14 @@ public class Notifications {
       public int hashCode() {
          return Objects.hash(segment, complete);
       }
+
+      @Override
+      public String toString() {
+         return "SegmentNotification{" +
+               "segment=" + segment +
+               ", complete=" + complete +
+               '}';
+      }
    }
 
    private static class ValueNotification<R> implements SegmentAwarePublisher.NotificationWithLost<R> {
@@ -126,6 +134,13 @@ public class Notifications {
       @Override
       public int hashCode() {
          return Objects.hash(value);
+      }
+
+      @Override
+      public String toString() {
+         return "ValueNotification{" +
+               "value=" + value +
+               '}';
       }
    }
 

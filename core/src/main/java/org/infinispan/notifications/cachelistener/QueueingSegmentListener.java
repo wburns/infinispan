@@ -28,19 +28,6 @@ public interface QueueingSegmentListener<K, V, E extends Event<K, V>> extends Pr
    static final Object REMOVED = new Object();
 
    /**
-    * This should be invoked on a key before actually processing the data.  This way the handler knows to
-    * keep any newer events have come after the iteration.
-    *
-    * @param key The key being processed
-    * @return The previous value that was found to be updated,
-    * {@link BaseQueueingSegmentListener#NOTIFIED} if the key was
-    * previously marked as processing or
-    * {@link BaseQueueingSegmentListener#REMOVED} if the key was removed
-    * and this value shouldn't be processed
-    */
-   public Object markKeyAsProcessing(K key);
-
-   /**
     * This should be invoked on a notification before actually processing the data.  Note this method modifies the
     * underlying listener state. If it is a value it will determine if the entry should notify the listener by returning
     * true. If the notification is a segment completion it will keep track of that and will always return false so only

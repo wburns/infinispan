@@ -987,6 +987,7 @@ public class ClusterPublisherManagerImpl<K, V> implements ClusterPublisherManage
             flowableProcessor.subscribe(notificationSubscriber);
 
             valuesFlowable.subscribe(value -> {
+               flowableProcessor.onNext(Notifications.value(value));
                R previous = previousValue.get();
                if (previous != null) {
                   IntSet segments = enqueuedSegmentNotifiers.remove(previous);

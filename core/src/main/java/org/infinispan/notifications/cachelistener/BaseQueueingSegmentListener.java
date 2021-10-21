@@ -20,9 +20,10 @@ import org.infinispan.util.logging.Log;
  * appropriate methods at the given time.
  * <p>
  * This base class provides a working set for tracking of entries as they are iterated on, assuming
- * the {@link QueueingSegmentListener#markKeyAsProcessing(Object)} and
- * method is invoked properly.  Also this class provides the events that caused entry creations that may
- * not be processed yet that are returned by the {@link QueueingSegmentListener#findCreatedEntries()} method.
+ * the {@link QueueingSegmentListener#test(SegmentCompletionPublisher.Notification)}
+ * method is invoked for each event serially (includes both segment and entries).  Also this class provides the events
+ * that caused entry creations that may not be processed yet that are returned by the
+ * {@link QueueingSegmentListener#findCreatedEntries()} method.
  *
  * @author wburns
  * @since 7.0
@@ -52,19 +53,6 @@ abstract class BaseQueueingSegmentListener<K, V, E extends Event<K, V>> implemen
       }
       segmentComplete(cacheEntryNotification.completedSegment());
       return false;
-   }
-
-   @Override
-   public Object markKeyAsProcessing(K key) {
-      // By putting the NOTIFIED value it has signaled that any more updates for this key have to be enqueud instead
-      // of taking the last one
-      Object value = notifiedKeys.put(key, NOTIFIED);
-      if (value != null) {
-         if (getLog().isTraceEnabled()) {
-            getLog().tracef("Processing key %s as a concurrent update occurred with value %s", key, value);
-         }
-      }
-      return value;
    }
 
    @Override

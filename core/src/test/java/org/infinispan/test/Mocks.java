@@ -20,6 +20,8 @@ import org.infinispan.Cache;
 import org.infinispan.commands.remote.CacheRpcCommand;
 import org.infinispan.commons.util.ByRef;
 import org.infinispan.factories.KnownComponentNames;
+import org.infinispan.reactive.publisher.impl.Notifications;
+import org.infinispan.reactive.publisher.impl.SegmentCompletionPublisher;
 import org.infinispan.remoting.inboundhandler.AbstractDelegatingHandler;
 import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.inboundhandler.Reply;
@@ -31,6 +33,7 @@ import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.mockito.stubbing.Stubber;
 import org.reactivestreams.Publisher;
+import org.reactivestreams.Subscriber;
 
 import io.reactivex.rxjava3.core.Flowable;
 
@@ -226,6 +229,36 @@ public class Mocks {
             });
    }
 
+   public static <E> SegmentCompletionPublisher<E> blockingPublisher(SegmentCompletionPublisher<E> publisher, CheckPoint checkPoint) {
+      return new SegmentCompletionPublisher<E>() {
+         @Override
+         public void subscribeWithSegments(Subscriber<? super Notification<E>> subscriber) {
+            Flowable.<Notification<E>>fromPublisher(publisher::subscribeWithSegments)
+                  .doOnSubscribe(subscription -> {
+                     checkPoint.trigger(BEFORE_INVOCATION);
+                     checkPoint.awaitStrict(BEFORE_RELEASE, 20, TimeUnit.SECONDS);
+                  })
+                  .doOnComplete(() -> {
+                     checkPoint.trigger(AFTER_INVOCATION);
+                     checkPoint.awaitStrict(AFTER_RELEASE, 20, TimeUnit.SECONDS);
+                  }).subscribe(subscriber);
+         }
+
+         @Override
+         public void subscribe(Subscriber<? super E> subscriber) {
+            Flowable.fromPublisher(publisher)
+                  .doOnSubscribe(subscription -> {
+                     checkPoint.trigger(BEFORE_INVOCATION);
+                     checkPoint.awaitStrict(BEFORE_RELEASE, 20, TimeUnit.SECONDS);
+                  })
+                  .doOnComplete(() -> {
+                     checkPoint.trigger(AFTER_INVOCATION);
+                     checkPoint.awaitStrict(AFTER_RELEASE, 20, TimeUnit.SECONDS);
+                  }).subscribe(subscriber);
+         }
+      };
+   }
+
    /**
     * Returns a publisher that will block just before sending an element that matches the given predicate and then
     * subsequently unblocks after it finds the next element or is completed. Uses the same checkpoint names as
@@ -238,7 +271,7 @@ public class Mocks {
     * @param <E> the type of the values
     * @return Publisher that will block the checkpoint while processing the elements that pass the predicate
     */
-   public static <E> Publisher<E> blockingWhileProcessingElement(Publisher<E> publisher, CheckPoint checkPoint,
+   public static <E> Publisher<E> blockingPublisherOnElement(Publisher<E> publisher, CheckPoint checkPoint,
          Predicate<? super E> predicate) {
       return Flowable.defer(() -> {
          ByRef.Boolean byRef = new ByRef.Boolean(false);
@@ -261,6 +294,41 @@ public class Mocks {
                   }
                });
       });
+   }
+
+   public static <E> SegmentCompletionPublisher<E> blockingSegmentPublisherOnElement(SegmentCompletionPublisher<E> publisher,
+         CheckPoint checkPoint, Predicate<? super SegmentCompletionPublisher.Notification<E>> predicate) {
+      return new SegmentCompletionPublisher<E>() {
+         @Override
+         public void subscribeWithSegments(Subscriber<? super Notification<E>> subscriber) {
+            ByRef.Boolean byRef = new ByRef.Boolean(false);
+            Flowable.<Notification<E>>fromPublisher(publisher::subscribeWithSegments)
+                  .doOnNext(e -> {
+                     if (byRef.get()) {
+                        byRef.set(false);
+                        checkPoint.trigger(AFTER_INVOCATION);
+                        checkPoint.awaitStrict(AFTER_RELEASE, 20, TimeUnit.SECONDS);
+                     }
+                     if (predicate.test(e)) {
+                        byRef.set(true);
+                        checkPoint.trigger(BEFORE_INVOCATION);
+                        checkPoint.awaitStrict(BEFORE_RELEASE, 20, TimeUnit.SECONDS);
+                     }
+                  }).doFinally(() -> {
+                     if (byRef.get()) {
+                        checkPoint.trigger(AFTER_INVOCATION);
+                        checkPoint.awaitStrict(AFTER_RELEASE, 20, TimeUnit.SECONDS);
+                     }
+                  }).subscribe(subscriber);
+         }
+
+         @Override
+         public void subscribe(Subscriber<? super E> s) {
+            blockingPublisherOnElement((Publisher<E>) publisher, checkPoint,
+                  value -> predicate.test(Notifications.<E>value(value)))
+                  .subscribe(s);
+         }
+      };
    }
 
    public static AbstractDelegatingHandler blockInboundCacheRpcCommand(Cache<?, ?> cache, CheckPoint checkPoint,
