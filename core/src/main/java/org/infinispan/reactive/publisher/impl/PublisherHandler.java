@@ -228,8 +228,17 @@ public class PublisherHandler {
          results = new Object[batchSize];
       }
 
-      <R> Flowable<R> handleSegmentAwarePublisher(SegmentAwarePublisher<R> sap) {
-         return Flowable.<SegmentAwarePublisher.NotificationWithLost<R>>fromPublisher(sap::subscribeWithLostSegments)
+      void startProcessing(InitialPublisherCommand command) {
+         SegmentAwarePublisher<Object> sap;
+         if (command.isEntryStream()) {
+            sap = localPublisherManager.entryPublisher(command.getSegments(), command.getKeys(), command.getExcludedKeys(),
+                  command.isIncludeLoader(), command.getDeliveryGuarantee(), command.getTransformer());
+         } else {
+            sap = localPublisherManager.keyPublisher(command.getSegments(), command.getKeys(), command.getExcludedKeys(),
+                  command.isIncludeLoader(), command.getDeliveryGuarantee(), command.getTransformer());
+         }
+
+         Flowable.<SegmentAwarePublisher.NotificationWithLost<Object>>fromPublisher(sap::subscribeWithLostSegments)
                .doOnNext(notification -> {
                   if (!notification.isValue()) {
                      if (notification.isSegmentComplete()) {
@@ -240,20 +249,8 @@ public class PublisherHandler {
                   }
                })
                .filter(SegmentAwarePublisher.Notification::isValue)
-               .map(SegmentCompletionPublisher.Notification::value);
-      }
-
-      void startProcessing(InitialPublisherCommand command) {
-         SegmentAwarePublisher sap;
-         if (command.isEntryStream()) {
-            sap = localPublisherManager.entryPublisher(command.getSegments(), command.getKeys(), command.getExcludedKeys(),
-                  command.isIncludeLoader(), command.getDeliveryGuarantee(), command.getTransformer());
-         } else {
-            sap = localPublisherManager.keyPublisher(command.getSegments(), command.getKeys(), command.getExcludedKeys(),
-                  command.isIncludeLoader(), command.getDeliveryGuarantee(), command.getTransformer());
-         }
-
-         handleSegmentAwarePublisher(sap).subscribe(this);
+               .map(SegmentCompletionPublisher.Notification::value)
+               .subscribe(this);
       }
 
       @Override
@@ -540,16 +537,23 @@ public class PublisherHandler {
 
          Function<Publisher<Object>, Publisher<Object>> functionToApply = command.getTransformer();
 
-         handleSegmentAwarePublisher(sap)
-               // We need to do this first because it is a PASS_THROUGH operation - so we can maintain segment
-               // completion ordering with the assignment of this variable
-               .doOnNext(originalValue -> {
-                  if (log.isTraceEnabled()) log.tracef("Update key for segment completion %s", originalValue);
-                  keyForSegmentCompletion = originalValue;
-               })
+         Flowable.<SegmentAwarePublisher.NotificationWithLost<Object>>fromPublisher(sap::subscribeWithLostSegments)
                // This is a FULL backpressure operation that buffers values thus causes values to not immediately
                // be published
-               .concatMap(originalValue -> {
+               .concatMap(notification -> {
+                  if (!notification.isValue()) {
+                     if (notification.isSegmentComplete()) {
+                        segmentComplete(notification.completedSegment());
+                     } else {
+                        segmentLost(notification.lostSegment());
+                     }
+                     return Flowable.empty();
+                  }
+                  Object originalValue = notification.value();
+
+                  if (log.isTraceEnabled()) log.tracef("Update key for segment completion %s", originalValue);
+                  keyForSegmentCompletion = originalValue;
+
                   ByRef.Integer size = new ByRef.Integer(0);
                   return Flowable.fromPublisher(functionToApply.apply(Flowable.just(originalValue)))
                         .doOnNext(ignore -> size.inc())
