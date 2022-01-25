@@ -14,7 +14,6 @@ import static org.infinispan.server.core.configuration.ProtocolServerConfigurati
 import static org.infinispan.server.core.configuration.ProtocolServerConfiguration.START_TRANSPORT;
 import static org.infinispan.server.core.configuration.ProtocolServerConfiguration.TCP_KEEPALIVE;
 import static org.infinispan.server.core.configuration.ProtocolServerConfiguration.TCP_NODELAY;
-import static org.infinispan.server.core.configuration.ProtocolServerConfiguration.WORKER_THREADS;
 
 import org.infinispan.commons.configuration.Builder;
 import org.infinispan.commons.configuration.attributes.AttributeSet;
@@ -123,9 +122,12 @@ public abstract class ProtocolServerConfigurationBuilder<T extends ProtocolServe
       return this.self();
    }
 
+   @Deprecated
    @Override
+   /**
+    * @deprecated since 14.0 and will be removed in 16.0
+    */
    public S workerThreads(int workerThreads) {
-      attributes.attribute(WORKER_THREADS).set(workerThreads);
       return this.self();
    }
 
@@ -175,9 +177,6 @@ public abstract class ProtocolServerConfigurationBuilder<T extends ProtocolServe
       }
       if (attributes.attribute(IO_THREADS).get() < 0) {
          throw log.illegalIOThreads(attributes.attribute(IO_THREADS).get());
-      }
-      if (attributes.attribute(WORKER_THREADS).get() < 0) {
-         throw log.illegalWorkerThreads(attributes.attribute(WORKER_THREADS).get());
       }
    }
 
