@@ -245,4 +245,7 @@ public interface Log extends BasicLogger {
 
    @Message(value = "Invalid keystore '%s'", id = 80065)
    KeyStoreException invalidKeyStore(String filename);
+
+   @Message(value = "The RESP endpoint requires a security realm which supports passwords.")
+   CacheConfigurationException respEndpointRequiresRealmWithPassword();
 }

@@ -2,15 +2,13 @@ package org.infinispan.server.resp;
 
 import java.util.List;
 
-import org.infinispan.Cache;
-
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufUtil;
 import io.netty.channel.ChannelHandlerContext;
 
 public interface RequestHandler {
-   default RequestHandler handleRequest(ChannelHandlerContext ctx, Cache<byte[], byte[]> cache, String type, List<byte[]> arguments) {
+   default RequestHandler handleRequest(ChannelHandlerContext ctx, String type, List<byte[]> arguments) {
       ctx.writeAndFlush(stringToByteBuf("-ERR unknown command" + "\r\n", ctx.alloc()));
       return this;
    }

@@ -1,6 +1,7 @@
 package org.infinispan.server.resp;
 
 import java.lang.invoke.MethodHandles;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -8,6 +9,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import javax.security.auth.Subject;
 
 import org.infinispan.Cache;
 import org.infinispan.commons.logging.LogFactory;
@@ -22,18 +25,18 @@ import io.netty.util.CharsetUtil;
 
 public class Resp3Handler implements RequestHandler {
    private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass(), Log.class);
+   public static final String OK = "+OK\r\n";
+   private final RespServer respServer;
+   private Cache<byte[], byte[]> cache;
 
-   private static final Resp3Handler singleton = new Resp3Handler();
-
-   public static RequestHandler getInstance() {
-      return singleton;
+   Resp3Handler(RespServer respServer) {
+      this.respServer = respServer;
+      this.cache = respServer.getCache();
    }
 
-   private Resp3Handler() { }
-
    @Override
-   public RequestHandler handleRequest(ChannelHandlerContext ctx, Cache<byte[], byte[]> cache, String type,
-                             List<byte[]> arguments) {
+   public RequestHandler handleRequest(ChannelHandlerContext ctx, String type,
+                                       List<byte[]> arguments) {
       switch (type) {
          case "HELLO":
             byte[] respProtocolBytes = arguments.get(0);
@@ -42,21 +45,28 @@ public class Resp3Handler implements RequestHandler {
                ctx.writeAndFlush(stringToByteBuf("-NOPROTO sorry this protocol version is not supported", ctx.alloc()));
                break;
             }
-
-            // TODO: need to do auth
-            String versionString = Version.getBrandVersion();
-            ctx.writeAndFlush(stringToByteBuf("%7\r\n" +
-                  "$6\r\nserver\r\n$15\r\nInfinispan RESP\r\n" +
-                  "$7\r\nversion\r\n$" + versionString.length() + "\r\n" + versionString + "\r\n" +
-                  "$5\r\nproto\r\n:3\r\n" +
-                  "$2\r\nid\r\n:184\r\n" +
-                  "$4\r\nmode\r\n$7\r\ncluster\r\n" +
-                  "$4\r\nrole\r\n$6\r\nmaster\r\n" +
-                  "$7\r\nmodules\r\n*0\r\n", ctx.alloc()));
+            if (arguments.size() == 4) {
+               performAuth(arguments.get(2), arguments.get(3)).whenComplete((subject, t) -> {
+                  if (t == null) {
+                     cache = respServer.applySubjectToCache(subject);
+                     helloResponse(ctx);
+                  } else {
+                     ctx.writeAndFlush(stringToByteBuf("-ERR" + t.getMessage() + "\r\n", ctx.alloc()));
+                  }
+               });
+            } else {
+               helloResponse(ctx);
+            }
             break;
          case "AUTH":
-            // TODO: do this
-            ctx.writeAndFlush(stringToByteBuf("-ERR not implemented yet" + "\r\n", ctx.alloc()));
+            performAuth(arguments.get(0), arguments.get(1)).whenComplete((subject, t) -> {
+               if (t == null) {
+                  cache = respServer.applySubjectToCache(subject);
+                  ctx.writeAndFlush(stringToByteBuf(OK, ctx.alloc()));
+               } else {
+                  ctx.writeAndFlush(stringToByteBuf("-ERR" + t.getMessage() + "\r\n", ctx.alloc()));
+               }
+            });
             break;
          case "PING":
             if (arguments.size() == 0) {
@@ -72,7 +82,7 @@ public class Resp3Handler implements RequestHandler {
             ctx.writeAndFlush(bufferToWrite);
             break;
          case "SET":
-            performSet(ctx, cache, arguments.get(0), arguments.get(1), -1, type, "+OK\r\n");
+            performSet(ctx, cache, arguments.get(0), arguments.get(1), -1, type, OK);
             break;
          case "GET":
             byte[] keyBytes = arguments.get(0);
@@ -139,7 +149,7 @@ public class Resp3Handler implements RequestHandler {
                break;
             }
             List<byte[]> results = Collections.synchronizedList(Arrays.asList(
-                  new byte[keysToRetrieve] []));
+                  new byte[keysToRetrieve][]));
             AtomicInteger resultBytesSize = new AtomicInteger();
             AggregateCompletionStage<Void> getStage = CompletionStages.aggregateCompletionStage();
             for (int i = 0; i < keysToRetrieve; ++i) {
@@ -174,7 +184,7 @@ public class Resp3Handler implements RequestHandler {
                      }
                      int elements = results.size();
                      // * + digit length (log10 + 1) + \r\n
-                     ByteBuf byteBuf = ctx.alloc().buffer(resultBytesSize.addAndGet(1 +(int) Math.log10(elements)
+                     ByteBuf byteBuf = ctx.alloc().buffer(resultBytesSize.addAndGet(1 + (int) Math.log10(elements)
                            + 1 + 2));
                      byteBuf.writeCharSequence("*" + results.size(), CharsetUtil.UTF_8);
                      byteBuf.writeByte('\r');
@@ -212,7 +222,7 @@ public class Resp3Handler implements RequestHandler {
                   log.trace("Exception encountered while performing MSET", t);
                   ctx.writeAndFlush(stringToByteBuf("-ERR " + t.getMessage() + "\r\n", ctx.alloc()));
                } else {
-                  ctx.writeAndFlush(stringToByteBuf("+OK\r\n", ctx.alloc()));
+                  ctx.writeAndFlush(stringToByteBuf(OK, ctx.alloc()));
                }
             });
             break;
@@ -235,15 +245,15 @@ public class Resp3Handler implements RequestHandler {
                   arguments.get(1), 3, type, ":0\r\n");
             break;
          case "SUBSCRIBE":
-            SubscriberHandler subscriberHandler = new SubscriberHandler();
-            return subscriberHandler.handleRequest(ctx, cache, type, arguments);
+            SubscriberHandler subscriberHandler = new SubscriberHandler(respServer);
+            return subscriberHandler.handleRequest(ctx, type, arguments);
          case "SELECT":
             ctx.writeAndFlush(stringToByteBuf("-ERR Select not supported in cluster mode" + "\r\n", ctx.alloc()));
             break;
          case "READWRITE":
          case "READONLY":
             // We are always in read write allowing read from backups
-            ctx.writeAndFlush(stringToByteBuf("+OK\r\n", ctx.alloc()));
+            ctx.writeAndFlush(stringToByteBuf(OK, ctx.alloc()));
             break;
          case "RESET":
             // TODO: do we need to reset anything in this case?
@@ -253,7 +263,7 @@ public class Resp3Handler implements RequestHandler {
             ctx.flush();
             break;
          default:
-            return RequestHandler.super.handleRequest(ctx, cache, type, arguments);
+            return RequestHandler.super.handleRequest(ctx, type, arguments);
       }
       return this;
    }
@@ -301,5 +311,25 @@ public class Resp3Handler implements RequestHandler {
                   ctx.writeAndFlush(stringToByteBuf(messageOnSuccess, ctx.alloc()));
                }
             });
+   }
+
+   private CompletionStage<Subject> performAuth(byte[] username, byte[] password) {
+      return respServer.getConfiguration().authentication().authenticator()
+            .authenticate(
+                  new String(username, StandardCharsets.UTF_8),
+                  new String(password, StandardCharsets.UTF_8).toCharArray()
+            );
+   }
+
+   private void helloResponse(ChannelHandlerContext ctx) {
+      String versionString = Version.getBrandVersion();
+      ctx.writeAndFlush(stringToByteBuf("%7\r\n" +
+            "$6\r\nserver\r\n$15\r\nInfinispan RESP\r\n" +
+            "$7\r\nversion\r\n$" + versionString.length() + "\r\n" + versionString + "\r\n" +
+            "$5\r\nproto\r\n:3\r\n" +
+            "$2\r\nid\r\n:184\r\n" +
+            "$4\r\nmode\r\n$7\r\ncluster\r\n" +
+            "$4\r\nrole\r\n$6\r\nmaster\r\n" +
+            "$7\r\nmodules\r\n*0\r\n", ctx.alloc()));
    }
 }
