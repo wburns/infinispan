@@ -3,12 +3,12 @@ package org.infinispan.container.versioning.irac;
 import static org.infinispan.remoting.transport.impl.VoidResponseCollector.ignoreLeavers;
 import static org.infinispan.remoting.transport.impl.VoidResponseCollector.validOnly;
 import static org.infinispan.util.concurrent.CompletableFutures.completedNull;
-import static org.infinispan.util.concurrent.CompletableFutures.toTrueFunction;
 
 import java.lang.invoke.MethodHandles;
 import java.util.Collection;
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
@@ -16,15 +16,17 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
+import java.util.function.Consumer;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.infinispan.commands.CommandsFactory;
-import org.infinispan.commands.ReplicableCommand;
 import org.infinispan.commands.irac.IracTombstoneCleanupCommand;
 import org.infinispan.commands.irac.IracTombstonePrimaryCheckCommand;
 import org.infinispan.commands.irac.IracTombstoneRemoteSiteCheckCommand;
 import org.infinispan.commands.irac.IracTombstoneStateResponseCommand;
 import org.infinispan.commons.util.IntSet;
+import org.infinispan.commons.util.IntSets;
 import org.infinispan.configuration.cache.BackupConfiguration;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.XSiteStateTransferConfiguration;
@@ -65,6 +67,7 @@ import io.reactivex.rxjava3.core.CompletableObserver;
 import io.reactivex.rxjava3.core.CompletableSource;
 import io.reactivex.rxjava3.core.Flowable;
 import io.reactivex.rxjava3.disposables.Disposable;
+import io.reactivex.rxjava3.flowables.GroupedFlowable;
 import io.reactivex.rxjava3.functions.Predicate;
 import net.jcip.annotations.GuardedBy;
 
@@ -138,7 +141,11 @@ public class DefaultIracTombstoneManager implements IracTombstoneManager {
    }
 
    public void storeTombstone(int segment, Object key, IracMetadata metadata) {
-      tombstoneMap.put(key, new IracTombstoneInfo(key, segment, metadata));
+      IracTombstoneInfo tombstone = new IracTombstoneInfo(key, segment, metadata);
+      tombstoneMap.put(key, tombstone);
+      if (log.isTraceEnabled()) {
+         log.tracef("[IRAC] Tombstone stored: %s", tombstone);
+      }
    }
 
    @Override
@@ -146,7 +153,10 @@ public class DefaultIracTombstoneManager implements IracTombstoneManager {
       if (tombstone == null) {
          return;
       }
-      tombstoneMap.putIfAbsent(tombstone.getKey(), tombstone);
+      boolean added = tombstoneMap.putIfAbsent(tombstone.getKey(), tombstone) == null;
+      if (log.isTraceEnabled()) {
+         log.tracef("[IRAC] Tombstone stored? %s. %s", added, tombstone);
+      }
    }
 
    @Override
@@ -160,14 +170,19 @@ public class DefaultIracTombstoneManager implements IracTombstoneManager {
       if (tombstone == null) {
          return;
       }
-      tombstoneMap.remove(tombstone.getKey(), tombstone);
+      boolean removed = tombstoneMap.remove(tombstone.getKey(), tombstone);
+      if (log.isTraceEnabled()) {
+         log.tracef("[IRAC] Tombstone removed? %s. %s", removed, tombstone);
+      }
    }
 
    @Override
    public void removeTombstone(Object key) {
-      tombstoneMap.remove(key);
+      IracTombstoneInfo tombstone = tombstoneMap.remove(key);
+      if (tombstone != null && log.isTraceEnabled()) {
+         log.tracef("[IRAC] Tombstone removed %s", tombstone);
+      }
    }
-
 
    @Override
    public boolean isEmpty() {
@@ -201,16 +216,36 @@ public class DefaultIracTombstoneManager implements IracTombstoneManager {
 
    @Override
    public void checkStaleTombstone(Collection<? extends IracTombstoneInfo> tombstones) {
+      boolean trace = log.isTraceEnabled();
+      if (trace) {
+         log.tracef("[IRAC] Checking for stale tombstones from backup owner. %s", tombstones);
+      }
       LocalizedCacheTopology topology = distributionManager.getCacheTopology();
+      IntSet segments = IntSets.mutableEmptySet();
+      IracTombstoneCleanupCommand cmd = commandsFactory.buildIracTombstoneCleanupCommand(tombstones.size());
       for (IracTombstoneInfo tombstone : tombstones) {
          IracTombstoneInfo data = tombstoneMap.get(tombstone.getKey());
          if (!topology.getSegmentDistribution(tombstone.getSegment()).isPrimary() || (tombstone.equals(data))) {
             // not a primary owner or the data is the same (i.e. it is valid)
             continue;
          }
-         IracTombstoneCleanupCommand cmd = commandsFactory.buildIracTombstoneCleanupCommand(tombstone);
-         rpcManager.sendToMany(topology.getSegmentDistribution(tombstone.getSegment()).writeOwners(), cmd, DeliverOrder.NONE);
+         segments.add(tombstone.getSegment());
+         cmd.add(tombstone);
       }
+      if (cmd.isEmpty()) {
+         if (trace) {
+            log.trace("[IRAC] Nothing to send.");
+         }
+         return;
+      }
+      Collection<Address> owners = segments.stream()
+            .flatMap(segment -> getSegmentDistribution(segment).writeOwners().stream())
+            .distinct()
+            .collect(Collectors.toList());
+      if (trace) {
+         log.tracef("[IRAC] Cleaning up %d tombstones: %s", cmd.getTombstonesToRemove().size(), cmd.getTombstonesToRemove());
+      }
+      rpcManager.sendToMany(owners, cmd, DeliverOrder.NONE);
    }
 
    // Testing purposes
@@ -232,117 +267,167 @@ public class DefaultIracTombstoneManager implements IracTombstoneManager {
       if (stopped) {
          return CompletableFutures.completedNull();
       }
-      scheduler.onTaskStarted(tombstoneMap.size());
-      try {
-         AggregateCompletionStage<Void> stage = CompletionStages.aggregateCompletionStage();
-         RpcOptions rpcOptions = rpcManager.getSyncRpcOptions();
-         Map<Address, BackPressure<IracTombstonePrimaryCheckCommand, Void>> staleTombstones = new HashMap<>(tombstoneMap.size());
-         for (IracTombstoneInfo tombstone : tombstoneMap.values()) {
-            DistributionInfo info = distributionManager.getCacheTopology().getSegmentDistribution(tombstone.getSegment());
-            if (!info.isWriteOwner()) {
-               // topology changed, no longer an owner
-               removeTombstone(tombstone);
-               continue;
-            }
-            // if we are a backup owner and the key is present in IracManager, skip checking for the stale tombstone;
-            // it means the primary owner hasn't sent the update to the remote site.
-            if (iracManager.running().containsKey(tombstone.getKey())) {
-               continue;
-            }
-            if (!info.isPrimary()) {
-               BackPressure<IracTombstonePrimaryCheckCommand, Void> backPressure = staleTombstones.get(info.primary());
-               if (backPressure == null) {
-                  backPressure = new BackPressure<>(commandsFactory.buildIracTombstonePrimaryCheckCommand(batchSize), null);
-                  staleTombstones.put(info.primary(), backPressure);
-               }
-               if (backPressure.element.addTombstone(tombstone) == batchSize) {
-                  CompletionStage<Void> rsp;
-                  if (backPressure.delay == null) {
-                     rsp = rpcManager.invokeCommand(info.primary(), backPressure.element, ignoreLeavers(), rpcOptions);
-                  } else {
-                     ReplicableCommand rCmd = backPressure.element;
-                     rsp = backPressure.delay.thenComposeAsync(unused -> rpcManager.invokeCommand(info.primary(), rCmd, ignoreLeavers(), rpcOptions), blockingExecutor);
-                  }
-                  staleTombstones.put(info.primary(), new BackPressure<>(commandsFactory.buildIracTombstonePrimaryCheckCommand(batchSize), rsp));
-               }
-               continue;
-            }
-            stage.dependsOn(new CleanupTask(tombstone).checkRemoteSites());
-         }
+      boolean trace = log.isTraceEnabled();
 
-         //sending any pending stale tombstones
-         for (Map.Entry<Address, BackPressure<IracTombstonePrimaryCheckCommand, Void>> entry : staleTombstones.entrySet()) {
-            BackPressure<IracTombstonePrimaryCheckCommand, Void> backPressure = entry.getValue();
-            if (backPressure.element.isEmpty()) {
-               continue;
-            }
-            if (backPressure.delay == null) {
-               rpcManager.sendTo(entry.getKey(), backPressure.element, DeliverOrder.NONE);
-            } else {
-               backPressure.delay.thenRunAsync(() -> rpcManager.sendTo(entry.getKey(), backPressure.element, DeliverOrder.NONE), blockingExecutor);
-            }
-
-         }
-         return stage.freeze().whenComplete(scheduler);
-      } catch (Throwable t) {
-         log.debug("Unexpected exception", t);
-         scheduler.scheduleWithCurrentDelay();
-         return CompletableFutures.completedNull();
+      if (trace) {
+         log.trace("[IRAC] Starting tombstone cleanup round.");
       }
+
+      scheduler.onTaskStarted(tombstoneMap.size());
+      CompletionStageObservable cso = new CompletionStageObservable();
+
+      Flowable.fromIterable(tombstoneMap.values())
+            .groupBy(this::classifyTombstone, t -> t)
+            .concatMapCompletableDelayError(group -> {
+               switch (group.getKey()) {
+                  case REMOVE_TOMBSTONE:
+                     return removeAllTombstones(group);
+                  case NOTIFY_PRIMARY_OWNER:
+                     return notifyPrimaryOwner(group);
+                  case CHECK_REMOTE_SITE:
+                     return checkRemoteSite(group);
+                  case KEEP_TOMBSTONE:
+                  default:
+                     return Completable.complete();
+               }
+            })
+            .subscribe(cso);
+
+      return cso.whenComplete(scheduler);
    }
 
    private DistributionInfo getSegmentDistribution(int segment) {
       return distributionManager.getCacheTopology().getSegmentDistribution(segment);
    }
 
-   private final class CleanupTask implements Function<Boolean, CompletionStage<Void>>, Runnable {
-      private final IracTombstoneInfo tombstone;
+   private CompletableSource removeAllTombstones(GroupedFlowable<Action, IracTombstoneInfo> flowable) {
+      return flowable.concatMapCompletableDelayError(tombstone -> {
+         removeTombstone(tombstone);
+         return Completable.complete();
+      });
+   }
 
-      private CleanupTask(IracTombstoneInfo tombstone) {
-         this.tombstone = tombstone;
+   private CompletableSource notifyPrimaryOwner(GroupedFlowable<Action, IracTombstoneInfo> flowable) {
+      return flowable.groupBy(IracTombstoneInfo::getSegment, t -> t)
+            .concatMapCompletableDelayError(segment -> segment.buffer(batchSize)
+                  .concatMapCompletableDelayError(tombstones -> new PrimaryOwnerCheckTask(segment.getKey(), tombstones).check()));
+   }
+
+   private CompletableSource checkRemoteSite(GroupedFlowable<Action, IracTombstoneInfo> flowable) {
+      return flowable.buffer(batchSize)
+            .concatMapCompletableDelayError(tombstoneMap -> new CleanupTask(tombstoneMap).check());
+   }
+
+   private Action classifyTombstone(IracTombstoneInfo tombstone) {
+      DistributionInfo info = getSegmentDistribution(tombstone.getSegment());
+      if (!info.isWriteOwner() && !info.isReadOwner()) {
+         // not an owner, remove tombstone from local map
+         return Action.REMOVE_TOMBSTONE;
+      } else if (!info.isPrimary()) {
+         // backup owner, notify primary owner to check if the tombstone can be cleanup
+         return iracManager.running().containsKey(tombstone.getKey()) ? Action.KEEP_TOMBSTONE : Action.NOTIFY_PRIMARY_OWNER;
+      } else {
+         // primary owner, check all remote sites.
+         return iracManager.running().containsKey(tombstone.getKey()) ? Action.KEEP_TOMBSTONE : Action.CHECK_REMOTE_SITE;
+      }
+   }
+
+   private final class CleanupTask implements Function<Void, CompletionStage<Void>>, Runnable {
+      private final Collection<IracTombstoneInfo> tombstoneToCheck;
+      private final IntSet tombstoneToKeep;
+      private final int id;
+      private volatile boolean failedToCheck;
+
+      private CleanupTask(Collection<IracTombstoneInfo> tombstoneToCheck) {
+         this.tombstoneToCheck = tombstoneToCheck;
+         tombstoneToKeep = IntSets.concurrentSet(tombstoneToCheck.size());
+         failedToCheck = false;
+         id = tombstoneToCheck.hashCode();
       }
 
-      CompletionStage<Void> checkRemoteSites() {
+      CompletableSource check() {
+         if (log.isTraceEnabled()) {
+            log.tracef("[cleanup-task-%d] Running cleanup task with %s tombstones to check", id, tombstoneToCheck.size());
+         }
+         if (tombstoneToCheck.isEmpty()) {
+            return Completable.complete();
+         }
+         List<Object> keys = tombstoneToCheck.stream()
+               .map(IracTombstoneInfo::getKey)
+               .collect(Collectors.toList());
+         IracTombstoneRemoteSiteCheckCommand cmd = commandsFactory.buildIracTombstoneRemoteSiteCheckCommand(keys);
          // if one of the site return true (i.e. the key is in updateKeys map, then do not remove it)
-         AggregateCompletionStage<Boolean> stage = CompletionStages.orBooleanAggregateCompletionStage();
+         AggregateCompletionStage<Void> stage = CompletionStages.aggregateCompletionStage();
          for (XSiteBackup backup : asyncBackups) {
             if (takeOfflineManager.getSiteState(backup.getSiteName()) == SiteState.OFFLINE) {
                continue; // backup is offline
             }
             // we don't need the tombstone to query the remote site
-            IracTombstoneRemoteSiteCheckCommand cmd = commandsFactory.buildIracTombstoneRemoteSiteCheckCommand(tombstone.getKey());
-            stage.dependsOn(rpcManager.invokeXSite(backup, cmd));
+            stage.dependsOn(rpcManager.invokeXSite(backup, cmd).thenAccept(this::mergeIntSet));
          }
          // in case of exception, keep the tombstone
-         return stage.freeze()
-               .exceptionally(toTrueFunction())
-               .thenComposeAsync(this, blockingExecutor);
+         return Completable.fromCompletionStage(
+               stage.freeze()
+                     .exceptionally(this::onException)
+                     .thenComposeAsync(this, blockingExecutor));
+      }
+
+      private void mergeIntSet(IntSet rsp) {
+         if (log.isTraceEnabled()) {
+            log.tracef("[cleanup-task-%d] Received response: %s", id, rsp);
+         }
+         tombstoneToKeep.addAll(rsp);
+      }
+
+      private Void onException(Throwable ignored) {
+         if (log.isTraceEnabled()) {
+            log.tracef(ignored, "[cleanup-task-%d] Received exception", id);
+         }
+         failedToCheck = true;
+         return null;
       }
 
       @Override
-      public CompletionStage<Void> apply(Boolean keepTombstone) {
-         if (keepTombstone) {
+      public CompletionStage<Void> apply(Void aVoid) {
+         IracTombstoneCleanupCommand cmd = commandsFactory.buildIracTombstoneCleanupCommand(tombstoneToCheck.size());
+         forEachTombstoneToRemove(cmd::add);
+
+         if (log.isTraceEnabled()) {
+            log.tracef("[cleanup-task-%d] Removing %d tombstones.", id, cmd.getTombstonesToRemove().size());
+         }
+
+         if (cmd.isEmpty()) {
+            // nothing to remove
             return completedNull();
          }
-         // send commit to all write owner
-         IracTombstoneCleanupCommand cmd = commandsFactory.buildIracTombstoneCleanupCommand(tombstone);
-         return rpcManager.invokeCommand(getSegmentDistribution(tombstone.getSegment()).writeOwners(),
-               cmd, validOnly(), rpcManager.getSyncRpcOptions()).thenRunAsync(this, blockingExecutor);
+
+         Collection<Address> owners = tombstoneToCheck.stream()
+               .map(IracTombstoneInfo::getSegment)
+               .distinct()
+               .flatMap(integer -> getSegmentDistribution(integer).writeOwners().stream())
+               .collect(Collectors.toList());
+
+         // send cleanup to all write owner
+         return rpcManager.invokeCommand(owners, cmd, validOnly(), rpcManager.getSyncRpcOptions())
+               .thenRunAsync(this, blockingExecutor); //removes from local map
       }
 
       @Override
       public void run() {
-         removeTombstone(tombstone);
+         forEachTombstoneToRemove(DefaultIracTombstoneManager.this::removeTombstone);
       }
-   }
 
-   private static final class BackPressure<E, T> {
-      final E element;
-      final CompletionStage<T> delay;
-
-      private BackPressure(E element, CompletionStage<T> delay) {
-         this.element = element;
-         this.delay = delay;
+      void forEachTombstoneToRemove(Consumer<IracTombstoneInfo> consumer) {
+         if (failedToCheck) {
+            return;
+         }
+         int index = 0;
+         for (IracTombstoneInfo tombstone : tombstoneToCheck) {
+            if (tombstoneToKeep.contains(index++)) {
+               continue;
+            }
+            consumer.accept(tombstone);
+         }
       }
    }
 
@@ -461,5 +546,61 @@ public class DefaultIracTombstoneManager implements IracTombstoneManager {
          // invoked after the cleanup round
          onTaskCompleted(tombstoneMap.size());
       }
+   }
+
+   private class PrimaryOwnerCheckTask {
+      private final int segment;
+      private final Collection<IracTombstoneInfo> tombstones;
+
+      private PrimaryOwnerCheckTask(int segment, Collection<IracTombstoneInfo> tombstones) {
+         this.segment = segment;
+         this.tombstones = tombstones;
+         assert consistencyCheck();
+      }
+
+      CompletableSource check() {
+         if (tombstones.isEmpty()) {
+            return Completable.complete();
+         }
+         IracTombstonePrimaryCheckCommand cmd = commandsFactory.buildIracTombstonePrimaryCheckCommand(tombstones);
+         RpcOptions rpcOptions = rpcManager.getSyncRpcOptions();
+         CompletionStage<Void> rsp = rpcManager.invokeCommand(getSegmentDistribution(segment).primary(), cmd, ignoreLeavers(), rpcOptions);
+         return Completable.fromCompletionStage(rsp);
+      }
+
+      private boolean consistencyCheck() {
+         return tombstones.stream().allMatch(tombstoneInfo -> tombstoneInfo.getSegment() == segment);
+      }
+   }
+
+   private static class CompletionStageObservable extends CompletableFuture<Void> implements CompletableObserver {
+
+      @Override
+      public void onSubscribe(@NonNull Disposable d) {
+         //no-op
+      }
+
+      @Override
+      public void onComplete() {
+         if (log.isTraceEnabled()) {
+            log.trace("[IRAC] Tombstone cleanup round finished!");
+         }
+         complete(null);
+      }
+
+      @Override
+      public void onError(@NonNull Throwable e) {
+         if (log.isTraceEnabled()) {
+            log.trace("[IRAC] Tombstone cleanup round failed!", e);
+         }
+         complete(null);
+      }
+   }
+
+   private enum Action {
+      KEEP_TOMBSTONE,
+      REMOVE_TOMBSTONE,
+      CHECK_REMOTE_SITE,
+      NOTIFY_PRIMARY_OWNER
    }
 }

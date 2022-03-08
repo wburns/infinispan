@@ -12,6 +12,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.infinispan.commands.CommandsFactory;
+import org.infinispan.commands.irac.IracTombstoneCleanupCommand;
 import org.infinispan.commands.irac.IracTombstoneRemoteSiteCheckCommand;
 import org.infinispan.configuration.cache.BackupConfiguration;
 import org.infinispan.configuration.cache.CacheMode;
@@ -82,6 +83,11 @@ public class IracTombstoneUnitTest extends AbstractInfinispanTest {
       CommandsFactory factory = Mockito.mock(CommandsFactory.class);
       IracTombstoneRemoteSiteCheckCommand cmd = Mockito.mock(IracTombstoneRemoteSiteCheckCommand.class);
       Mockito.when(factory.buildIracTombstoneRemoteSiteCheckCommand(ArgumentMatchers.any())).thenReturn(cmd);
+
+      IracTombstoneCleanupCommand cmd2 = Mockito.mock(IracTombstoneCleanupCommand.class);
+      Mockito.when(cmd2.isEmpty()).thenReturn(false);
+      Mockito.when(factory.buildIracTombstoneCleanupCommand(ArgumentMatchers.anyInt())).thenReturn(cmd2);
+
       return factory;
    }
 
