@@ -1356,23 +1356,39 @@ public class TestingUtil {
     * Inserts a DELAY protocol in the JGroups stack used by the cache, and returns it.
     * The DELAY protocol can then be used to inject delays in milliseconds both at receiver
     * and sending side.
+    *
     * @param cache cache to inject
     * @param in_delay_millis inbound delay in millis
     * @param out_delay_millis outbound delay in millis
     * @return a reference to the DELAY instance being used by the JGroups stack
     */
-   public static DELAY setDelayForCache(Cache<?, ?> cache, int in_delay_millis, int out_delay_millis) throws Exception {
+   public static DELAY setDelayForCache(Cache<?, ?> cache, int in_delay_millis, int out_delay_millis) {
       JGroupsTransport jgt = (JGroupsTransport) TestingUtil.extractComponent(cache, Transport.class);
+      return setDelayForTransport(jgt, in_delay_millis, out_delay_millis);
+   }
+
+   public static DELAY setDelayForTransport(JGroupsTransport jgt, int inDelayMillis, int outDelayMillis) {
       JChannel ch = jgt.getChannel();
       ProtocolStack ps = ch.getProtocolStack();
       DELAY delay = ps.findProtocol(DELAY.class);
-      if (delay==null) {
+      if (delay == null) {
          delay = new DELAY();
-         ps.insertProtocol(delay, ProtocolStack.Position.ABOVE, TP.class);
+         try {
+            ps.insertProtocol(delay, ProtocolStack.Position.ABOVE, TP.class);
+         } catch (Exception e) {
+            throw new CacheException(e);
+         }
       }
-      delay.setInDelay(in_delay_millis);
-      delay.setOutDelay(out_delay_millis);
+      delay.setInDelay(inDelayMillis);
+      delay.setOutDelay(outDelayMillis);
       return delay;
+   }
+
+   public static void removeDelayForCache(Cache<?, ?> cache, DELAY delay) {
+      JGroupsTransport jgt = (JGroupsTransport) TestingUtil.extractComponent(cache, Transport.class);
+      JChannel ch = jgt.getChannel();
+      ProtocolStack ps = ch.getProtocolStack();
+      ps.removeProtocol(delay);
    }
 
    public static String k(Method method, int index) {

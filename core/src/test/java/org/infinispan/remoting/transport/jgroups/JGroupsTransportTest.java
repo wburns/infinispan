@@ -7,8 +7,12 @@ import java.util.Collections;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
+import org.infinispan.Cache;
 import org.infinispan.commands.ReplicableCommand;
 import org.infinispan.commands.remote.ClusteredGetCommand;
 import org.infinispan.configuration.cache.CacheMode;
@@ -23,8 +27,10 @@ import org.infinispan.remoting.transport.Address;
 import org.infinispan.remoting.transport.impl.MapResponseCollector;
 import org.infinispan.test.MultipleCacheManagersTest;
 import org.infinispan.test.TestingUtil;
+import org.infinispan.test.fwk.TransportFlags;
 import org.infinispan.util.ByteString;
 import org.infinispan.xsite.XSiteReplicateCommand;
+import org.jgroups.protocols.DELAY;
 import org.jgroups.util.UUID;
 import org.testng.annotations.Test;
 
@@ -41,7 +47,9 @@ public class JGroupsTransportTest extends MultipleCacheManagersTest {
    protected void createCacheManagers() throws Throwable {
       ConfigurationBuilder configurationBuilder = new ConfigurationBuilder();
       configurationBuilder.clustering().cacheMode(CacheMode.REPL_SYNC);
-      createCluster(configurationBuilder, 2);
+      // Limit flow control, so we can easily hit limit in test
+      createClusteredCaches(2, configurationBuilder,
+            new TransportFlags().withFlowControlLimit(10_000));
    }
 
    public void testSynchronousIgnoreLeaversInvocationToNonMembers() throws Exception {
@@ -86,9 +94,9 @@ public class JGroupsTransportTest extends MultipleCacheManagersTest {
       CompletableFuture<Void> blocker = blockRemoteGets();
       try {
          CompletionStage<Map<Address, Response>> future3 =
-            transport.invokeCommandStaggered(Arrays.asList(address(1), randomAddress), command,
-                                             MapResponseCollector.ignoreLeavers(), DeliverOrder.NONE, 5,
-                                             TimeUnit.SECONDS);
+               transport.invokeCommandStaggered(Arrays.asList(address(1), randomAddress), command,
+                     MapResponseCollector.ignoreLeavers(), DeliverOrder.NONE, 5,
+                     TimeUnit.SECONDS);
          // Wait for the stagger timeout (5s / 10 / 2) to expire before sending a reply back
          Thread.sleep(500);
          blocker.complete(null);
@@ -98,11 +106,30 @@ public class JGroupsTransportTest extends MultipleCacheManagersTest {
       }
    }
 
+   public void testFlowControl() throws ExecutionException, InterruptedException, TimeoutException {
+      Cache<String, String> cache = cache(0);
+      DELAY delay = TestingUtil.setDelayForCache(cache, 1000, 1000);
+
+      try {
+         Future<Void> future = fork(() -> {
+            for (int i = 0; i < 1_000; ++i) {
+               cache.putAsync("key-" + i, "value-" + i);
+            }
+         });
+
+         // This will time out if we invoke JGroups in the invoking thread with our reduced *FC credit size
+         future.get(10, TimeUnit.SECONDS);
+         Thread.sleep(10_000);
+      } finally {
+         TestingUtil.removeDelayForCache(cache, delay);
+      }
+   }
+
    private CompletableFuture<Void> blockRemoteGets() {
       CompletableFuture<Void> blocker = new CompletableFuture<>();
       InboundInvocationHandler oldInvocationHandler = TestingUtil.extractGlobalComponent(manager(1),
-                                                                                         InboundInvocationHandler
-                                                                                            .class);
+            InboundInvocationHandler
+                  .class);
       InboundInvocationHandler blockingInvocationHandler = new InboundInvocationHandler() {
          @Override
          public void handleFromCluster(Address origin, ReplicableCommand command, Reply reply, DeliverOrder order) {

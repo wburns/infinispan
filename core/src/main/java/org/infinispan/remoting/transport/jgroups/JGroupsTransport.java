@@ -66,6 +66,7 @@ import org.infinispan.jmx.CacheManagerJmxRegistration;
 import org.infinispan.jmx.ObjectNameKeys;
 import org.infinispan.metrics.impl.MetricsCollector;
 import org.infinispan.notifications.cachemanagerlistener.CacheManagerNotifier;
+import org.infinispan.reactive.RxJavaInterop;
 import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.inboundhandler.InboundInvocationHandler;
 import org.infinispan.remoting.inboundhandler.Reply;
@@ -112,6 +113,8 @@ import org.jgroups.View;
 import org.jgroups.blocks.RequestCorrelator;
 import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.jmx.JmxConfigurator;
+import org.jgroups.protocols.MFC_NB;
+import org.jgroups.protocols.UFC_NB;
 import org.jgroups.protocols.relay.RELAY2;
 import org.jgroups.protocols.relay.RouteStatusListener;
 import org.jgroups.protocols.relay.SiteAddress;
@@ -120,6 +123,12 @@ import org.jgroups.stack.Protocol;
 import org.jgroups.util.ExtendedUUID;
 import org.jgroups.util.MessageBatch;
 import org.jgroups.util.SocketFactory;
+
+import io.reactivex.rxjava3.core.Scheduler;
+import io.reactivex.rxjava3.core.Single;
+import io.reactivex.rxjava3.processors.FlowableProcessor;
+import io.reactivex.rxjava3.processors.UnicastProcessor;
+import io.reactivex.rxjava3.schedulers.Schedulers;
 
 /**
  * An encapsulation of a JGroups transport. JGroups transports can be configured using a variety of methods, usually by
@@ -198,6 +207,9 @@ public class JGroupsTransport implements Transport, ChannelListener {
    private RequestRepository requests;
    private final Map<String, SiteUnreachableReason> unreachableSites;
    private String localSite;
+
+   private final Map<org.jgroups.Address, FlowableProcessor<Message>> flowControlAddress = new ConcurrentHashMap<>();
+   private FlowableProcessor<Message> messageDispatcher;
 
    // ------------------------------------------------------------------------------------------------------------------
    // Lifecycle and setup stuff
@@ -483,6 +495,24 @@ public class JGroupsTransport implements Transport, ChannelListener {
       if (relay2 != null) {
          localSite = relay2.site();
       }
+      Scheduler nonBlockingScheduler = Schedulers.from(nonBlockingExecutor);
+      // Transport can write to the message dispatcher from multiple threads
+      // TODO: do we have a different message dispatcher per Address to reduce contention further?
+      messageDispatcher = UnicastProcessor.<Message>create().toSerialized();
+      messageDispatcher.groupBy(m -> {
+               org.jgroups.Address dest = m.getDest();
+               if (dest == null) {
+                  // groupBy doesn't support null, just use this - we don't actually use the groupBy value
+                  return this;
+               }
+               return dest;
+            })
+            .flatMap(addressFlowable ->
+                        addressFlowable.concatMapSingle(this::checkQueueing)
+                              .observeOn(nonBlockingScheduler)
+                              .doOnNext(this::send)
+                  , false, Integer.MAX_VALUE)
+            .subscribe(RxJavaInterop.emptyConsumer(), t -> log.fatal("Exception encountered!", t));
       running = true;
    }
 
@@ -1126,7 +1156,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       marshallRequest(message, command, requestId);
       setMessageFlags(message, deliverOrder, noRelay);
 
-      send(message);
+      messageDispatcher.onNext(message);
    }
 
    private static org.jgroups.Address toJGroupsAddress(Address address) {
@@ -1272,7 +1302,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       Message message = new Message();
       marshallRequest(message, command, requestId);
       setMessageFlags(message, deliverOrder, true);
-      send(message);
+      messageDispatcher.onNext(message);
    }
 
    private void logRequest(long requestId, ReplicableCommand command, Object targets, String type) {
@@ -1349,7 +1379,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
             continue;
 
          copy.dest(toJGroupsAddress(address));
-         send(copy);
+         messageDispatcher.onNext(message);
 
          // Send a different Message instance to each target
          if (it.hasNext()) {
@@ -1613,5 +1643,27 @@ public class JGroupsTransport implements Transport, ChannelListener {
    private enum SiteUnreachableReason {
       SITE_DOWN_EVENT,
       SITE_UNREACHABLE_EVENT
+   }
+
+   Single<Message> checkQueueing(Message message) {
+      if (true) {
+
+      }
+      return Single.just(message);
+   }
+
+   public class UFC_NB_Listener extends UFC_NB {
+      @Override
+      protected void handleCredit(org.jgroups.Address sender, long increase) {
+         super.handleCredit(sender, increase);
+         
+      }
+   }
+
+   public class MFC_NB_Listener extends MFC_NB {
+      @Override
+      protected void handleCredit(org.jgroups.Address sender, long increase) {
+         super.handleCredit(sender, increase);
+      }
    }
 }

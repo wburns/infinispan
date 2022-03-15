@@ -8,12 +8,14 @@ import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.FD_ALL3;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.FD_SOCK;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.LOCAL_PING;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.MERGE3;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.MFC;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.MPING;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.PING;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.TCP;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.TCP_NIO2;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.TEST_RELAY2;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.UDP;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.UFC;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.VERIFY_SUSPECT;
 
 import java.util.ArrayList;
@@ -103,6 +105,12 @@ public class JGroupsConfigBuilder {
       int siteIndex = flags.siteIndex();
       if (siteIndex > MAX_SITES_PER_THREAD) {
          throw new IllegalStateException("Currently we only support " + MAX_SITES_PER_THREAD + " ranges/sites!");
+      }
+
+      int flowControlLimit = flags.flowControlLimit();
+      if (flowControlLimit > 0) {
+         jgroupsCfg.getProtocol(UFC).getProperties().put("max_credits", Integer.toString(flowControlLimit));
+         jgroupsCfg.getProtocol(MFC).getProperties().put("max_credits", Integer.toString(flowControlLimit));
       }
       replaceTcpStartPort(jgroupsCfg, siteIndex);
       replaceMCastAddressAndPort(jgroupsCfg, fullTestName, siteIndex);

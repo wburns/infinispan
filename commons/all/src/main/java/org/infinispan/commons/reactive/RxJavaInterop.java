@@ -6,6 +6,7 @@ import org.infinispan.commons.util.Util;
 import org.reactivestreams.Publisher;
 
 import io.reactivex.rxjava3.core.Flowable;
+import io.reactivex.rxjava3.functions.Action;
 import io.reactivex.rxjava3.functions.Consumer;
 import io.reactivex.rxjava3.functions.Function;
 
@@ -54,8 +55,15 @@ public class RxJavaInterop {
       return (Consumer) emptyConsumer;
    }
 
+   public static Action emptyAction() {
+      return emptyAction;
+   }
+
    private static final Function<Object, Object> identityFunction = i -> i;
-   private static final Consumer<Object> emptyConsumer = ignore -> { };
+   private static final Consumer<Object> emptyConsumer = ignore -> {
+   };
+   private static final Action emptyAction = () -> {
+   };
    private static final Function<Map.Entry<Object, Object>, Object> entryToKeyFunction = Map.Entry::getKey;
    private static final Function<Map.Entry<Object, Object>, Object> entryToValueFunction = Map.Entry::getValue;
    private static final Function<? super Throwable, Publisher<?>> wrapThrowable = t -> Flowable.error(Util.rewrapAsCacheException(t));

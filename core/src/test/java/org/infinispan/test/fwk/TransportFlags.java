@@ -16,6 +16,7 @@ public class TransportFlags {
    private String siteName;
    private String relayConfig;
    private boolean preserveConfig;
+   private int flowControlLimit = -1;
 
    public TransportFlags withFD(boolean withFD) {
       this.withFD = withFD;
@@ -63,6 +64,11 @@ public class TransportFlags {
       return this;
    }
 
+   public TransportFlags withFlowControlLimit(int limit) {
+      flowControlLimit = limit;
+      return this;
+   }
+
    public String siteName() {
       return siteName;
    }
@@ -93,6 +99,10 @@ public class TransportFlags {
 
    public boolean isPreserveConfig() {
       return preserveConfig;
+   }
+
+   public int flowControlLimit() {
+      return flowControlLimit;
    }
 
    public static TransportFlags minimalXsiteFlags() {
