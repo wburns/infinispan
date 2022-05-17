@@ -331,7 +331,7 @@ public interface MutinyCache<K, V> {
     * @return
     */
    default Multi<K> removeAll(Set<K> keys) {
-      return removeAll(keys, CacheOptions.DEFAULT);
+      return removeAll(keys, CacheWriteOptions.DEFAULT);
    }
 
    /**
@@ -341,7 +341,7 @@ public interface MutinyCache<K, V> {
     * @param options
     * @return
     */
-   Multi<K> removeAll(Set<K> keys, CacheOptions options);
+   Multi<K> removeAll(Set<K> keys, CacheWriteOptions options);
 
    /**
     * Removes a set of keys. Returns the keys that were removed.
@@ -350,7 +350,7 @@ public interface MutinyCache<K, V> {
     * @return
     */
    default Multi<K> removeAll(Multi<K> keys) {
-      return removeAll(keys, CacheOptions.DEFAULT);
+      return removeAll(keys, CacheWriteOptions.DEFAULT);
    }
 
    /**
@@ -360,7 +360,7 @@ public interface MutinyCache<K, V> {
     * @param options
     * @return
     */
-   Multi<K> removeAll(Multi<K> keys, CacheOptions options);
+   Multi<K> removeAll(Multi<K> keys, CacheWriteOptions options);
 
    /**
     * Removes a set of keys. Returns the keys that were removed.
@@ -369,7 +369,7 @@ public interface MutinyCache<K, V> {
     * @return
     */
    default Multi<CacheEntry<K, V>> getAndRemoveAll(Multi<K> keys) {
-      return getAndRemoveAll(keys, CacheOptions.DEFAULT);
+      return getAndRemoveAll(keys, CacheWriteOptions.DEFAULT);
    }
 
    /**
@@ -379,7 +379,7 @@ public interface MutinyCache<K, V> {
     * @param options
     * @return
     */
-   Multi<CacheEntry<K, V>> getAndRemoveAll(Multi<K> keys, CacheOptions options);
+   Multi<CacheEntry<K, V>> getAndRemoveAll(Multi<K> keys, CacheWriteOptions options);
 
    /**
     * Estimate the size of the store

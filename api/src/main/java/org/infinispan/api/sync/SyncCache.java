@@ -8,7 +8,7 @@ import org.infinispan.api.common.CacheEntryVersion;
 import org.infinispan.api.common.CacheOptions;
 import org.infinispan.api.common.CacheWriteOptions;
 import org.infinispan.api.common.CloseableIterable;
-import org.infinispan.api.common.process.CacheProcessor;
+import org.infinispan.api.common.process.CacheEntryProcessorResult;
 import org.infinispan.api.common.process.CacheProcessorOptions;
 import org.infinispan.api.configuration.CacheConfiguration;
 import org.infinispan.api.sync.events.cache.SyncCacheEntryListener;
@@ -439,7 +439,7 @@ public interface SyncCache<K, V> {
     * @param keys
     * @param processor
     */
-   default <T> Map<K, T> process(Set<K> keys, SyncCacheEntryProcessor<K, V, T> processor) {
+   default <T> Set<CacheEntryProcessorResult<K, T>> process(Set<K> keys, SyncCacheEntryProcessor<K, V, T> processor) {
       return process(keys, processor, CacheProcessorOptions.DEFAULT);
    }
 
@@ -451,7 +451,7 @@ public interface SyncCache<K, V> {
     * @param processor
     * @param options
     */
-   <T> Map<K, T> process(Set<K> keys, SyncCacheEntryProcessor<K, V, T> processor, CacheProcessorOptions options);
+   <T> Set<CacheEntryProcessorResult<K, T>> process(Set<K> keys, SyncCacheEntryProcessor<K, V, T> processor, CacheProcessorOptions options);
 
    /**
     * Process entries using the supplied processor
@@ -459,7 +459,7 @@ public interface SyncCache<K, V> {
     * @param <T>
     * @param processor
     */
-   default <T> T processAll(CacheProcessor processor) {
+   default <T> Set<CacheEntryProcessorResult<K, T>> processAll(SyncCacheEntryProcessor<K, V, T> processor) {
       return processAll(processor, CacheProcessorOptions.DEFAULT);
    }
 
@@ -470,7 +470,7 @@ public interface SyncCache<K, V> {
     * @param processor
     * @param options
     */
-   <T> T processAll(CacheProcessor processor, CacheProcessorOptions options);
+   <T> Set<CacheEntryProcessorResult<K, T>> processAll(SyncCacheEntryProcessor<K, V, T> processor, CacheProcessorOptions options);
 
    /**
     * @return

@@ -10,7 +10,7 @@ import org.infinispan.api.common.CacheEntryVersion;
 import org.infinispan.api.common.CacheOptions;
 import org.infinispan.api.common.CacheWriteOptions;
 import org.infinispan.api.common.CloseableIterable;
-import org.infinispan.api.common.process.CacheProcessor;
+import org.infinispan.api.common.process.CacheEntryProcessorResult;
 import org.infinispan.api.common.process.CacheProcessorOptions;
 import org.infinispan.api.configuration.CacheConfiguration;
 import org.infinispan.api.sync.SyncCache;
@@ -178,13 +178,15 @@ public class HotRodSyncCache<K, V> implements SyncCache<K, V> {
    }
 
    @Override
-   public <T> Map<K, T> process(Set<K> keys, SyncCacheEntryProcessor<K, V, T> processor, CacheProcessorOptions options) {
+   public <T> Set<CacheEntryProcessorResult<K, T>> process(Set<K> keys, SyncCacheEntryProcessor<K, V, T> processor, CacheProcessorOptions options) {
+      remoteCache.process(keys, processor, options);
       throw new UnsupportedOperationException();
    }
 
    @Override
-   public <T> T processAll(CacheProcessor processor, CacheProcessorOptions options) {
-      return await(remoteCache.processAll(processor, options));
+   public <T> Set<CacheEntryProcessorResult<K, T>> processAll(SyncCacheEntryProcessor<K, V, T> processor, CacheProcessorOptions options) {
+      remoteCache.processAll(processor, options);
+      throw new UnsupportedOperationException();
    }
 
    @Override
