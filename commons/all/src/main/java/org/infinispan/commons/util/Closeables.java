@@ -1,6 +1,9 @@
 package org.infinispan.commons.util;
 
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Iterator;
+import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.function.Consumer;
@@ -236,20 +239,63 @@ public class Closeables {
       @SuppressWarnings("checkstyle:forbiddenmethod")
       Iterable<E> iterable = flowable.blockingIterable(fetchSize);
       Iterator<E> iterator = iterable.iterator();
-      return new CloseableIterator<E>() {
+      return new CloseablePublisherIterator<>(iterator);
+   }
+
+   private static class CloseablePublisherIterator<E> implements CloseableIterator<E> {
+
+      private final Iterator<E> iterator;
+
+      private CloseablePublisherIterator(Iterator<E> iterator) {
+         this.iterator = iterator;
+      }
+
+      @Override
+      public void close() {
+         ((Disposable) iterator).dispose();
+      }
+
+      @Override
+      public boolean hasNext() {
+         return iterator.hasNext();
+      }
+
+      @Override
+      public E next() {
+         return iterator.next();
+      }
+   }
+
+   public static <E> CloseableIterable<E> iterable(Publisher<E> publisher, int fetchSize) {
+      Flowable<E> flowable = Flowable.fromPublisher(publisher);
+      @SuppressWarnings("checkstyle:forbiddenmethod")
+      Iterable<E> iterable = flowable.blockingIterable(fetchSize);
+      return new CloseableIterable<E>() {
+         private final Set<Disposable> pending = Collections.synchronizedSet(new HashSet<>(2));
+
          @Override
          public void close() {
-            ((Disposable) iterator).dispose();
+            synchronized (pending) {
+               for (Iterator<Disposable> it = pending.iterator(); it.hasNext(); ) {
+                  Disposable disposable = it.next();
+                  disposable.dispose();
+                  it.remove();
+               }
+            }
          }
 
          @Override
-         public boolean hasNext() {
-            return iterator.hasNext();
-         }
-
-         @Override
-         public E next() {
-            return iterator.next();
+         public CloseableIterator<E> iterator() {
+            Iterator<E> iterator = iterable.iterator();
+            CloseableIterator<E> closeIterator = new CloseablePublisherIterator<E>(iterator) {
+               @Override
+               public void close() {
+                  super.close();
+                  pending.remove((Disposable) iterator);
+               }
+            };
+            pending.add((Disposable) iterator);
+            return closeIterator;
          }
       };
    }

@@ -4,6 +4,8 @@ import static org.infinispan.hotrod.impl.Util.await;
 
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Flow;
+import java.util.stream.Collectors;
 
 import org.infinispan.api.common.CacheEntry;
 import org.infinispan.api.common.CacheEntryVersion;
@@ -18,7 +20,12 @@ import org.infinispan.api.sync.SyncCacheEntryProcessor;
 import org.infinispan.api.sync.SyncQuery;
 import org.infinispan.api.sync.SyncStreamingCache;
 import org.infinispan.api.sync.events.cache.SyncCacheEntryListener;
+import org.infinispan.commons.util.Closeables;
 import org.infinispan.hotrod.impl.cache.RemoteCache;
+import org.reactivestreams.FlowAdapters;
+
+import io.reactivex.rxjava3.core.Flowable;
+import io.reactivex.rxjava3.core.Single;
 
 /**
  * @since 14.0
@@ -30,6 +37,10 @@ public class HotRodSyncCache<K, V> implements SyncCache<K, V> {
    HotRodSyncCache(HotRod hotrod, RemoteCache<K, V> remoteCache) {
       this.hotrod = hotrod;
       this.remoteCache = remoteCache;
+   }
+
+   private <E> E blockingGet(Single<E> single) {
+      return single.blockingGet();
    }
 
    @Override
@@ -98,23 +109,14 @@ public class HotRodSyncCache<K, V> implements SyncCache<K, V> {
    }
 
    @Override
-   public CloseableIterable<K> keys() {
-      throw new UnsupportedOperationException();
-   }
-
-   @Override
    public CloseableIterable<K> keys(CacheOptions options) {
       throw new UnsupportedOperationException();
    }
 
    @Override
-   public CloseableIterable<CacheEntry<K, V>> entries() {
-      throw new UnsupportedOperationException();
-   }
-
-   @Override
    public CloseableIterable<CacheEntry<K, V>> entries(CacheOptions options) {
-      throw new UnsupportedOperationException();
+      return Closeables.iterable(Flowable.fromPublisher(FlowAdapters.toPublisher(remoteCache.entries(options))),
+            Flowable.bufferSize());
    }
 
    @Override
@@ -123,38 +125,27 @@ public class HotRodSyncCache<K, V> implements SyncCache<K, V> {
    }
 
    @Override
-   public Map<K, V> getAll(Set<K> keys) {
-      throw new UnsupportedOperationException();
-   }
-
-   @Override
    public Map<K, V> getAll(Set<K> keys, CacheOptions options) {
-      throw new UnsupportedOperationException();
+      return blockingGet(Flowable.fromPublisher(FlowAdapters.toPublisher(remoteCache.getAll(keys, options)))
+            .collect(Collectors.toMap(CacheEntry::key, CacheEntry::value)));
    }
 
    @Override
    public Map<K, V> getAll(CacheOptions options, K... keys) {
-      return null;
+      return blockingGet(Flowable.fromPublisher(FlowAdapters.toPublisher(remoteCache.getAll(options, keys)))
+            .collect(Collectors.toMap(CacheEntry::key, CacheEntry::value)));
    }
 
    @Override
-   public Set<K> removeAll(Set<K> keys) {
-      throw new UnsupportedOperationException();
+   public Set<K> removeAll(Set<K> keys, CacheWriteOptions options) {
+      return blockingGet(Flowable.fromPublisher(FlowAdapters.toPublisher(remoteCache.removeAll(keys, options)))
+            .collect(Collectors.toSet()));
    }
 
    @Override
-   public Set<K> removeAll(Set<K> keys, CacheOptions options) {
-      return null;
-   }
-
-   @Override
-   public Map<K, V> getAndRemoveAll(Set<K> keys) {
-      throw new UnsupportedOperationException();
-   }
-
-   @Override
-   public Map<K, V> getAndRemoveAll(Set<K> keys, CacheOptions options) {
-      throw new UnsupportedOperationException();
+   public Map<K, V> getAndRemoveAll(Set<K> keys, CacheWriteOptions options) {
+      return blockingGet(Flowable.fromPublisher(FlowAdapters.toPublisher(remoteCache.getAndRemoveAll(keys, options)))
+            .collect(Collectors.toMap(CacheEntry::key, CacheEntry::value)));
    }
 
    @Override
@@ -179,14 +170,20 @@ public class HotRodSyncCache<K, V> implements SyncCache<K, V> {
 
    @Override
    public <T> Set<CacheEntryProcessorResult<K, T>> process(Set<K> keys, SyncCacheEntryProcessor<K, V, T> processor, CacheProcessorOptions options) {
-      remoteCache.process(keys, processor, options);
-      throw new UnsupportedOperationException();
+      Flow.Publisher<CacheEntryProcessorResult<K, T>> flowPublisher = remoteCache.process(keys,
+            // TODO: do we worry about the sync processor here? Guessing we need to offload it to another thread ?
+            new SyncToAsyncEntryProcessor<>(processor), options);
+      return blockingGet(Flowable.fromPublisher(FlowAdapters.toPublisher(flowPublisher))
+            .collect(Collectors.toSet()));
    }
 
    @Override
    public <T> Set<CacheEntryProcessorResult<K, T>> processAll(SyncCacheEntryProcessor<K, V, T> processor, CacheProcessorOptions options) {
-      remoteCache.processAll(processor, options);
-      throw new UnsupportedOperationException();
+      Flow.Publisher<CacheEntryProcessorResult<K, T>> flowPublisher = remoteCache.processAll(
+            // TODO: do we worry about the sync processor here? Guessing we need to offload it to another thread ?
+            new SyncToAsyncEntryProcessor<>(processor), options);
+      return blockingGet(Flowable.fromPublisher(FlowAdapters.toPublisher(flowPublisher))
+            .collect(Collectors.toSet()));
    }
 
    @Override

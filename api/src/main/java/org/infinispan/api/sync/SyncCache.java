@@ -346,7 +346,7 @@ public interface SyncCache<K, V> {
     * @return
     */
    default Set<K> removeAll(Set<K> keys) {
-      return removeAll(keys, CacheOptions.DEFAULT);
+      return removeAll(keys, CacheWriteOptions.DEFAULT);
    }
 
    /**
@@ -356,7 +356,7 @@ public interface SyncCache<K, V> {
     * @param options
     * @return
     */
-   Set<K> removeAll(Set<K> keys, CacheOptions options);
+   Set<K> removeAll(Set<K> keys, CacheWriteOptions options);
 
    /**
     * Removes a set of keys. Returns the keys that were removed.
@@ -365,7 +365,7 @@ public interface SyncCache<K, V> {
     * @return
     */
    default Map<K, V> getAndRemoveAll(Set<K> keys) {
-      return getAndRemoveAll(keys, CacheOptions.DEFAULT);
+      return getAndRemoveAll(keys, CacheWriteOptions.DEFAULT);
    }
 
    /**
@@ -374,7 +374,7 @@ public interface SyncCache<K, V> {
     * @param keys
     * @return
     */
-   Map<K, V> getAndRemoveAll(Set<K> keys, CacheOptions options);
+   Map<K, V> getAndRemoveAll(Set<K> keys, CacheWriteOptions options);
 
    /**
     * Estimate the size of the store
