@@ -31,6 +31,7 @@ public interface HotRodConstants {
    byte VERSION_29 = 29;
    byte VERSION_30 = 30;
    byte VERSION_31 = 31;
+   byte VERSION_32 = 32;
 
    //requests
    byte ILLEGAL_OP_CODE = 0x00;

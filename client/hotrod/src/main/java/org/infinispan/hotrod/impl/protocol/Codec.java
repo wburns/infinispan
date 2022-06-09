@@ -97,7 +97,7 @@ public interface Codec {
 
    AbstractClientEvent readCacheEvent(ByteBuf buf, Function<byte[], DataFormat> listenerDataFormat, short eventTypeId, ClassAllowList allowList, SocketAddress serverAddress);
 
-   Object returnPossiblePrevValue(ByteBuf buf, short status, DataFormat dataFormat, int flags, ClassAllowList allowList, Marshaller marshaller);
+   Object returnPossiblePrevValue(Object key, ByteBuf buf, short status, DataFormat dataFormat, int flags, ClassAllowList allowList, Marshaller marshaller);
 
    void writeClientListenerInterests(ByteBuf buf, EnumSet<CacheEntryEventType> types);
 
