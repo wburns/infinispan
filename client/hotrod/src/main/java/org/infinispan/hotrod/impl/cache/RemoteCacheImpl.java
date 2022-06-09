@@ -218,7 +218,12 @@ public class RemoteCacheImpl<K, V> implements RemoteCache<K, V> {
 
    @Override
    public CompletionStage<CacheEntry<K, V>> getOrReplaceEntry(K key, V value, CacheEntryVersion version, CacheWriteOptions options) {
-      throw new UnsupportedOperationException();
+      if (!(Objects.requireNonNull(version) instanceof CacheEntryVersionImpl)) {
+         throw new IllegalArgumentException("Only CacheEntryVersionImpl instances are supported!");
+      }
+      ReplaceIfUnmodifiedOperation<K, V> op = cacheOperationsFactory.newReplaceIfUnmodifiedOperation(key, keyToBytes(key), valueToBytes(value),
+            ((CacheEntryVersionImpl) version).version(), options, dataFormat);
+      return op.execute().;
    }
 
    @Override
