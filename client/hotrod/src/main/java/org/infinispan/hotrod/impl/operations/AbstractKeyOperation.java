@@ -46,8 +46,8 @@ public abstract class AbstractKeyOperation<K, T> extends StatsAffectingRetryingO
       }
    }
 
-   protected CacheEntry<K, T> returnPossiblePrevValue(ByteBuf buf, short status) {
-      return (CacheEntry<K, T>) operationContext.getCodec().returnPossiblePrevValue(key, buf, status, dataFormat, flags(), operationContext.getConfiguration().getClassAllowList(), operationContext.getChannelFactory().getMarshaller());
+   protected T returnPossiblePrevValue(ByteBuf buf, short status) {
+      return (T) operationContext.getCodec().returnPossiblePrevValue(key, buf, status, dataFormat, flags(), operationContext.getConfiguration().getClassAllowList(), operationContext.getChannelFactory().getMarshaller());
    }
 
    protected VersionedOperationResponse<CacheEntry<K, T>> returnVersionedOperationResponse(ByteBuf buf, short status) {

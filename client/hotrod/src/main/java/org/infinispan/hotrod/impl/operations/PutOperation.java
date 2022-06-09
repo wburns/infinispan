@@ -1,5 +1,6 @@
 package org.infinispan.hotrod.impl.operations;
 
+import org.infinispan.api.common.CacheEntry;
 import org.infinispan.api.common.CacheWriteOptions;
 import org.infinispan.hotrod.exceptions.InvalidResponseException;
 import org.infinispan.hotrod.impl.DataFormat;
@@ -15,7 +16,7 @@ import io.netty.channel.Channel;
  *
  * @since 14.0
  */
-public class PutOperation<K, V> extends AbstractKeyValueOperation<K, V> {
+public class PutOperation<K, V> extends AbstractKeyValueOperation<K, CacheEntry<K, V>> {
 
    public PutOperation(OperationContext operationContext, K key, byte[] keyBytes, byte[] value, CacheWriteOptions options, DataFormat dataFormat) {
       super(operationContext, PUT_REQUEST, PUT_RESPONSE, key, keyBytes, value, options, dataFormat);
