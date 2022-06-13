@@ -91,7 +91,7 @@ public interface MutinyCache<K, V> {
     * @param value
     * @return the previous value if present
     */
-   default Uni<V> putIfAbsent(K key, V value) {
+   default Uni<CacheEntry<K, V>> putIfAbsent(K key, V value) {
       return putIfAbsent(key, value, CacheWriteOptions.DEFAULT);
    }
 
@@ -101,7 +101,7 @@ public interface MutinyCache<K, V> {
     * @param options
     * @return the previous value if present
     */
-   Uni<V> putIfAbsent(K key, V value, CacheWriteOptions options);
+   Uni<CacheEntry<K, V>> putIfAbsent(K key, V value, CacheWriteOptions options);
 
    /**
     * Insert the key/value if such key does not exist
@@ -129,7 +129,7 @@ public interface MutinyCache<K, V> {
     * @param value
     * @return
     */
-   default Uni<V> put(K key, V value) {
+   default Uni<CacheEntry<K, V>> put(K key, V value) {
       return put(key, value, CacheWriteOptions.DEFAULT);
    }
 
@@ -139,7 +139,7 @@ public interface MutinyCache<K, V> {
     * @param options
     * @return
     */
-   Uni<V> put(K key, V value, CacheWriteOptions options);
+   Uni<CacheEntry<K, V>> put(K key, V value, CacheWriteOptions options);
 
    /**
     * @param key

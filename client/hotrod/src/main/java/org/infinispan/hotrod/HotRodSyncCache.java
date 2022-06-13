@@ -5,6 +5,7 @@ import static org.infinispan.hotrod.impl.Util.await;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Flow;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import org.infinispan.api.common.CacheEntry;
@@ -65,7 +66,7 @@ public class HotRodSyncCache<K, V> implements SyncCache<K, V> {
    }
 
    @Override
-   public V put(K key, V value, CacheWriteOptions options) {
+   public CacheEntry<K, V> put(K key, V value, CacheWriteOptions options) {
       return await(remoteCache.put(key, value, options));
    }
 
@@ -75,7 +76,7 @@ public class HotRodSyncCache<K, V> implements SyncCache<K, V> {
    }
 
    @Override
-   public V putIfAbsent(K key, V value, CacheWriteOptions options) {
+   public CacheEntry<K, V> putIfAbsent(K key, V value, CacheWriteOptions options) {
       return await(remoteCache.putIfAbsent(key, value, options));
    }
 
@@ -125,15 +126,15 @@ public class HotRodSyncCache<K, V> implements SyncCache<K, V> {
    }
 
    @Override
-   public Map<K, V> getAll(Set<K> keys, CacheOptions options) {
+   public Map<K, CacheEntry<K, V>> getAll(Set<K> keys, CacheOptions options) {
       return blockingGet(Flowable.fromPublisher(FlowAdapters.toPublisher(remoteCache.getAll(keys, options)))
-            .collect(Collectors.toMap(CacheEntry::key, CacheEntry::value)));
+            .collect(Collectors.toMap(CacheEntry::key, Function.identity())));
    }
 
    @Override
-   public Map<K, V> getAll(CacheOptions options, K... keys) {
+   public Map<K, CacheEntry<K, V>> getAll(CacheOptions options, K... keys) {
       return blockingGet(Flowable.fromPublisher(FlowAdapters.toPublisher(remoteCache.getAll(options, keys)))
-            .collect(Collectors.toMap(CacheEntry::key, CacheEntry::value)));
+            .collect(Collectors.toMap(CacheEntry::key, Function.identity())));
    }
 
    @Override

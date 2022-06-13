@@ -1,19 +1,19 @@
-package org.infinispan.hotrod.impl.protocol;
+package org.infinispan.client.hotrod.impl.protocol;
 
+import org.infinispan.client.hotrod.DataFormat;
+import org.infinispan.client.hotrod.impl.operations.AbstractKeyOperation;
 import org.infinispan.commons.configuration.ClassAllowList;
 import org.infinispan.commons.marshall.Marshaller;
-import org.infinispan.hotrod.impl.DataFormat;
-import org.infinispan.hotrod.impl.operations.AbstractKeyOperation;
 
 import io.netty.buffer.ByteBuf;
 
 /**
  * @since 14.0
  */
-public class Codec32 extends Codec31 {
+public class Codec40 extends Codec31 {
    @Override
    public HeaderParams writeHeader(ByteBuf buf, HeaderParams params) {
-      return writeHeader(buf, params, HotRodConstants.VERSION_32);
+      return writeHeader(buf, params, HotRodConstants.VERSION_31);
    }
 
    @Override

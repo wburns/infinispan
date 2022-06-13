@@ -1,6 +1,5 @@
 package org.infinispan.hotrod.impl.operations;
 
-import org.infinispan.api.common.CacheEntry;
 import org.infinispan.api.common.CacheWriteOptions;
 import org.infinispan.hotrod.impl.DataFormat;
 import org.infinispan.hotrod.impl.logging.LogFactory;
@@ -17,7 +16,7 @@ import io.netty.channel.Channel;
  *
  * @since 14.0
  */
-public class PutIfAbsentOperation<K, V> extends AbstractKeyValueOperation<K, CacheEntry<K, V>> {
+public class PutIfAbsentOperation<K, V> extends AbstractKeyValueOperation<K, V> {
 
    private static final BasicLogger log = LogFactory.getLog(PutIfAbsentOperation.class);
 
@@ -37,7 +36,7 @@ public class PutIfAbsentOperation<K, V> extends AbstractKeyValueOperation<K, Cac
    @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       if (HotRodConstants.isNotExecuted(status)) {
-         CacheEntry<K, V> prevValue = returnPossiblePrevValue(buf, status);
+         V prevValue = returnPossiblePrevValue(buf, status);
          if (HotRodConstants.hasPrevious(status)) {
             statsDataRead(true);
          }

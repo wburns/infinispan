@@ -22,10 +22,11 @@ public enum ProtocolVersion {
    PROTOCOL_VERSION_29(2, 9),
    PROTOCOL_VERSION_30(3, 0),
    PROTOCOL_VERSION_31(3, 1),
+   PROTOCOL_VERSION_40(4, 0),
    // New VERSIONS go above this line to satisfy compareTo of enum working for VERSIONS
 
    // The version here doesn't matter as long as it is >= 3.0. It must be the LAST version
-   PROTOCOL_VERSION_AUTO(3, 1),
+   PROTOCOL_VERSION_AUTO(4, 0),
    ;
 
    private static final ProtocolVersion[] VERSIONS = values();

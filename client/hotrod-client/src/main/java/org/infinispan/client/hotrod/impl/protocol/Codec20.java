@@ -277,7 +277,7 @@ public class Codec20 implements Codec, HotRodConstants {
    }
 
    @Override
-   public Object returnPossiblePrevValue(ByteBuf buf, short status, DataFormat dataFormat, int flags, ClassAllowList allowList, Marshaller marshaller) {
+   public Object returnPossiblePrevValue(Object key, ByteBuf buf, short status, DataFormat dataFormat, int flags, ClassAllowList allowList, Marshaller marshaller) {
       if (HotRodConstants.hasPrevious(status)) {
          return dataFormat.valueToObj(ByteBufUtil.readArray(buf), allowList);
       } else {

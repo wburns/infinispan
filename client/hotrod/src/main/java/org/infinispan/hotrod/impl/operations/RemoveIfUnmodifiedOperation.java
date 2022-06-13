@@ -1,6 +1,5 @@
 package org.infinispan.hotrod.impl.operations;
 
-import org.infinispan.api.common.CacheEntry;
 import org.infinispan.api.common.CacheOptions;
 import org.infinispan.hotrod.impl.DataFormat;
 import org.infinispan.hotrod.impl.VersionedOperationResponse;
@@ -18,7 +17,7 @@ import io.netty.channel.Channel;
  *
  * @since 14.0
  */
-public class RemoveIfUnmodifiedOperation<K, V> extends AbstractKeyOperation<K, VersionedOperationResponse<CacheEntry<K, V>>> {
+public class RemoveIfUnmodifiedOperation<K, V> extends AbstractKeyOperation<K, VersionedOperationResponse<V>> {
 
    private final long version;
 

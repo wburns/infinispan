@@ -31,7 +31,7 @@ public class SyncCacheAPIDemo {
          // get
          String value = mycache.get("key");
          // put
-         String previous = mycache.put("key", "newvalue");
+         CacheEntry<String, String> previous = mycache.put("key", "newvalue");
          // set with options
          mycache.set("key", "anothervalue", writeOptions().lifespan(Duration.ofHours(1)).timeout(Duration.ofMillis(500)).build());
          // get with options
@@ -42,7 +42,7 @@ public class SyncCacheAPIDemo {
          // setIfAbsent
          mycache.setIfAbsent("anotherkey", "value");
          // putIfAbsent
-         String existing = mycache.putIfAbsent("anotherkey", "anothervalue");
+         CacheEntry<String, String> existing = mycache.putIfAbsent("anotherkey", "anothervalue");
          // remove
          boolean removed = mycache.remove("anotherkey");
          // query
@@ -57,7 +57,7 @@ public class SyncCacheAPIDemo {
 
          // Bulk ops
          mycache.putAll(Map.of("key1", "value1", "key2", "value2"));
-         Map<String, String> all = mycache.getAll(Set.of("key1", "key2"));
+         Map<String, CacheEntry<String, String>> all = mycache.getAll(Set.of("key1", "key2"));
 
          // Iteration over keys and entries
          mycache.keys().forEach(new NullConsumer<>());

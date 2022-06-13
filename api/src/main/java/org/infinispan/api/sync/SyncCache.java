@@ -87,7 +87,7 @@ public interface SyncCache<K, V> {
     * @param value
     * @return Void
     */
-   default V put(K key, V value) {
+   default CacheEntry<K, V> put(K key, V value) {
       return put(key, value, CacheWriteOptions.DEFAULT);
    }
 
@@ -97,7 +97,7 @@ public interface SyncCache<K, V> {
     * @param options
     * @return Void
     */
-   V put(K key, V value, CacheWriteOptions options);
+   CacheEntry<K, V> put(K key, V value, CacheWriteOptions options);
 
    /**
     * Similar to {@link #put(Object, Object)} but does not return the previous value.
@@ -121,7 +121,7 @@ public interface SyncCache<K, V> {
     * @param value
     * @return the previous value if present
     */
-   default V putIfAbsent(K key, V value) {
+   default CacheEntry<K, V> putIfAbsent(K key, V value) {
       return putIfAbsent(key, value, CacheWriteOptions.DEFAULT);
    }
 
@@ -133,7 +133,7 @@ public interface SyncCache<K, V> {
     * @param options
     * @return the previous value if present
     */
-   V putIfAbsent(K key, V value, CacheWriteOptions options);
+   CacheEntry<K, V> putIfAbsent(K key, V value, CacheWriteOptions options);
 
    /**
     * Save the key/value.
@@ -313,7 +313,7 @@ public interface SyncCache<K, V> {
     * @param keys
     * @return
     */
-   default Map<K, V> getAll(Set<K> keys) {
+   default Map<K, CacheEntry<K, V>> getAll(Set<K> keys) {
       return getAll(keys, CacheOptions.DEFAULT);
    }
 
@@ -324,7 +324,7 @@ public interface SyncCache<K, V> {
     * @param options
     * @return
     */
-   Map<K, V> getAll(Set<K> keys, CacheOptions options);
+   Map<K, CacheEntry<K, V>> getAll(Set<K> keys, CacheOptions options);
 
    /**
     * Retrieves all entries for the supplied keys
@@ -332,7 +332,7 @@ public interface SyncCache<K, V> {
     * @param keys
     * @return
     */
-   default Map<K, V> getAll(K... keys) {
+   default Map<K, CacheEntry<K, V>> getAll(K... keys) {
       return getAll(CacheOptions.DEFAULT, keys);
    }
 
@@ -343,7 +343,7 @@ public interface SyncCache<K, V> {
     * @param options
     * @return
     */
-   Map<K, V> getAll(CacheOptions options, K... keys);
+   Map<K, CacheEntry<K, V>> getAll(CacheOptions options, K... keys);
 
    /**
     * Removes a set of keys. Returns the keys that were removed.

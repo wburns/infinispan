@@ -66,7 +66,7 @@ public interface Codec {
 
    AbstractClientEvent readCacheEvent(ByteBuf buf, Function<byte[], DataFormat> listenerDataFormat, short eventTypeId, ClassAllowList allowList, SocketAddress serverAddress);
 
-   Object returnPossiblePrevValue(ByteBuf buf, short status, DataFormat dataFormat, int flags, ClassAllowList allowList, Marshaller marshaller);
+   public Object returnPossiblePrevValue(Object key, ByteBuf buf, short status, DataFormat dataFormat, int flags, ClassAllowList allowList, Marshaller marshaller);
 
    void writeClientListenerInterests(ByteBuf buf, Set<Class<? extends Annotation>> classes);
 
@@ -84,6 +84,7 @@ public interface Codec {
 
    /**
     * Iteration read for projection size
+    *
     * @param buf
     * @return
     */

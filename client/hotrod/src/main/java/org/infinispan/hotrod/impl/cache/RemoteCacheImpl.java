@@ -175,8 +175,8 @@ public class RemoteCacheImpl<K, V> implements RemoteCache<K, V> {
    }
 
    @Override
-   public CompletionStage<V> putIfAbsent(K key, V value, CacheWriteOptions options) {
-      PutIfAbsentOperation<K, V> op = cacheOperationsFactory.newPutIfAbsentOperation(keyAsObjectIfNeeded(key), keyToBytes(key), valueToBytes(value), options, dataFormat);
+   public CompletionStage<CacheEntry<K, V>> putIfAbsent(K key, V value, CacheWriteOptions options) {
+      PutIfAbsentOperation<K, CacheEntry<K, V>> op = cacheOperationsFactory.newPutIfAbsentOperation(keyAsObjectIfNeeded(key), keyToBytes(key), valueToBytes(value), options, dataFormat);
       return op.execute();
    }
 
@@ -187,8 +187,8 @@ public class RemoteCacheImpl<K, V> implements RemoteCache<K, V> {
    }
 
    @Override
-   public CompletionStage<V> put(K key, V value, CacheWriteOptions options) {
-      PutOperation<K, V> op = cacheOperationsFactory.newPutKeyValueOperation(keyAsObjectIfNeeded(key), keyToBytes(key), valueToBytes(value), options, dataFormat);
+   public CompletionStage<CacheEntry<K, V>> put(K key, V value, CacheWriteOptions options) {
+      PutOperation<K, CacheEntry<K, V>> op = cacheOperationsFactory.newPutKeyValueOperation(keyAsObjectIfNeeded(key), keyToBytes(key), valueToBytes(value), options, dataFormat);
       return op.execute();
    }
 

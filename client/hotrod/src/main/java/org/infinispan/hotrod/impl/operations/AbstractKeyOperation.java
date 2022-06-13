@@ -50,7 +50,7 @@ public abstract class AbstractKeyOperation<K, T> extends StatsAffectingRetryingO
       return (T) operationContext.getCodec().returnPossiblePrevValue(key, buf, status, dataFormat, flags(), operationContext.getConfiguration().getClassAllowList(), operationContext.getChannelFactory().getMarshaller());
    }
 
-   protected VersionedOperationResponse<CacheEntry<K, T>> returnVersionedOperationResponse(ByteBuf buf, short status) {
+   protected T returnVersionedOperationResponse(ByteBuf buf, short status) {
       VersionedOperationResponse.RspCode code;
       if (HotRodConstants.isSuccess(status)) {
          code = VersionedOperationResponse.RspCode.SUCCESS;
@@ -61,7 +61,7 @@ public abstract class AbstractKeyOperation<K, T> extends StatsAffectingRetryingO
       } else {
          throw new IllegalStateException("Unknown response status: " + Integer.toHexString(status));
       }
-      CacheEntry<K, T> prevValue = returnPossiblePrevValue(buf, status);
+      T prevValue = returnPossiblePrevValue(buf, status);
       return new VersionedOperationResponse<>(prevValue, code);
    }
 
