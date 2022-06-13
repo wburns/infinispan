@@ -4,6 +4,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.DataFormat;
+import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
@@ -47,7 +48,8 @@ public class PutIfAbsentOperation<V> extends AbstractKeyValueOperation<V> {
    @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       if (HotRodConstants.isNotExecuted(status)) {
-         V prevValue = returnPossiblePrevValue(buf, status);
+         MetadataValue<V> metadataValue = returnPossiblePrevValue(buf, status);
+         V prevValue = metadataValue != null ? metadataValue.getValue() : null;
          if (HotRodConstants.hasPrevious(status)) {
             statsDataRead(true);
          }

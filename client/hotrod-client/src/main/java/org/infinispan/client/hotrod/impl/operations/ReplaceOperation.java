@@ -4,6 +4,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.DataFormat;
+import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
@@ -48,6 +49,7 @@ public class ReplaceOperation<V> extends AbstractKeyValueOperation<V> {
       if (HotRodConstants.hasPrevious(status)) {
          statsDataRead(true);
       }
-      complete(returnPossiblePrevValue(buf, status));
+      MetadataValue<V> metadataValue = returnPossiblePrevValue(buf, status);
+      complete(metadataValue != null ? metadataValue.getValue() : null);
    }
 }

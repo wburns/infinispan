@@ -5,6 +5,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.DataFormat;
+import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.VersionedOperationResponse;
@@ -44,11 +45,11 @@ public abstract class AbstractKeyOperation<T> extends StatsAffectingRetryingOper
       }
    }
 
-   protected T returnPossiblePrevValue(ByteBuf buf, short status) {
-      return (T) codec.returnPossiblePrevValue(buf, status, dataFormat, flags, cfg.getClassAllowList(), channelFactory.getMarshaller());
+   protected <V> MetadataValue<V> returnPossiblePrevValue(ByteBuf buf, short status) {
+      return codec.returnPossiblePrevValue(buf, status, dataFormat, flags, cfg.getClassAllowList(), channelFactory.getMarshaller());
    }
 
-   protected VersionedOperationResponse returnVersionedOperationResponse(ByteBuf buf, short status) {
+   protected <V> VersionedOperationResponse<V> returnVersionedOperationResponse(ByteBuf buf, short status) {
       VersionedOperationResponse.RspCode code;
       if (HotRodConstants.isSuccess(status)) {
          code = VersionedOperationResponse.RspCode.SUCCESS;
@@ -59,8 +60,8 @@ public abstract class AbstractKeyOperation<T> extends StatsAffectingRetryingOper
       } else {
          throw new IllegalStateException("Unknown response status: " + Integer.toHexString(status));
       }
-      Object prevValue = returnPossiblePrevValue(buf, status);
-      return new VersionedOperationResponse(prevValue, code);
+      MetadataValue<V> prevValue = returnPossiblePrevValue(buf, status);
+      return new VersionedOperationResponse<>(prevValue != null ? prevValue.getValue() : null, code);
    }
 
    @Override

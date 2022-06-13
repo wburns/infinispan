@@ -3,6 +3,7 @@ package org.infinispan.client.hotrod.impl.operations;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.DataFormat;
+import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
@@ -39,7 +40,8 @@ public class RemoveOperation<V> extends AbstractKeyOperation<V> {
 
    @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
-      V result = returnPossiblePrevValue(buf, status);
+      MetadataValue<V> metadataValue = returnPossiblePrevValue(buf, status);
+      V result = metadataValue != null ? metadataValue.getValue() : null;
       if (HotRodConstants.isNotExist(status)) {
          complete(null);
       } else {
