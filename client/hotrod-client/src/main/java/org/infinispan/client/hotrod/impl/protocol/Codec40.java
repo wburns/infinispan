@@ -1,8 +1,11 @@
 package org.infinispan.client.hotrod.impl.protocol;
 
+import java.util.Map;
+
 import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.impl.operations.GetWithMetadataOperation;
+import org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil;
 import org.infinispan.commons.configuration.ClassAllowList;
 import org.infinispan.commons.marshall.Marshaller;
 
@@ -12,10 +15,6 @@ import io.netty.buffer.ByteBuf;
  * @since 14.0
  */
 public class Codec40 extends Codec31 {
-   @Override
-   public HeaderParams writeHeader(ByteBuf buf, HeaderParams params) {
-      return writeHeader(buf, params, HotRodConstants.VERSION_40);
-   }
 
    @Override
    public Object returnPossiblePrevValue(ByteBuf buf, short status, DataFormat dataFormat, int flags, ClassAllowList allowList, Marshaller marshaller) {
@@ -25,5 +24,30 @@ public class Codec40 extends Codec31 {
       } else {
          return null;
       }
+   }
+
+   @Override
+   public HeaderParams writeHeader(ByteBuf buf, HeaderParams params) {
+      return writeHeader(buf, params, HotRodConstants.VERSION_40);
+   }
+
+   @Override
+   protected HeaderParams writeHeader(ByteBuf buf, HeaderParams params, byte version) {
+      HeaderParams headerParams = super.writeHeader(buf, params, version);
+      writeOtherParams(buf, params.otherParams());
+      return headerParams;
+   }
+
+   private void writeOtherParams(ByteBuf buf, Map<String, String> parameters) {
+      if (parameters == null) {
+         ByteBufUtil.writeVInt(buf, 0);
+         return;
+      }
+
+      ByteBufUtil.writeVInt(buf, parameters.size());
+      parameters.forEach((key, value) -> {
+         ByteBufUtil.writeString(buf, key);
+         ByteBufUtil.writeString(buf, value);
+      });
    }
 }

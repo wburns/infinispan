@@ -64,7 +64,21 @@ public class Codec40 implements Codec, HotRodConstants {
    public HeaderParams writeHeader(ByteBuf buf, HeaderParams params) {
       HeaderParams headerParams = writeHeader(buf, params, HotRodConstants.VERSION_40);
       writeDataTypes(buf, params.dataFormat);
+      writeOtherParams(buf, params.otherParams());
       return headerParams;
+   }
+
+   private void writeOtherParams(ByteBuf buf, Map<String, String> parameters) {
+      if (parameters == null) {
+         ByteBufUtil.writeVInt(buf, 0);
+         return;
+      }
+
+      ByteBufUtil.writeVInt(buf, parameters.size());
+      parameters.forEach((key, value) -> {
+         ByteBufUtil.writeString(buf, key);
+         ByteBufUtil.writeString(buf, value);
+      });
    }
 
    protected void writeDataTypes(ByteBuf buf, DataFormat dataFormat) {
