@@ -179,7 +179,7 @@ public class SingleKeyBackupWriteCommand extends BackupWriteCommand {
                   getCommandInvocationId(), metadata);
             break;
          case REPLACE:
-            command = new ReplaceCommand(key, null, valueOrFunction, metadata, segmentId, getFlags(),
+            command = new ReplaceCommand(key, null, valueOrFunction, false, metadata, segmentId, getFlags(),
                   getCommandInvocationId());
             break;
          case REMOVE_EXPIRED:

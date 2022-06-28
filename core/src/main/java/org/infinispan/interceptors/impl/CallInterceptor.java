@@ -335,6 +335,7 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
       Object prevValue = e.getValue();
       Object newValue = command.getNewValue();
       Object expectedValue = command.getOldValue();
+      Object response = expectedValue == null && command.isReturnEntry() ? e.clone() : null;
       if (valueMatcher.matches(prevValue, expectedValue, newValue)) {
          e.setChanged(true);
          e.setValue(newValue);
@@ -348,11 +349,11 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
 
          updateStoreFlags(command, e);
 
-         return delayedValue(stage, expectedValue == null ? prevValue : true);
+         return delayedValue(stage, response != null ? response : expectedValue == null ? prevValue : true);
       }
 
       command.fail();
-      return expectedValue == null ? prevValue : false;
+      return response != null ? response : expectedValue == null ? prevValue : false;
    }
 
    @Override

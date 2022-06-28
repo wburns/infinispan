@@ -227,7 +227,7 @@ public class VersionAwareMarshallerTest extends AbstractInfinispanTest {
       InvalidateCommand c71 = new InvalidateL1Command(EnumUtil.EMPTY_BIT_SET, CommandInvocationId.generateId(null), "key1", "key2");
       marshallAndAssertEquality(c71);
 
-      ReplaceCommand c8 = new ReplaceCommand("key", "oldvalue", "newvalue", new EmbeddedMetadata.Builder().build(), 0,
+      ReplaceCommand c8 = new ReplaceCommand("key", "oldvalue", "newvalue", false, new EmbeddedMetadata.Builder().build(), 0,
             EnumUtil.EMPTY_BIT_SET, CommandInvocationId.generateId(null));
       marshallAndAssertEquality(c8);
 

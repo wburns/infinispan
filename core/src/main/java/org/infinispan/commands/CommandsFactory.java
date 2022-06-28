@@ -234,9 +234,18 @@ public interface CommandsFactory {
     * @param flagsBitSet Command flags provided by cache
     * @return a ReplaceCommand
     */
-   ReplaceCommand buildReplaceCommand(Object key, Object oldValue, Object newValue, int segment, Metadata metadata,
-         long flagsBitSet);
+   default ReplaceCommand buildReplaceCommand(Object key, Object oldValue, Object newValue, int segment, Metadata metadata,
+         long flagsBitSet) {
+      return buildReplaceCommand(key, oldValue, newValue, false, segment, metadata, flagsBitSet);
+   }
 
+   default ReplaceCommand buildReplaceCommandEntry(Object key, Object oldValue, Object newValue, int segment, Metadata metadata,
+                                           long flagsBitSet) {
+      return buildReplaceCommand(key, oldValue, newValue, true, segment, metadata, flagsBitSet);
+   }
+
+   ReplaceCommand buildReplaceCommand(Object key, Object oldValue, Object newValue, boolean returnEntry, int segment,
+                                      Metadata metadata, long flagsBitSet);
 
    /**
     * Builds a ComputeCommand

@@ -1391,6 +1391,12 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
       return commandsFactory.buildReplaceCommand(key, null, value, keyPartitioner.getSegment(key), merged, flags);
    }
 
+   private ReplaceCommand createReplaceCommandEntry(K key, V value, Metadata metadata, long explicitFlags) {
+      long flags = addUnsafeFlags(explicitFlags);
+      Metadata merged = applyDefaultMetadata(metadata);
+      return commandsFactory.buildReplaceCommandEntry(key, null, value, keyPartitioner.getSegment(key), merged, flags);
+   }
+
    @Override
    public final boolean replace(K key, V oldValue, V value, long lifespan, TimeUnit lifespanUnit, long maxIdleTime, TimeUnit idleTimeUnit) {
       Metadata metadata = new EmbeddedMetadata.Builder()
@@ -1512,15 +1518,22 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
       return replaceAsync(key, value, metadata, EnumUtil.EMPTY_BIT_SET, defaultContextBuilderForWrite());
    }
 
-   @Override
-   public CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(K key, V value, Metadata metadata) {
-      return null;
-   }
-
    final CompletableFuture<V> replaceAsync(final K key, final V value, final Metadata metadata,
                                            final long explicitFlags, ContextBuilder contextBuilder) {
       assertKeyValueNotNull(key, value);
       ReplaceCommand command = createReplaceCommand(key, value, metadata, explicitFlags);
+      return invocationHelper.invokeAsync(contextBuilder, command, 1);
+   }
+
+   @Override
+   public CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(K key, V value, Metadata metadata) {
+      return replaceAsyncEntry(key, value, metadata, EnumUtil.EMPTY_BIT_SET, defaultContextBuilderForWrite());
+   }
+
+   private CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(final K key, final V value, final Metadata metadata,
+                                                                 final long explicitFlags, ContextBuilder contextBuilder) {
+      assertKeyValueNotNull(key, value);
+      ReplaceCommand command = createReplaceCommandEntry(key, value, metadata, explicitFlags);
       return invocationHelper.invokeAsync(contextBuilder, command, 1);
    }
 

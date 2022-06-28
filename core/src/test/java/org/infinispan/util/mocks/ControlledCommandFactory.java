@@ -241,8 +241,8 @@ public class ControlledCommandFactory implements CommandsFactory {
    }
 
    @Override
-   public ReplaceCommand buildReplaceCommand(Object key, Object oldValue, Object newValue, int segment, Metadata metadata, long flagsBitSet) {
-      return actual.buildReplaceCommand(key, oldValue, newValue, segment, metadata, flagsBitSet);
+   public ReplaceCommand buildReplaceCommand(Object key, Object oldValue, Object newValue, boolean loadEntry, int segment, Metadata metadata, long flagsBitSet) {
+      return actual.buildReplaceCommand(key, oldValue, newValue, loadEntry, segment, metadata, flagsBitSet);
    }
 
    @Override

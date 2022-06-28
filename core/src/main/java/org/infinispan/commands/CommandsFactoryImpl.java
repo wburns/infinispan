@@ -229,8 +229,9 @@ public class CommandsFactoryImpl implements CommandsFactory {
    }
 
    @Override
-   public ReplaceCommand buildReplaceCommand(Object key, Object oldValue, Object newValue, int segment, Metadata metadata, long flagsBitSet) {
-      return new ReplaceCommand(key, oldValue, newValue, metadata, segment, flagsBitSet, generateUUID(transactional));
+   public ReplaceCommand buildReplaceCommand(Object key, Object oldValue, Object newValue, boolean returnEntry, int segment,
+                                             Metadata metadata, long flagsBitSet) {
+      return new ReplaceCommand(key, oldValue, newValue, returnEntry, metadata, segment, flagsBitSet, generateUUID(transactional));
    }
 
    @Override

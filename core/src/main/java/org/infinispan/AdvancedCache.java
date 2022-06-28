@@ -337,6 +337,18 @@ public interface AdvancedCache<K, V> extends Cache<K, V>, TransactionalCache {
       return replaceAsync(key, value, metadata.lifespan(), TimeUnit.MILLISECONDS, metadata.maxIdle(), TimeUnit.MILLISECONDS);
    }
 
+   /**
+    * An extension of {@link #replaceAsync(K, V, Metadata)}, which returns a {@link CacheEntry} instead of
+    * only the value.
+    *
+    * @param key      key with which the specified value is associated
+    * @param value    value to be associated with the specified key
+    * @param metadata information to store alongside the new value
+    * @return the future that contains previous {@link CacheEntry} associated with the specified key,
+    *         or <tt>null</tt> if there was no mapping for the key.
+    * @since 14.0
+    * @see #replaceAsync(K, V, Metadata)
+    */
    CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(K key, V value, Metadata metadata);
 
    /**
