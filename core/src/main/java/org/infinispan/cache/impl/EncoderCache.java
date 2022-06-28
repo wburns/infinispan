@@ -348,6 +348,11 @@ public class EncoderCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> {
    }
 
    @Override
+   public CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(K key, V value, Metadata metadata) {
+      return cache.replaceAsyncEntry(key, value, metadata);
+   }
+
+   @Override
    public Map<K, V> getAll(Set<?> keys) {
       Map<K, V> ret = cache.getAll(encodeKeysForWrite(keys));
       return decodeMapForRead(ret);

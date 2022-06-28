@@ -1512,6 +1512,11 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
       return replaceAsync(key, value, metadata, EnumUtil.EMPTY_BIT_SET, defaultContextBuilderForWrite());
    }
 
+   @Override
+   public CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(K key, V value, Metadata metadata) {
+      return null;
+   }
+
    final CompletableFuture<V> replaceAsync(final K key, final V value, final Metadata metadata,
                                            final long explicitFlags, ContextBuilder contextBuilder) {
       assertKeyValueNotNull(key, value);

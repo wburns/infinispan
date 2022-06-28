@@ -337,11 +337,7 @@ public interface AdvancedCache<K, V> extends Cache<K, V>, TransactionalCache {
       return replaceAsync(key, value, metadata.lifespan(), TimeUnit.MILLISECONDS, metadata.maxIdle(), TimeUnit.MILLISECONDS);
    }
 
-   default CompletionStage<CacheEntry<K, V>> replaceAsyncReturnEntry(K key, V value, Metadata metadata) {
-      // TODO: implement later
-      return replaceAsync(key, value, metadata)
-            .thenApply(prev -> new ImmortalCacheEntry(key, prev));
-   }
+   CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(K key, V value, Metadata metadata);
 
    /**
     * An overloaded form of {@link #replace(K, V, V)}, which takes in an instance of {@link Metadata} which can be used

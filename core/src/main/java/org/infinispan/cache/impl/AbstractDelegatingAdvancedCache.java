@@ -334,6 +334,11 @@ public abstract class AbstractDelegatingAdvancedCache<K, V> extends AbstractDele
    }
 
    @Override
+   public CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(K key, V value, Metadata metadata) {
+      return cache.replaceAsyncEntry(key, value, metadata);
+   }
+
+   @Override
    public boolean replace(K key, V oldValue, V value, Metadata metadata) {
       return cache.replace(key, oldValue, value, metadata);
    }

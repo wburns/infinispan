@@ -451,6 +451,11 @@ public class DecoratedCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> 
    }
 
    @Override
+   public CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(K key, V value, Metadata metadata) {
+      return cacheImplementation.replaceAsyncEntry(key, value, metadata);
+   }
+
+   @Override
    public CompletableFuture<Boolean> replaceAsync(K key, V oldValue, V newValue) {
       return replaceAsync(key, oldValue, newValue, cacheImplementation.defaultMetadata);
    }

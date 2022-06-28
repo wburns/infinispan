@@ -211,6 +211,11 @@ public class SecureCacheTestDriver {
       cache.replaceAsync("a", "a", "b", new EmbeddedMetadata.Builder().build());
    }
 
+   @TestCachePermission(AuthorizationPermission.WRITE)
+   public void testReplaceAsyncEntry_Object_Object_Metadata(SecureCache<String, String> cache) {
+      cache.replaceAsyncEntry("a", "a", new EmbeddedMetadata.Builder().build());
+   }
+
    @TestCachePermission(AuthorizationPermission.NONE)
    public void testGetStatus(SecureCache<String, String> cache) {
       cache.getStatus();

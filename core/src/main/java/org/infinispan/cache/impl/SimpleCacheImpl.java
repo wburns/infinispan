@@ -808,15 +808,22 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
    }
 
    protected V getAndReplaceInternal(K key, V value, Metadata metadata) {
+      CacheEntry<K, V> oldEntry = getAndReplaceInternalEntry(key, value, metadata);
+      return oldEntry != null ? oldEntry.getValue() : null;
+   }
+
+   private CacheEntry<K, V> getAndReplaceInternalEntry(K key, V value, Metadata metadata) {
       Objects.requireNonNull(key, NULL_KEYS_NOT_SUPPORTED);
       Objects.requireNonNull(value, NULL_VALUES_NOT_SUPPORTED);
       ValueAndMetadata<V> oldRef = new ValueAndMetadata<>();
+      ByRef<CacheEntry<K, V>> ref = new ByRef<>(null);
       boolean hasListeners = this.hasListeners;
       getDataContainer().compute(key, (k, oldEntry, factory) -> {
          if (!isNull(oldEntry)) {
             if (hasListeners) {
                CompletionStages.join(cacheNotifier.notifyCacheEntryModified(key, value, metadata, oldEntry.getValue(), oldEntry.getMetadata(), true, ImmutableContext.INSTANCE, null));
             }
+            ref.set(oldEntry.clone());
             oldRef.set(oldEntry.getValue(), oldEntry.getMetadata());
             return factory.update(oldEntry, value, metadata);
          } else {
@@ -827,7 +834,7 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
       if (hasListeners && oldValue != null) {
          CompletionStages.join(cacheNotifier.notifyCacheEntryModified(key, value, metadata, oldValue, oldRef.getMetadata(), false, ImmutableContext.INSTANCE, null));
       }
-      return oldValue;
+      return ref.get();
    }
 
    @Override
@@ -1030,6 +1037,11 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
    @Override
    public CompletableFuture<V> replaceAsync(K key, V value, Metadata metadata) {
       return CompletableFuture.completedFuture(replace(key, value, metadata));
+   }
+
+   @Override
+   public CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(K key, V value, Metadata metadata) {
+      return CompletableFuture.completedFuture(getAndReplaceInternalEntry(key, value, metadata));
    }
 
    @Override

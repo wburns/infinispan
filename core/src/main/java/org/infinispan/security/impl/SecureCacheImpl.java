@@ -971,6 +971,12 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    }
 
    @Override
+   public CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(K key, V value, Metadata metadata) {
+      authzManager.checkPermission(subject, writePermission);
+      return delegate.replaceAsyncEntry(key, value, metadata);
+   }
+
+   @Override
    public boolean replace(K key, V oldValue, V newValue, Metadata metadata) {
       authzManager.checkPermission(subject, writePermission);
       return delegate.replace(key, oldValue, newValue, metadata);

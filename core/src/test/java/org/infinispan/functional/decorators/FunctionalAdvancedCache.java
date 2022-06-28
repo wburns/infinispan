@@ -395,6 +395,11 @@ public final class FunctionalAdvancedCache<K, V> implements AdvancedCache<K, V> 
    }
 
    @Override
+   public CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(K key, V value, Metadata metadata) {
+      return null;  // TODO: Customise this generated block
+   }
+
+   @Override
    public boolean replace(K key, V oldValue, V newValue, Metadata metadata) {
       return false;  // TODO: Customise this generated block
    }
