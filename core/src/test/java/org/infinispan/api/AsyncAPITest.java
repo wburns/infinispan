@@ -17,12 +17,15 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 import org.infinispan.Cache;
 import org.infinispan.commons.time.TimeService;
+import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.metadata.EmbeddedMetadata;
 import org.infinispan.test.SingleCacheManagerTest;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
@@ -91,6 +94,19 @@ public class AsyncAPITest extends SingleCacheManagerTest {
       assertEquals("v2", c.get("k"));
    }
 
+   public void testPutAsyncEntry() throws Exception {
+      CompletableFuture<CacheEntry<String, String>> f = c.getAdvancedCache().putAsyncEntry("k", "v1", EmbeddedMetadata.EMPTY);
+      assertFutureResult(f, null);
+      assertEquals("v1", c.get("k"));
+
+      f = c.getAdvancedCache().putAsyncEntry("k", "v2", EmbeddedMetadata.EMPTY);
+      assertFutureResultOn(f, previousEntry -> {
+         assertEquals("k", previousEntry.getKey());
+         assertEquals("v1", previousEntry.getValue());
+      });
+      assertEquals("v2", c.get("k"));
+   }
+
    public void testPutAllAsyncSingleKeyValue() throws Exception {
       CompletableFuture<Void> f = c.putAllAsync(Collections.singletonMap("k", "v"));
       assertFutureResult(f, null);
@@ -117,6 +133,19 @@ public class AsyncAPITest extends SingleCacheManagerTest {
       assertEquals("v1", c.get("k"));
    }
 
+   public void testPutIfAbsentAsyncEntry() throws Exception {
+      CompletableFuture<CacheEntry<String, String>> f = c.getAdvancedCache().putIfAbsentAsyncEntry("k", "v1", EmbeddedMetadata.EMPTY);
+      assertFutureResult(f, null);
+      assertEquals("v1", c.get("k"));
+
+      f = c.getAdvancedCache().putIfAbsentAsyncEntry("k", "v2", EmbeddedMetadata.EMPTY);
+      assertFutureResultOn(f, previousEntry -> {
+         assertEquals("k", previousEntry.getKey());
+         assertEquals("v1", previousEntry.getValue());
+      });
+      assertEquals("v1", c.get("k"));
+   }
+
    public void testRemoveAsync() throws Exception {
       c.put("k", "v");
       assertEquals("v", c.get("k"));
@@ -124,6 +153,23 @@ public class AsyncAPITest extends SingleCacheManagerTest {
       CompletableFuture<String> f = c.removeAsync("k");
       assertFutureResult(f, "v");
       assertNull(c.get("k"));
+
+      assertFutureResult(c.removeAsync("k"), null);
+   }
+
+   public void testRemoveAsyncEntry() throws Exception {
+      c.put("k", "v");
+      assertEquals("v", c.get("k"));
+
+      CompletableFuture<CacheEntry<String, String>> f = c.getAdvancedCache().removeAsyncEntry("k");
+      assertFutureResultOn(f, previousEntry -> {
+         assertEquals("k", previousEntry.getKey());
+         assertEquals("v", previousEntry.getValue());
+      });
+      assertNull(c.get("k"));
+
+      f = c.getAdvancedCache().removeAsyncEntry("k");
+      assertFutureResult(f, null);
    }
 
    public void testRemoveConditionalAsync() throws Exception {
@@ -147,6 +193,22 @@ public class AsyncAPITest extends SingleCacheManagerTest {
       c.put("k", "v");
       CompletableFuture<String> f = c.replaceAsync("k", "v2");
       assertFutureResult(f, "v");
+      assertEquals("v2", c.get("k"));
+   }
+
+   public void testReplaceAsyncEntryNonExistingKey() throws Exception {
+      CompletableFuture<CacheEntry<String, String>> f = c.getAdvancedCache().replaceAsyncEntry("k", "v", EmbeddedMetadata.EMPTY);
+      assertFutureResult(f, null);
+      assertNull(c.get("k"));
+   }
+
+   public void testReplaceAsyncEntryExistingKey() throws Exception {
+      c.put("k", "v");
+      CompletableFuture<CacheEntry<String, String>> f = c.getAdvancedCache().replaceAsyncEntry("k", "v2", EmbeddedMetadata.EMPTY);
+      assertFutureResultOn(f, previousEntry -> {
+         assertEquals(previousEntry.getKey(), "k");
+         assertEquals(previousEntry.getValue(), "v");
+      });
       assertEquals("v2", c.get("k"));
    }
 
@@ -514,7 +576,14 @@ public class AsyncAPITest extends SingleCacheManagerTest {
    private void assertFutureResult(Future<?> f, Object expected) throws Exception {
       assertNotNull(f);
       assertFalse(f.isCancelled());
-      assertEquals(expected, f.get());
+      assertEquals(expected, f.get(10, TimeUnit.SECONDS));
+      assertTrue(f.isDone());
+   }
+
+   private <T> void assertFutureResultOn(Future<T> f, Consumer<T> check) throws Exception {
+      assertNotNull(f);
+      assertFalse(f.isCancelled());
+      check.accept(f.get(10, TimeUnit.SECONDS));
       assertTrue(f.isDone());
    }
 

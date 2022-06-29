@@ -190,7 +190,7 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
       Object prevValue = e.getValue();
       if (!valueMatcher.matches(prevValue, null, newValue)) {
          command.fail();
-         return prevValue;
+         return command.isReturnEntryNecessary() ? e : prevValue;
       }
 
       return performPut(e, ctx, valueMatcher, key, newValue, metadata, command,
@@ -227,7 +227,10 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
       e.setChanged(true);
       updateStoreFlags(command, e);
       // Return the expected value when retrying a putIfAbsent command (i.e. null)
-      return delayedValue(stage, response != null ? response : valueMatcher != ValueMatcher.MATCH_EXPECTED_OR_NEW ? o : null);
+      if (response != null && o != null) {
+         return delayedValue(stage, response);
+      }
+      return delayedValue(stage, valueMatcher != ValueMatcher.MATCH_EXPECTED_OR_NEW ? o : null);
    }
 
    @Override
@@ -358,7 +361,10 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
       }
 
       command.fail();
-      return response != null ? response : expectedValue == null ? prevValue : false;
+      if (response != null && prevValue != null) {
+         return response;
+      }
+      return expectedValue == null ? prevValue : false;
    }
 
    @Override
