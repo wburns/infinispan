@@ -906,6 +906,11 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
 
    @Override
    public V remove(Object key) {
+      CacheEntry<K, V> oldEntry = removeEntry(key);
+      return oldEntry != null ? oldEntry.getValue() : null;
+   }
+
+   private CacheEntry<K, V> removeEntry(Object key) {
       Objects.requireNonNull(key, NULL_KEYS_NOT_SUPPORTED);
       ByRef<InternalCacheEntry<K, V>> oldEntryRef = new ByRef<>(null);
       boolean hasListeners = this.hasListeners;
@@ -919,14 +924,11 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
          return null;
       });
       InternalCacheEntry<K, V> oldEntry = oldEntryRef.get();
-      if (oldEntry != null) {
-         if (hasListeners) {
-            CompletionStages.join(cacheNotifier.notifyCacheEntryRemoved(oldEntry.getKey(), oldEntry.getValue(), oldEntry.getMetadata(), false, ImmutableContext.INSTANCE, null));
-         }
-         return oldEntry.getValue();
-      } else {
-         return null;
+      if (oldEntry != null && hasListeners) {
+         CompletionStages.join(cacheNotifier.notifyCacheEntryRemoved(oldEntry.getKey(), oldEntry.getValue(), oldEntry.getMetadata(), false, ImmutableContext.INSTANCE, null));
       }
+
+      return oldEntry;
    }
 
    @Override
@@ -1007,6 +1009,11 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
    @Override
    public CompletableFuture<V> removeAsync(Object key) {
       return CompletableFuture.completedFuture(remove(key));
+   }
+
+   @Override
+   public CompletableFuture<CacheEntry<K, V>> removeAsyncEntry(Object key) {
+      return CompletableFuture.completedFuture(removeEntry(key));
    }
 
    @Override

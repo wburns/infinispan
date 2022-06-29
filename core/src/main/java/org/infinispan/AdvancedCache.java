@@ -951,4 +951,15 @@ public interface AdvancedCache<K, V> extends Cache<K, V>, TransactionalCache {
     */
    @Deprecated
    AdvancedCache<?, ?> withKeyEncoding(Class<? extends Encoder> encoder);
+
+   /**
+    * An extension of {@link #removeAsync(Object)}, which returns a {@link CacheEntry} instead of only the value.
+    *
+    * @param key key to remove
+    * @return a future containing the {@link CacheEntry} removed or <code>null</code>, otherwise.
+    * @since 14.0
+    * @see #removeAsync(Object)
+    * @see #remove(Object)
+    */
+   CompletableFuture<CacheEntry<K, V>> removeAsyncEntry(Object key);
 }

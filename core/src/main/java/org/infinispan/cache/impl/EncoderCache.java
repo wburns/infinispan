@@ -957,4 +957,9 @@ public class EncoderCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> {
             null :
             new FunctionMapper(function, keyDataConversion, valueDataConversion);
    }
+
+   @Override
+   public CompletableFuture<CacheEntry<K, V>> removeAsyncEntry(Object key) {
+      return cache.removeAsyncEntry(key);
+   }
 }

@@ -577,6 +577,11 @@ public class SecureCacheTestDriver {
    }
 
    @TestCachePermission(AuthorizationPermission.WRITE)
+   public void testRemoveAsyncEntry_Object(SecureCache<String, String> cache) {
+      cache.removeAsyncEntry("a");
+   }
+
+   @TestCachePermission(AuthorizationPermission.WRITE)
    public void testPut_Object_Object_long_TimeUnit(SecureCache<String, String> cache) {
       cache.put("a", "a", 1000, TimeUnit.MILLISECONDS);
    }

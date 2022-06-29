@@ -275,28 +275,30 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
          e.setEvicted(true);
       }
 
-      return performRemove(e, ctx, valueMatcher, key, prevValue, optionalValue, command.getMetadata(), notifyRemove, command);
+      return performRemove(e, ctx, valueMatcher, key, prevValue, optionalValue, command.getMetadata(), notifyRemove,
+            command.isReturnEntryNecessary(), command);
    }
 
    protected Object performRemove(MVCCEntry<?, ?> e, InvocationContext ctx, ValueMatcher valueMatcher, Object key,
-         Object prevValue, Object optionalValue, Metadata commandMetadata, boolean notifyRemove, DataWriteCommand command) {
+         Object prevValue, Object optionalValue, Metadata commandMetadata, boolean notifyRemove, boolean returnEntry,
+         DataWriteCommand command) {
 
       CompletionStage<Void> stage = notifyRemove ?
             cacheNotifier.notifyCacheEntryRemoved(key, prevValue, e.getMetadata(), true, ctx, command) : null;
+
+      Object returnValue;
+      if (valueMatcher != ValueMatcher.MATCH_EXPECTED_OR_NEW) {
+         returnValue = command.isConditional() ? true : returnEntry ? e.clone() : prevValue;
+      } else {
+         // Return the expected value when retrying
+         returnValue = command.isConditional() ? true : optionalValue;
+      }
 
       e.setRemoved(true);
       e.setChanged(true);
       e.setValue(null);
       if (commandMetadata != null) {
          e.setMetadata(commandMetadata);
-      }
-
-      Object returnValue;
-      if (valueMatcher != ValueMatcher.MATCH_EXPECTED_OR_NEW) {
-         returnValue = command.isConditional() ? true : prevValue;
-      } else {
-         // Return the expected value when retrying
-         returnValue = command.isConditional() ? true : optionalValue;
       }
 
       updateStoreFlags(command, e);
@@ -317,7 +319,7 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
       }
 
       return command.isRemove() ?
-            performRemove(e, ctx, valueMatcher, key, null, null, metadata, true, command) :
+            performRemove(e, ctx, valueMatcher, key, null, null, metadata, true, false, command) :
             performPut(e, ctx, valueMatcher, key, command.getValue(), metadata, command, false, false);
 
    }
@@ -546,8 +548,8 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
             log.trace("Removing expired entry without checks as we are backup as primary already performed them");
          }
          e.setExpired(true);
-         return performRemove(e, ctx, ValueMatcher.MATCH_ALWAYS, key,
-               e.getValue() != null ? e.getValue() : null, command.getValue(), metadata, false, command);
+         return performRemove(e, ctx, ValueMatcher.MATCH_ALWAYS, key, e.getValue() != null ? e.getValue() : null,
+               command.getValue(), metadata, false, false, command);
       }
       if (e != null && !e.isRemoved()) {
          Object prevValue = e.getValue();
@@ -560,7 +562,7 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
          if (lifespan == null || command.hasAnyFlag(FlagBitSets.SKIP_SHARED_CACHE_STORE)) {
             if (valueMatcher.matches(prevValue, optionalValue, null)) {
                e.setExpired(true);
-               return performRemove(e, ctx, valueMatcher, key, prevValue, optionalValue, metadata, false, command);
+               return performRemove(e, ctx, valueMatcher, key, prevValue, optionalValue, metadata, false, false, command);
             }
          } else if (versionFromEntry(e) == nonExistentVersion) {
             // If there is no metadata and no value that means it is gone currently or not shown due to expired
@@ -568,7 +570,7 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
             // If we have a value though we should verify it matches the value as well
             if (optionalValue == null || valueMatcher.matches(prevValue, optionalValue, null)) {
                e.setExpired(true);
-               return performRemove(e, ctx, valueMatcher, key, prevValue, optionalValue, metadata, false, command);
+               return performRemove(e, ctx, valueMatcher, key, prevValue, optionalValue, metadata, false, false, command);
             }
          } else if (e.getLifespan() > 0 && e.getLifespan() == lifespan) {
             // If the entries lifespan is not positive that means it can't expire so don't even try to remove it
@@ -584,7 +586,7 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
                            e.getCreated(), timeService.wallClockTime());
                   }
                   e.setExpired(true);
-                  return performRemove(e, ctx, valueMatcher, key, prevValue, optionalValue, metadata, false, command);
+                  return performRemove(e, ctx, valueMatcher, key, prevValue, optionalValue, metadata, false, false, command);
                } else if (log.isTraceEnabled()) {
                   log.tracef("Cannot remove entry due to it not being expired - this can be caused by different " +
                         "clocks on nodes or a concurrent write");

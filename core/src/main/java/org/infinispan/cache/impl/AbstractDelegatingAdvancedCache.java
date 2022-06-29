@@ -605,4 +605,9 @@ public abstract class AbstractDelegatingAdvancedCache<K, V> extends AbstractDele
    public CompletableFuture<Map<K, V>> getAllAsync(Set<?> keys) {
       return cache.getAllAsync(keys);
    }
+
+   @Override
+   public CompletableFuture<CacheEntry<K, V>> removeAsyncEntry(Object key) {
+      return cache.removeAsyncEntry(key);
+   }
 }

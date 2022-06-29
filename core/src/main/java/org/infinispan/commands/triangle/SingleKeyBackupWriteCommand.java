@@ -167,7 +167,7 @@ public class SingleKeyBackupWriteCommand extends BackupWriteCommand {
       DataWriteCommand command;
       switch (operation) {
          case REMOVE:
-            command = new RemoveCommand(key, null, segmentId, getFlags(), getCommandInvocationId());
+            command = new RemoveCommand(key, null, false, segmentId, getFlags(), getCommandInvocationId());
             break;
          case WRITE:
             command = EnumUtil.containsAny(getFlags(), FlagBitSets.IRAC_UPDATE) ?

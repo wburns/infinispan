@@ -193,8 +193,8 @@ public class CommandsFactoryImpl implements CommandsFactory {
    }
 
    @Override
-   public RemoveCommand buildRemoveCommand(Object key, Object value, int segment, long flagsBitSet) {
-      return new RemoveCommand(key, value, segment, flagsBitSet, generateUUID(transactional));
+   public RemoveCommand buildRemoveCommand(Object key, Object value, boolean returnEntry, int segment, long flagsBitSet) {
+      return new RemoveCommand(key, value, returnEntry, segment, flagsBitSet, generateUUID(transactional));
    }
 
    @Override

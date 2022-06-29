@@ -210,8 +210,8 @@ public class ControlledCommandFactory implements CommandsFactory {
    }
 
    @Override
-   public RemoveCommand buildRemoveCommand(Object key, Object value, int segment, long flagsBitSet) {
-      return actual.buildRemoveCommand(key, value, segment, flagsBitSet);
+   public RemoveCommand buildRemoveCommand(Object key, Object value, boolean returnEntry, int segment, long flagsBitSet) {
+      return actual.buildRemoveCommand(key, value, returnEntry, segment, flagsBitSet);
    }
 
    @Override

@@ -653,7 +653,7 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
          Map<K, V> keys = internalGetGroup(groupName, explicitFlagsBitSet, context);
          long removeFlags = addIgnoreReturnValuesFlag(explicitFlagsBitSet);
          for (K key : keys.keySet()) {
-            invocationHelper.invoke(context, createRemoveCommand(key, removeFlags));
+            invocationHelper.invoke(context, createRemoveCommand(key, removeFlags, false));
          }
          if (!onGoingTransaction) {
             tryCommit();
@@ -675,7 +675,7 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
          //executed. If the context is already populated, it throws a ClassCastException because the wrapForRemove is
          //not invoked.
          assertKeyNotNull(key);
-         invocationHelper.invoke(createRemoveCommand(key, removeFlags), 1);
+         invocationHelper.invoke(createRemoveCommand(key, removeFlags, false), 1);
       }
    }
 
@@ -686,13 +686,13 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
 
    final V remove(Object key, long explicitFlags, ContextBuilder contextBuilder) {
       assertKeyNotNull(key);
-      RemoveCommand command = createRemoveCommand(key, explicitFlags);
+      RemoveCommand command = createRemoveCommand(key, explicitFlags, false);
       return invocationHelper.invoke(contextBuilder, command, 1);
    }
 
-   private RemoveCommand createRemoveCommand(Object key, long explicitFlags) {
+   private RemoveCommand createRemoveCommand(Object key, long explicitFlags, boolean returnEntry) {
       long flags = addUnsafeFlags(explicitFlags);
-      return commandsFactory.buildRemoveCommand(key, null, keyPartitioner.getSegment(key), flags);
+      return commandsFactory.buildRemoveCommand(key, null, returnEntry, keyPartitioner.getSegment(key), flags);
    }
 
    @Override
@@ -1501,7 +1501,18 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
 
    final CompletableFuture<V> removeAsync(final Object key, final long explicitFlags, ContextBuilder contextBuilder) {
       assertKeyNotNull(key);
-      RemoveCommand command = createRemoveCommand(key, explicitFlags);
+      RemoveCommand command = createRemoveCommand(key, explicitFlags, false);
+      return invocationHelper.invokeAsync(contextBuilder, command, 1);
+   }
+
+   @Override
+   public CompletableFuture<CacheEntry<K, V>> removeAsyncEntry(Object key) {
+      return removeAsyncEntry(key, EnumUtil.EMPTY_BIT_SET, defaultContextBuilderForWrite());
+   }
+
+   final CompletableFuture<CacheEntry<K, V>> removeAsyncEntry(final Object key, final long explicitFlags, ContextBuilder contextBuilder) {
+      assertKeyNotNull(key);
+      RemoveCommand command = createRemoveCommand(key, explicitFlags, true);
       return invocationHelper.invokeAsync(contextBuilder, command, 1);
    }
 

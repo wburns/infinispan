@@ -874,6 +874,11 @@ public final class FunctionalAdvancedCache<K, V> implements AdvancedCache<K, V> 
       return null;
    }
 
+   @Override
+   public CompletableFuture<CacheEntry<K, V>> removeAsyncEntry(Object key) {
+      return null; // TODO: Customise this generated block
+   }
+
    public static <T> T await(CompletableFuture<T> cf) {
       try {
          return cf.get();
