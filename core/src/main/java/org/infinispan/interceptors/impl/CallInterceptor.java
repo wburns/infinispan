@@ -194,12 +194,15 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
       }
 
       return performPut(e, ctx, valueMatcher, key, newValue, metadata, command,
-                        command.hasAnyFlag(FlagBitSets.PUT_FOR_STATE_TRANSFER | FlagBitSets.PUT_FOR_X_SITE_STATE_TRANSFER));
+                        command.hasAnyFlag(FlagBitSets.PUT_FOR_STATE_TRANSFER | FlagBitSets.PUT_FOR_X_SITE_STATE_TRANSFER),
+                        command.isReturnEntryNecessary());
    }
 
    private Object performPut(MVCCEntry<Object, Object> e, InvocationContext ctx, ValueMatcher valueMatcher,
-         Object key, Object value, Metadata metadata, FlagAffectedCommand command, boolean skipNotification) {
+         Object key, Object value, Metadata metadata, FlagAffectedCommand command, boolean skipNotification,
+         boolean returnEntry) {
       Object entryValue = e.getValue();
+      Object response = returnEntry && valueMatcher != ValueMatcher.MATCH_EXPECTED_OR_NEW ? e.clone() : null;
       Object o;
 
       CompletionStage<Void> stage = null;
@@ -224,7 +227,7 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
       e.setChanged(true);
       updateStoreFlags(command, e);
       // Return the expected value when retrying a putIfAbsent command (i.e. null)
-      return delayedValue(stage, valueMatcher != ValueMatcher.MATCH_EXPECTED_OR_NEW ? o : null);
+      return delayedValue(stage, response != null ? response : valueMatcher != ValueMatcher.MATCH_EXPECTED_OR_NEW ? o : null);
    }
 
    @Override
@@ -315,7 +318,7 @@ public class CallInterceptor extends BaseAsyncInterceptor implements Visitor {
 
       return command.isRemove() ?
             performRemove(e, ctx, valueMatcher, key, null, null, metadata, true, command) :
-            performPut(e, ctx, valueMatcher, key, command.getValue(), metadata, command, false);
+            performPut(e, ctx, valueMatcher, key, command.getValue(), metadata, command, false, false);
 
    }
 

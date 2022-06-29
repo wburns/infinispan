@@ -385,6 +385,11 @@ public class SecureCacheTestDriver {
    }
 
    @TestCachePermission(AuthorizationPermission.WRITE)
+   public void testPutIfAbsentAsyncEntry_Object_Object_Metadata(SecureCache<String, String> cache) {
+      cache.putIfAbsentAsyncEntry("a", "a", new EmbeddedMetadata.Builder().build());
+   }
+
+   @TestCachePermission(AuthorizationPermission.WRITE)
    public void testPutAllAsync_Map(SecureCache<String, String> cache) {
       cache.putAllAsync(Collections.singletonMap("a", "a"));
    }
