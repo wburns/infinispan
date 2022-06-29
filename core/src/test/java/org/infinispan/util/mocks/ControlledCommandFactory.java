@@ -204,9 +204,9 @@ public class ControlledCommandFactory implements CommandsFactory {
    }
 
    @Override
-   public PutKeyValueCommand buildPutKeyValueCommand(Object key, Object value, int segment, Metadata metadata,
-         long flagsBitSet) {
-      return actual.buildPutKeyValueCommand(key, value, segment, metadata, flagsBitSet);
+   public PutKeyValueCommand buildPutKeyValueCommand(Object key, Object value, boolean returnEntry, int segment,
+                                                     Metadata metadata, long flagsBitSet) {
+      return actual.buildPutKeyValueCommand(key, value, returnEntry, segment, metadata, flagsBitSet);
    }
 
    @Override

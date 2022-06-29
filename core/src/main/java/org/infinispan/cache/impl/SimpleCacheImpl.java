@@ -767,9 +767,14 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
    }
 
    protected V putIfAbsentInternal(K key, V value, Metadata metadata) {
+      CacheEntry<K, V> entry = putIfAbsentInternalEntry(key, value, metadata);
+      return entry != null ? entry.getValue() : null;
+   }
+
+   private CacheEntry<K, V> putIfAbsentInternalEntry(K key, V value, Metadata metadata) {
       Objects.requireNonNull(key, NULL_KEYS_NOT_SUPPORTED);
       Objects.requireNonNull(value, NULL_VALUES_NOT_SUPPORTED);
-      ByRef<V> oldValueRef = new ByRef<>(null);
+      ByRef<CacheEntry<K, V>> previousEntryRef = new ByRef<>(null);
       boolean hasListeners = this.hasListeners;
       getDataContainer().compute(key, (k, oldEntry, factory) -> {
          if (isNull(oldEntry)) {
@@ -778,15 +783,15 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
             }
             return factory.create(k, value, metadata);
          } else {
-            oldValueRef.set(oldEntry.getValue());
+            previousEntryRef.set(oldEntry);
             return oldEntry;
          }
       });
-      V oldValue = oldValueRef.get();
-      if (hasListeners && oldValue == null) {
+      CacheEntry<K, V> previousEntry = previousEntryRef.get();
+      if (hasListeners && previousEntry == null) {
          CompletionStages.join(cacheNotifier.notifyCacheEntryCreated(key, value, metadata, false, ImmutableContext.INSTANCE, null));
       }
-      return oldValue;
+      return previousEntry;
    }
 
    @Override
@@ -992,6 +997,11 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
    @Override
    public CompletableFuture<V> putIfAbsentAsync(K key, V value, Metadata metadata) {
       return CompletableFuture.completedFuture(putIfAbsent(key, value, metadata));
+   }
+
+   @Override
+   public CompletableFuture<CacheEntry<K, V>> putIfAbsentAsyncEntry(K key, V value, Metadata metadata) {
+      return CompletableFuture.completedFuture(putIfAbsentInternalEntry(key, value, metadata));
    }
 
    @Override

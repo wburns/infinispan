@@ -169,7 +169,15 @@ public interface CommandsFactory {
     * @param flagsBitSet Command flags provided by cache
     * @return a PutKeyValueCommand
     */
-   PutKeyValueCommand buildPutKeyValueCommand(Object key, Object value, int segment, Metadata metadata, long flagsBitSet);
+   default PutKeyValueCommand buildPutKeyValueCommand(Object key, Object value, int segment, Metadata metadata, long flagsBitSet) {
+      return buildPutKeyValueCommand(key, value, false, segment, metadata, flagsBitSet);
+   }
+
+   default PutKeyValueCommand buildPutKeyValueCommandEntry(Object key, Object value, int segment, Metadata metadata, long flagsBitSet) {
+      return buildPutKeyValueCommand(key, value, true, segment, metadata, flagsBitSet);
+   }
+
+   PutKeyValueCommand buildPutKeyValueCommand(Object key, Object value, boolean returnEntry, int segment, Metadata metadata, long flagsBitSet);
 
    /**
     * Builds a RemoveCommand

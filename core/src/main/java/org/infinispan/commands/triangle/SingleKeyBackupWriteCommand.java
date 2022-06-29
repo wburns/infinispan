@@ -172,7 +172,7 @@ public class SingleKeyBackupWriteCommand extends BackupWriteCommand {
          case WRITE:
             command = EnumUtil.containsAny(getFlags(), FlagBitSets.IRAC_UPDATE) ?
                   new IracPutKeyValueCommand(key, segmentId, getCommandInvocationId(), valueOrFunction, metadata, internalMetadata) :
-                  new PutKeyValueCommand(key, valueOrFunction, false, metadata, segmentId, getFlags(), getCommandInvocationId());
+                  new PutKeyValueCommand(key, valueOrFunction, false, false, metadata, segmentId, getFlags(), getCommandInvocationId());
             break;
          case COMPUTE:
             command = new ComputeCommand(key, (BiFunction) valueOrFunction, false, segmentId, getFlags(),

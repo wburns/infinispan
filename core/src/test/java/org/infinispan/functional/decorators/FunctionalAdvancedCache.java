@@ -730,6 +730,11 @@ public final class FunctionalAdvancedCache<K, V> implements AdvancedCache<K, V> 
    }
 
    @Override
+   public CompletableFuture<CacheEntry<K, V>> putIfAbsentAsyncEntry(K key, V value, Metadata metadata) {
+      return null;  // TODO: Customise this generated block
+   }
+
+   @Override
    public CompletableFuture<V> removeAsync(Object key) {
       return null;  // TODO: Customise this generated block
    }

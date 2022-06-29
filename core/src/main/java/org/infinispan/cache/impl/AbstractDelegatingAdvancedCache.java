@@ -359,6 +359,11 @@ public abstract class AbstractDelegatingAdvancedCache<K, V> extends AbstractDele
    }
 
    @Override
+   public CompletableFuture<CacheEntry<K, V>> putIfAbsentAsyncEntry(K key, V value, Metadata metadata) {
+      return cache.putIfAbsentAsyncEntry(key, value, metadata);
+   }
+
+   @Override
    public CompletableFuture<V> putAsync(K key, V value, Metadata metadata) {
       return cache.putAsync(key, value, metadata);
    }

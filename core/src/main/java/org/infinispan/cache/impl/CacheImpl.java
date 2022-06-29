@@ -1324,15 +1324,15 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
 
    final V putIfAbsent(K key, V value, Metadata metadata, long explicitFlags, ContextBuilder contextBuilder) {
       assertKeyValueNotNull(key, value);
-      DataWriteCommand command = createPutIfAbsentCommand(key, value, metadata, explicitFlags);
+      DataWriteCommand command = createPutIfAbsentCommand(key, value, metadata, explicitFlags, false);
       return invocationHelper.invoke(contextBuilder, command, 1);
    }
 
-   private PutKeyValueCommand createPutIfAbsentCommand(K key, V value, Metadata metadata, long explicitFlags) {
+   private PutKeyValueCommand createPutIfAbsentCommand(K key, V value, Metadata metadata, long explicitFlags, boolean returnEntry) {
       long flags = addUnsafeFlags(explicitFlags);
       Metadata merged = applyDefaultMetadata(metadata);
-      PutKeyValueCommand command = commandsFactory.buildPutKeyValueCommand(key, value, keyPartitioner.getSegment(key),
-            merged, flags);
+      PutKeyValueCommand command = commandsFactory.buildPutKeyValueCommand(key, value, returnEntry,
+            keyPartitioner.getSegment(key), merged, flags);
       command.setPutIfAbsent(true);
       command.setValueMatcher(ValueMatcher.MATCH_EXPECTED);
       return command;
@@ -1478,7 +1478,19 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
    final CompletableFuture<V> putIfAbsentAsync(final K key, final V value, final Metadata metadata,
                                                final long explicitFlags, ContextBuilder contextBuilder) {
       assertKeyValueNotNull(key, value);
-      PutKeyValueCommand command = createPutIfAbsentCommand(key, value, metadata, explicitFlags);
+      PutKeyValueCommand command = createPutIfAbsentCommand(key, value, metadata, explicitFlags, false);
+      return invocationHelper.invokeAsync(contextBuilder, command, 1);
+   }
+
+   @Override
+   public CompletableFuture<CacheEntry<K, V>> putIfAbsentAsyncEntry(K key, V value, Metadata metadata) {
+      return putIfAbsentAsyncEntry(key, value, metadata, EnumUtil.EMPTY_BIT_SET, defaultContextBuilderForWrite());
+   }
+
+   final CompletableFuture<CacheEntry<K, V>> putIfAbsentAsyncEntry(final K key, final V value, final Metadata metadata,
+                                                                   final long explicitFlags, ContextBuilder contextBuilder) {
+      assertKeyValueNotNull(key, value);
+      PutKeyValueCommand command = createPutIfAbsentCommand(key, value, metadata, explicitFlags, true);
       return invocationHelper.invokeAsync(contextBuilder, command, 1);
    }
 

@@ -148,7 +148,7 @@ public class CacheMgmtInterceptorTest extends AbstractInfinispanTest {
    }
 
    public void testVisitPutKeyValueCommand() throws Throwable {
-      PutKeyValueCommand command = new PutKeyValueCommand(KEY, VALUE, false, null, 0, 0, null);
+      PutKeyValueCommand command = new PutKeyValueCommand(KEY, VALUE, false, false, null, 0, 0, null);
       InvocationStage stage = makeStage(interceptor.visitPutKeyValueCommand(ctx, command));
       assertFalse(stage.isDone());
 
@@ -160,7 +160,7 @@ public class CacheMgmtInterceptorTest extends AbstractInfinispanTest {
    }
 
    public void testVisitPutKeyValueCommandException() throws Throwable {
-      PutKeyValueCommand command = new PutKeyValueCommand(KEY, VALUE, false, null, 0, 0, null);
+      PutKeyValueCommand command = new PutKeyValueCommand(KEY, VALUE, false, false, null, 0, 0, null);
       InvocationStage stage = makeStage(interceptor.visitPutKeyValueCommand(ctx, command));
       assertFalse(stage.isDone());
 

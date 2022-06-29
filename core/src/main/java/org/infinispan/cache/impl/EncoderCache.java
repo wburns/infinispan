@@ -323,6 +323,13 @@ public class EncoderCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> {
    }
 
    @Override
+   public CompletableFuture<CacheEntry<K, V>> putIfAbsentAsyncEntry(K key, V value, Metadata metadata) {
+      K keyToStorage = keyToStorage(key);
+      return cache.putIfAbsentAsyncEntry(keyToStorage, valueToStorage(value), metadata)
+            .thenApply(e -> unwrapCacheEntry(key, keyToStorage, e));
+   }
+
+   @Override
    public CompletableFuture<V> removeAsync(Object key) {
       return cache.removeAsync(keyToStorage(key)).thenApply(decodedValueForRead);
    }

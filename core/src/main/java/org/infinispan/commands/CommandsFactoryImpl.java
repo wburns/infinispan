@@ -186,10 +186,10 @@ public class CommandsFactoryImpl implements CommandsFactory {
    }
 
    @Override
-   public PutKeyValueCommand buildPutKeyValueCommand(Object key, Object value, int segment, Metadata metadata,
+   public PutKeyValueCommand buildPutKeyValueCommand(Object key, Object value, boolean returnEntry, int segment, Metadata metadata,
          long flagsBitSet) {
       boolean reallyTransactional = transactional && !EnumUtil.containsAny(flagsBitSet, FlagBitSets.PUT_FOR_EXTERNAL_READ);
-      return new PutKeyValueCommand(key, value, false, metadata, segment, flagsBitSet, generateUUID(reallyTransactional));
+      return new PutKeyValueCommand(key, value, false, returnEntry, metadata, segment, flagsBitSet, generateUUID(reallyTransactional));
    }
 
    @Override
