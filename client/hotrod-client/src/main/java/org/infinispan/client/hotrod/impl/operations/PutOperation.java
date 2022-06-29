@@ -4,7 +4,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.DataFormat;
-import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.exceptions.InvalidResponseException;
 import org.infinispan.client.hotrod.impl.ClientStatistics;
@@ -47,8 +46,7 @@ public class PutOperation<V> extends AbstractKeyValueOperation<V> {
          if (HotRodConstants.hasPrevious(status)) {
             statsDataRead(true);
          }
-         MetadataValue<V> metadataValue = returnPossiblePrevValue(buf, status);
-         complete(metadataValue != null ? metadataValue.getValue() : null);
+         complete(returnPossiblePrevValue(buf, status));
       } else {
          throw new InvalidResponseException("Unexpected response status: " + Integer.toHexString(status));
       }
