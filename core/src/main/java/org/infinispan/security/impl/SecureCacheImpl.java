@@ -1025,6 +1025,11 @@ public final class SecureCacheImpl<K, V> implements SecureCache<K, V> {
    }
 
    @Override
+   public CompletableFuture<CacheEntry<K, V>> putAsyncEntry(K key, V value, Metadata metadata) {
+      authzManager.checkPermission(subject, writePermission);
+      return delegate.putAsyncEntry(key, value, metadata);
+   }
+   @Override
    public CacheEntry<K, V> getCacheEntry(Object key) {
       authzManager.checkPermission(subject, AuthorizationPermission.READ);
       return delegate.getCacheEntry(key);

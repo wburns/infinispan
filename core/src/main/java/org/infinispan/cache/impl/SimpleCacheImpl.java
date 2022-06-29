@@ -218,6 +218,11 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
    }
 
    @Override
+   public CompletableFuture<CacheEntry<K, V>> putAsyncEntry(K key, V value, Metadata metadata) {
+      return CompletableFuture.completedFuture(getAndPutInternalEntry(key, value, applyDefaultMetadata(metadata)));
+   }
+
+   @Override
    public Map<K, V> getAll(Set<?> keys) {
       Map<K, V> map = new HashMap<>(keys.size());
       AggregateCompletionStage<Void> aggregateCompletionStage = null;
@@ -723,9 +728,14 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
    }
 
    protected V getAndPutInternal(K key, V value, Metadata metadata) {
+      CacheEntry<K, V> oldEntry = getAndPutInternalEntry(key, value, metadata);
+      return oldEntry != null ? oldEntry.getValue() : null;
+   }
+
+   private CacheEntry<K, V> getAndPutInternalEntry(K key, V value, Metadata metadata) {
       Objects.requireNonNull(key, NULL_KEYS_NOT_SUPPORTED);
       Objects.requireNonNull(value, NULL_VALUES_NOT_SUPPORTED);
-      ValueAndMetadata<V> oldRef = new ValueAndMetadata<>();
+      ByRef<CacheEntry<K, V>> oldEntryRef = new ByRef<>(null);
       boolean hasListeners = this.hasListeners;
       getDataContainer().compute(key, (k, oldEntry, factory) -> {
          if (isNull(oldEntry)) {
@@ -733,7 +743,7 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
                CompletionStages.join(cacheNotifier.notifyCacheEntryCreated(key, value, metadata, true, ImmutableContext.INSTANCE, null));
             }
          } else {
-            oldRef.set(oldEntry.getValue(), oldEntry.getMetadata());
+            oldEntryRef.set(oldEntry.clone());
             if (hasListeners) {
                CompletionStages.join(cacheNotifier.notifyCacheEntryModified(key, value, metadata, oldEntry.getValue(), oldEntry.getMetadata(), true, ImmutableContext.INSTANCE, null));
             }
@@ -744,15 +754,16 @@ public class SimpleCacheImpl<K, V> implements AdvancedCache<K, V> {
             return factory.update(oldEntry, value, metadata);
          }
       });
-      V oldValue = oldRef.getValue();
+      CacheEntry<K, V> oldEntry = oldEntryRef.get();
       if (hasListeners) {
+         V oldValue = oldEntry != null ? oldEntry.getValue() : null;
          if (oldValue == null) {
             CompletionStages.join(cacheNotifier.notifyCacheEntryCreated(key, value, metadata, false, ImmutableContext.INSTANCE, null));
          } else {
-            CompletionStages.join(cacheNotifier.notifyCacheEntryModified(key, value, metadata, oldValue, oldRef.getMetadata(), false, ImmutableContext.INSTANCE, null));
+            CompletionStages.join(cacheNotifier.notifyCacheEntryModified(key, value, metadata, oldValue, oldEntry.getMetadata(), false, ImmutableContext.INSTANCE, null));
          }
       }
-      return oldValue;
+      return oldEntry;
    }
 
    @Override

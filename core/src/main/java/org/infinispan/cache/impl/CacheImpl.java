@@ -1291,14 +1291,14 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
 
    final V put(K key, V value, Metadata metadata, long explicitFlags, ContextBuilder contextBuilder) {
       assertKeyValueNotNull(key, value);
-      DataWriteCommand command = createPutCommand(key, value, metadata, explicitFlags);
+      DataWriteCommand command = createPutCommand(key, value, false, metadata, explicitFlags);
       return invocationHelper.invoke(contextBuilder, command, 1);
    }
 
-   private PutKeyValueCommand createPutCommand(K key, V value, Metadata metadata, long explicitFlags) {
+   private PutKeyValueCommand createPutCommand(K key, V value, boolean returnEntry, Metadata metadata, long explicitFlags) {
       long flags = addUnsafeFlags(explicitFlags);
       Metadata merged = applyDefaultMetadata(metadata);
-      return commandsFactory.buildPutKeyValueCommand(key, value, keyPartitioner.getSegment(key), merged, flags);
+      return commandsFactory.buildPutKeyValueCommand(key, value, returnEntry, keyPartitioner.getSegment(key), merged, flags);
    }
 
    private long addIgnoreReturnValuesFlag(long flagBitSet) {
@@ -1427,7 +1427,13 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
 
    final CompletableFuture<V> putAsync(final K key, final V value, final Metadata metadata, final long explicitFlags, ContextBuilder contextBuilder) {
       assertKeyValueNotNull(key, value);
-      PutKeyValueCommand command = createPutCommand(key, value, metadata, explicitFlags);
+      PutKeyValueCommand command = createPutCommand(key, value, false, metadata, explicitFlags);
+      return invocationHelper.invokeAsync(contextBuilder, command, 1);
+   }
+
+   final CompletableFuture<CacheEntry<K, V>> putAsyncEntry(final K key, final V value, final Metadata metadata, final long explicitFlags, ContextBuilder contextBuilder) {
+      assertKeyValueNotNull(key, value);
+      PutKeyValueCommand command = createPutCommand(key, value, true, metadata, explicitFlags);
       return invocationHelper.invokeAsync(contextBuilder, command, 1);
    }
 
@@ -1895,6 +1901,11 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
    @Override
    public CompletableFuture<V> putAsync(K key, V value, Metadata metadata) {
       return putAsync(key, value, metadata, EnumUtil.EMPTY_BIT_SET, defaultContextBuilderForWrite());
+   }
+
+   @Override
+   public CompletableFuture<CacheEntry<K, V>> putAsyncEntry(K key, V value, Metadata metadata) {
+      return putAsyncEntry(key, value, metadata, EnumUtil.EMPTY_BIT_SET, defaultContextBuilderForWrite());
    }
 
    private Transaction suspendOngoingTransactionIfExists() {

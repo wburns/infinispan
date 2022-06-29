@@ -151,6 +151,11 @@ public class SecureCacheTestDriver {
       cache.putAsync("a", "a", metadata);
    }
 
+   @TestCachePermission(AuthorizationPermission.WRITE)
+   public void testPutAsyncEntry_Object_Object_Metadata(SecureCache<String, String> cache) {
+      cache.putAsync("a", "a", metadata);
+   }
+
    @TestCachePermission(value = AuthorizationPermission.LIFECYCLE, needsSecurityManager = true)
    public void testStop(SecureCache<String, String> cache) {
       cache.stop();

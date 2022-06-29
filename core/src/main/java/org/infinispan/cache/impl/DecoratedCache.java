@@ -699,6 +699,11 @@ public class DecoratedCache<K, V> extends AbstractDelegatingAdvancedCache<K, V> 
    }
 
    @Override
+   public CompletableFuture<CacheEntry<K, V>> putAsyncEntry(K key, V value, Metadata metadata) {
+      return cacheImplementation.putAsyncEntry(key, value, metadata, flags, contextBuilder);
+   }
+
+   @Override
    public V putIfAbsent(K key, V value, Metadata metadata) {
       return cacheImplementation.putIfAbsent(key, value, metadata, flags, contextBuilder);
    }

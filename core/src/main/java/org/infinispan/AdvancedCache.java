@@ -542,6 +542,18 @@ public interface AdvancedCache<K, V> extends Cache<K, V>, TransactionalCache {
    CompletableFuture<V> putAsync(K key, V value, Metadata metadata);
 
    /**
+    * Extension of {@link #putAsync(K, V, Metadata)} which returns a {@link CacheEntry} instead of only the
+    * previous value.
+    *
+    * @param key      key to use
+    * @param value    value to store
+    * @param metadata information to store alongside the new value
+    * @return a future containing the old {@link CacheEntry} replaced.
+    * @since 14.0
+    */
+   CompletableFuture<CacheEntry<K, V>> putAsyncEntry(K key, V value, Metadata metadata);
+
+   /**
     * Overloaded {@link #computeAsync(K, BiFunction)}, which stores metadata alongside the value.  This
     * method does not block on remote calls, even if your cache mode is synchronous.
     *
