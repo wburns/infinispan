@@ -1530,7 +1530,7 @@ public class CacheImpl<K, V> implements AdvancedCache<K, V> {
       return replaceAsyncEntry(key, value, metadata, EnumUtil.EMPTY_BIT_SET, defaultContextBuilderForWrite());
    }
 
-   private CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(final K key, final V value, final Metadata metadata,
+   final CompletableFuture<CacheEntry<K, V>> replaceAsyncEntry(final K key, final V value, final Metadata metadata,
                                                                  final long explicitFlags, ContextBuilder contextBuilder) {
       assertKeyValueNotNull(key, value);
       ReplaceCommand command = createReplaceCommandEntry(key, value, metadata, explicitFlags);

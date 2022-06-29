@@ -239,11 +239,33 @@ public interface CommandsFactory {
       return buildReplaceCommand(key, oldValue, newValue, false, segment, metadata, flagsBitSet);
    }
 
+   /**
+    * Builds a {@link ReplaceCommand} which returns a {@link CacheEntry} when executed.
+    *
+    * @param key key to replace
+    * @param oldValue existing value to check for if conditional, null if unconditional.
+    * @param newValue value to replace with
+    * @param segment the segment of the given key
+    * @param metadata metadata of entry
+    * @param flagsBitSet Command flags provided by cache
+    * @return a ReplaceCommand
+    */
    default ReplaceCommand buildReplaceCommandEntry(Object key, Object oldValue, Object newValue, int segment, Metadata metadata,
                                            long flagsBitSet) {
       return buildReplaceCommand(key, oldValue, newValue, true, segment, metadata, flagsBitSet);
    }
 
+   /**
+    * Builds a ReplaceCommand
+    * @param key key to replace
+    * @param oldValue existing value to check for if conditional, null if unconditional.
+    * @param newValue value to replace with
+    * @param returnEntry true if the {@link CacheEntry} is the command response, otherwise returns previous value.
+    * @param segment the segment of the given key
+    * @param metadata metadata of entry
+    * @param flagsBitSet Command flags provided by cache
+    * @return a ReplaceCommand
+    */
    ReplaceCommand buildReplaceCommand(Object key, Object oldValue, Object newValue, boolean returnEntry, int segment,
                                       Metadata metadata, long flagsBitSet);
 

@@ -37,13 +37,13 @@ public class ReplaceCommand extends AbstractDataWriteCommand implements Metadata
    public ReplaceCommand() {
    }
 
-   public ReplaceCommand(Object key, Object oldValue, Object newValue, boolean loadEntry,
+   public ReplaceCommand(Object key, Object oldValue, Object newValue, boolean returnEntry,
                          Metadata metadata, int segment, long flagsBitSet,
                          CommandInvocationId commandInvocationId) {
       super(key, segment, flagsBitSet, commandInvocationId);
       this.oldValue = oldValue;
       this.newValue = newValue;
-      this.returnEntry = loadEntry;
+      this.returnEntry = returnEntry;
       this.metadata = metadata;
       this.valueMatcher = oldValue != null ? ValueMatcher.MATCH_EXPECTED : ValueMatcher.MATCH_NON_NULL;
    }
