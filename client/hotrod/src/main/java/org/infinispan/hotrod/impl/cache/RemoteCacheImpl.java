@@ -161,6 +161,7 @@ public class RemoteCacheImpl<K, V> implements RemoteCache<K, V> {
       return dataFormat.keyToBytes(o);
    }
 
+   @Override
    public byte[] valueToBytes(Object o) {
       return dataFormat.valueToBytes(o);
    }
@@ -264,7 +265,8 @@ public class RemoteCacheImpl<K, V> implements RemoteCache<K, V> {
 
    @Override
    public CompletionStage<Void> putAll(Map<K, V> entries, CacheWriteOptions options) {
-      PutAllParallelOperation putAllParallelOperation = cacheOperationsFactory.newPutAllOperation(null, options, dataFormat);
+      PutAllParallelOperation putAllParallelOperation = cacheOperationsFactory.newPutAllOperation(
+            entries.entrySet().stream().collect(Collectors.toMap(node -> keyToBytes(node.getKey()), node -> valueToBytes(node.getValue()))), options, dataFormat);
       return putAllParallelOperation.execute();
    }
 
