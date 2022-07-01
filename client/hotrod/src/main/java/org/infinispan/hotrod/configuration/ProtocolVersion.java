@@ -50,7 +50,7 @@ public enum ProtocolVersion {
 
    public static ProtocolVersion getBestVersion(int version) {
       // We skip the last version (auto)
-      for (int i = VERSIONS.length - 2; i > 0; i--) {
+      for (int i = VERSIONS.length - 2; i >= 0; i--) {
          if (version >= VERSIONS[i].version)
             return VERSIONS[i];
       }

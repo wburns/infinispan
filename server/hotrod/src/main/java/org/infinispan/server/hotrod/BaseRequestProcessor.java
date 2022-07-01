@@ -103,7 +103,7 @@ public class BaseRequestProcessor {
    }
 
    void writeSuccess(HotRodHeader header, CacheEntry<byte[], byte[]> entry) {
-      if (header.hasFlag(ProtocolFlag.ForceReturnPreviousValue) && entry != null) {
+      if (header.hasFlag(ProtocolFlag.ForceReturnPreviousValue)) {
          writeResponse(header, header.encoder().successResponse(header, server, channel, entry));
       } else {
          writeResponse(header, header.encoder().emptyResponse(header, server, channel, OperationStatus.Success));

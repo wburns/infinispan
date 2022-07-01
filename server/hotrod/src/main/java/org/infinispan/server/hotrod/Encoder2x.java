@@ -154,7 +154,7 @@ class Encoder2x implements VersionedEncoder {
 
    @Override
    public ByteBuf valueResponse(HotRodHeader header, HotRodServer server, Channel channel, OperationStatus status, CacheEntry<byte[], byte[]> prev) {
-      return valueResponse(header, server, channel, status, prev.getValue());
+      return valueResponse(header, server, channel, status, prev != null ? prev.getValue() : null);
    }
 
    @Override
@@ -286,7 +286,7 @@ class Encoder2x implements VersionedEncoder {
       ByteBuf buf = writeHeader(header, server, channel, status);
       MetadataUtils.writeMetadata(MetadataUtils.extractLifespan(entry), MetadataUtils.extractMaxIdle(entry),
             MetadataUtils.extractCreated(entry), MetadataUtils.extractLastUsed(entry), MetadataUtils.extractVersion(entry), buf);
-      ExtendedByteBuf.writeRangedBytes(entry.getValue(), buf);
+      ExtendedByteBuf.writeRangedBytes(entry != null ? entry.getValue() : Util.EMPTY_BYTE_ARRAY, buf);
       return buf;
    }
 
