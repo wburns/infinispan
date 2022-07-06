@@ -17,7 +17,7 @@ import org.junit.jupiter.api.extension.RegisterExtension;
  * @since 14.0
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public abstract class AbstractSingleHotRodServerTest<K, V> {
+public abstract class AbstractAsyncCacheSingleServerTest<K, V> {
 
    private AsyncContainer container;
    protected AsyncCache<K, V> cache;

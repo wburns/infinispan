@@ -8,7 +8,7 @@ import java.util.Map;
 import java.util.stream.Stream;
 
 import org.infinispan.api.common.CacheEntry;
-import org.infinispan.hotrod.test.AbstractSingleHotRodServerTest;
+import org.infinispan.hotrod.test.AbstractAsyncCacheSingleServerTest;
 import org.infinispan.hotrod.test.KeyValueGenerator;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
@@ -17,7 +17,7 @@ import org.junit.jupiter.params.provider.MethodSource;
 /**
  * @since 14.0
  **/
-public class HotRodAsyncCacheTest<K, V> extends AbstractSingleHotRodServerTest<K, V> {
+public class HotRodAsyncCacheTest<K, V> extends AbstractAsyncCacheSingleServerTest<K, V> {
 
    @MethodSource("parameterized")
    @ParameterizedTest(name = "getPut[{0}]")
@@ -103,7 +103,7 @@ public class HotRodAsyncCacheTest<K, V> extends AbstractSingleHotRodServerTest<K
 
    @MethodSource("parameterized")
    @ParameterizedTest(name = "testPutAllAndClear[{0}]")
-   public void testPutAll(KeyValueGenerator<K, V> kvGenerator) {
+   public void testPutAllAndClear(KeyValueGenerator<K, V> kvGenerator) {
       Map<K, V> entries = new HashMap<>();
       for (int i = 0; i < 10; i++) {
          final K key = kvGenerator.generateKey(cacheName, i);
