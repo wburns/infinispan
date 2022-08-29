@@ -45,6 +45,7 @@ public class RespServerTest extends AbstractInfinispanTest {
    }
 
    public void testNoDefaultConfigurationLocal() {
+
       GlobalConfigurationBuilder global = new GlobalConfigurationBuilder();
       Stoppable.useCacheManager(new DefaultCacheManager(global.build()), cm ->
             Stoppable.useServer(new RespServer(), ms -> {
