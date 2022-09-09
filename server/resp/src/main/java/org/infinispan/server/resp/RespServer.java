@@ -94,6 +94,9 @@ public class RespServer extends AbstractProtocolServer<RespServerConfiguration> 
    }
 
    public Resp3Handler newHandler() {
+      if (configuration.authentication().enabled()) {
+
+      }
       return new Resp3Handler(this);
    }
 }
