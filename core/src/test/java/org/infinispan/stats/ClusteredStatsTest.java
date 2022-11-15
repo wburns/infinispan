@@ -14,6 +14,7 @@ import org.infinispan.configuration.global.GlobalConfigurationBuilder;
 import org.infinispan.distribution.DistributionManager;
 import org.infinispan.encoding.DataConversion;
 import org.infinispan.test.TestingUtil;
+import org.infinispan.topology.ClusterTopologyManager;
 import org.testng.annotations.Test;
 
 @Test(groups = "functional", testName = "stats.ClusteredStatsTest")
@@ -71,6 +72,25 @@ public class ClusteredStatsTest extends SingleStatsTest {
 
       // Eviction stats with passivation can be delayed
       eventuallyEquals((long) actualOwners * (TOTAL_ENTRIES - EVICTION_MAX_ENTRIES), clusteredStats::getPassivations);
+   }
+
+   public void testJoinerStats() {
+      for (int i = 0; i < TOTAL_ENTRIES; i++) {
+         cache.put("key" + i, "value" + i);
+      }
+
+      for (Cache<?, ?> cache : caches(CACHE_NAME)) {
+         ClusterTopologyManager crmTM = TestingUtil.extractComponent(cache, ClusterTopologyManager.class);
+         crmTM.setRebalancingEnabled(false);
+      }
+
+      GlobalConfigurationBuilder globalConfigurationBuilder = defaultGlobalConfigurationBuilder();
+      globalConfigurationBuilder.metrics().accurateSize(true);
+
+      addClusterEnabledCacheManager(new GlobalConfigurationBuilder().read(globalConfigurationBuilder.build()),
+            new ConfigurationBuilder());
+
+      Stats stats = cache.getAdvancedCache().getStats();
    }
 
    @Override
