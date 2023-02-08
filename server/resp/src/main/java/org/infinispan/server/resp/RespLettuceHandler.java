@@ -1,6 +1,10 @@
 package org.infinispan.server.resp;
 
 import java.lang.invoke.MethodHandles;
+import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Deque;
 import java.util.List;
 import java.util.concurrent.CompletionStage;
 
@@ -10,6 +14,11 @@ import org.infinispan.server.resp.logging.Log;
 import org.infinispan.util.concurrent.CompletionStages;
 
 import io.lettuce.core.codec.ByteArrayCodec;
+import io.lettuce.core.codec.RedisCodec;
+import io.lettuce.core.codec.StringCodec;
+import io.lettuce.core.internal.LettuceFactories;
+import io.lettuce.core.output.CommandOutput;
+import io.lettuce.core.output.OutputFactory;
 import io.lettuce.core.output.PushOutput;
 import io.lettuce.core.protocol.RedisStateMachine;
 import io.netty.buffer.ByteBuf;
@@ -32,7 +41,100 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
    @Override
    public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
       super.channelUnregistered(ctx);
+      stateMachine.close();
       requestHandler.handleChannelDisconnect(ctx);
+   }
+
+   private static class OurCommandOutput<K, V> extends CommandOutput<K, V, List<Object>> {
+
+      /**
+       * Initialize a new instance that encodes and decodes keys and values using the supplied codec.
+       *
+       * @param codec Codec used to encode/decode keys and values, must not be {@code null}.
+       */
+      public OurCommandOutput(RedisCodec<K, V> codec) {
+         super(codec, Collections.emptyList());
+         stack = LettuceFactories.newSpScQueue();
+         depth = 0;
+      }
+
+      public void reset() {
+
+      }
+
+      // Copied from PushOutput
+      private String type;
+
+
+      // Copied from NestedMultiOutput
+      private final Deque<List<Object>> stack;
+
+      private int depth;
+
+      private boolean initialized;
+
+      @Override
+      public void set(long integer) {
+
+         if (!initialized) {
+            output = new ArrayList<>();
+         }
+
+         output.add(integer);
+      }
+
+      @Override
+      public void set(double number) {
+
+         if (!initialized) {
+            output = new ArrayList<>();
+         }
+
+         output.add(number);
+      }
+
+      @Override
+      public void set(ByteBuffer bytes) {
+
+         if (!initialized) {
+            output = new ArrayList<>();
+         }
+
+         output.add(bytes == null ? null : codec.decodeValue(bytes));
+      }
+
+      @Override
+      public void setSingle(ByteBuffer bytes) {
+
+         if (!initialized) {
+            output = new ArrayList<>();
+         }
+
+         output.add(bytes == null ? null : StringCodec.UTF8.decodeValue(bytes));
+      }
+
+      @Override
+      public void complete(int depth) {
+         if (depth > 0 && depth < this.depth) {
+            output = stack.pop();
+            this.depth--;
+         }
+      }
+
+      @Override
+      public void multi(int count) {
+
+         if (!initialized) {
+            output = OutputFactory.newList(Math.max(1, count));
+            initialized = true;
+         }
+
+         List<Object> a = OutputFactory.newList(count);
+         output.add(a);
+         stack.push(output);
+         output = a;
+         this.depth++;
+      }
    }
 
    @Override
@@ -50,7 +152,9 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
          // Read a complete command, use a new one for next round
          currentOutput = null;
          List<byte[]> contentToUse = content.subList(1, content.size());
-         log.tracef("Received command: %s with arguments %s", type, Util.toStr(contentToUse));
+         if (log.isTraceEnabled()) {
+            log.tracef("Received command: %s with arguments %s", type, Util.toStr(contentToUse));
+         }
          CompletionStage<RespRequestHandler> stage = requestHandler.handleRequest(ctx, type, contentToUse);
          if (CompletionStages.isCompletedSuccessfully(stage)) {
             requestHandler = CompletionStages.join(stage);
