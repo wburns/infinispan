@@ -2,6 +2,7 @@ package org.infinispan.server.resp;
 
 import java.lang.invoke.MethodHandles;
 import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Deque;
@@ -16,10 +17,7 @@ import org.infinispan.util.concurrent.CompletionStages;
 import io.lettuce.core.codec.ByteArrayCodec;
 import io.lettuce.core.codec.RedisCodec;
 import io.lettuce.core.codec.StringCodec;
-import io.lettuce.core.internal.LettuceFactories;
 import io.lettuce.core.output.CommandOutput;
-import io.lettuce.core.output.OutputFactory;
-import io.lettuce.core.output.PushOutput;
 import io.lettuce.core.protocol.RedisStateMachine;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -31,7 +29,7 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
 
    private final RedisStateMachine stateMachine = new RedisStateMachine(ByteBufAllocator.DEFAULT);
    private RespRequestHandler requestHandler;
-   private PushOutput<byte[], byte[]> currentOutput;
+   private OurCommandOutput<byte[], byte[]> currentOutput;
    private boolean disabledRead = false;
 
    public RespLettuceHandler(RespRequestHandler initialHandler) {
@@ -54,19 +52,68 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
        */
       public OurCommandOutput(RedisCodec<K, V> codec) {
          super(codec, Collections.emptyList());
-         stack = LettuceFactories.newSpScQueue();
-         depth = 0;
+         stack = new ArrayDeque<>();
       }
 
       public void reset() {
-
+         stack.clear();
+         output.clear();
+         depth = 0;
+         type = null;
       }
 
       // Copied from PushOutput
       private String type;
 
+      @Override
+      public void set(ByteBuffer bytes) {
+
+         if (type == null) {
+            bytes.mark();
+            type = StringCodec.ASCII.decodeKey(bytes);
+            bytes.reset();
+         }
+
+         if (!initialized) {
+            output = new ArrayList<>();
+         }
+
+         output.add(bytes == null ? null : codec.decodeValue(bytes));
+      }
+
+      @Override
+      public void setSingle(ByteBuffer bytes) {
+         if (type == null) {
+            set(bytes);
+         }
+         if (!initialized) {
+            output = new ArrayList<>();
+         }
+
+         output.add(bytes == null ? null : StringCodec.UTF8.decodeValue(bytes));
+      }
+
+      public String type() {
+         return type;
+      }
+
+      public List<Object> getContent() {
+
+         List<Object> copy = new ArrayList<>();
+
+         for (Object o : get()) {
+            if (o instanceof ByteBuffer) {
+               copy.add(((ByteBuffer) o).asReadOnlyBuffer());
+            } else {
+               copy.add(o);
+            }
+         }
+
+         return Collections.unmodifiableList(copy);
+      }
 
       // Copied from NestedMultiOutput
+
       private final Deque<List<Object>> stack;
 
       private int depth;
@@ -94,26 +141,6 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
       }
 
       @Override
-      public void set(ByteBuffer bytes) {
-
-         if (!initialized) {
-            output = new ArrayList<>();
-         }
-
-         output.add(bytes == null ? null : codec.decodeValue(bytes));
-      }
-
-      @Override
-      public void setSingle(ByteBuffer bytes) {
-
-         if (!initialized) {
-            output = new ArrayList<>();
-         }
-
-         output.add(bytes == null ? null : StringCodec.UTF8.decodeValue(bytes));
-      }
-
-      @Override
       public void complete(int depth) {
          if (depth > 0 && depth < this.depth) {
             output = stack.pop();
@@ -125,11 +152,11 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
       public void multi(int count) {
 
          if (!initialized) {
-            output = OutputFactory.newList(Math.max(1, count));
+            output = new ArrayList<>(count);
             initialized = true;
          }
 
-         List<Object> a = OutputFactory.newList(count);
+         List<Object> a = new ArrayList<>(count);
          output.add(a);
          stack.push(output);
          output = a;
@@ -144,14 +171,14 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
          return;
       }
       if (currentOutput == null) {
-         currentOutput = new PushOutput<>(ByteArrayCodec.INSTANCE);
+         currentOutput = new OurCommandOutput<>(ByteArrayCodec.INSTANCE);
       }
       if (stateMachine.decode(in, currentOutput)) {
-         String type = currentOutput.getType().toUpperCase();
-         List content = currentOutput.getContent();
+         String type = currentOutput.type().toUpperCase();
          // Read a complete command, use a new one for next round
-         currentOutput = null;
+         List content = currentOutput.getContent();
          List<byte[]> contentToUse = content.subList(1, content.size());
+         currentOutput = null;
          if (log.isTraceEnabled()) {
             log.tracef("Received command: %s with arguments %s", type, Util.toStr(contentToUse));
          }
