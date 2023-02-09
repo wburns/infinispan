@@ -29,7 +29,7 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
 
    private final RedisStateMachine stateMachine = new RedisStateMachine(ByteBufAllocator.DEFAULT);
    private RespRequestHandler requestHandler;
-   private OurCommandOutput<byte[], byte[]> currentOutput;
+   private final OurCommandOutput<byte[], byte[]> currentOutput = new OurCommandOutput<>(ByteArrayCodec.INSTANCE);
    private boolean disabledRead = false;
 
    public RespLettuceHandler(RespRequestHandler initialHandler) {
@@ -170,15 +170,15 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
       if (disabledRead) {
          return;
       }
-      if (currentOutput == null) {
-         currentOutput = new OurCommandOutput<>(ByteArrayCodec.INSTANCE);
-      }
+//      if (currentOutput == null) {
+//         currentOutput = new OurCommandOutput<>(ByteArrayCodec.INSTANCE);
+//      }
       if (stateMachine.decode(in, currentOutput)) {
          String type = currentOutput.type().toUpperCase();
          // Read a complete command, use a new one for next round
          List content = currentOutput.getContent();
          List<byte[]> contentToUse = content.subList(1, content.size());
-         currentOutput = null;
+         currentOutput.reset();
          if (log.isTraceEnabled()) {
             log.tracef("Received command: %s with arguments %s", type, Util.toStr(contentToUse));
          }
