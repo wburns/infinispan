@@ -70,8 +70,9 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
 
          if (type == null) {
             bytes.mark();
+            // TODO: avoid DirectByteBuffer allocation
             type = StringCodec.ASCII.decodeKey(bytes);
-            bytes.reset();
+            return;
          }
 
          if (!initialized) {
@@ -170,14 +171,10 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
       if (disabledRead) {
          return;
       }
-//      if (currentOutput == null) {
-//         currentOutput = new OurCommandOutput<>(ByteArrayCodec.INSTANCE);
-//      }
       if (stateMachine.decode(in, currentOutput)) {
          String type = currentOutput.type().toUpperCase();
          // Read a complete command, use a new one for next round
-         List content = currentOutput.getContent();
-         List<byte[]> contentToUse = content.subList(1, content.size());
+         List<byte[]> contentToUse = (List) currentOutput.getContent();
          currentOutput.reset();
          if (log.isTraceEnabled()) {
             log.tracef("Received command: %s with arguments %s", type, Util.toStr(contentToUse));
