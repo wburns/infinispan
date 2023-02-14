@@ -16,6 +16,7 @@ import org.infinispan.commons.logging.LogFactory;
 import org.infinispan.server.core.logging.Log;
 import org.infinispan.util.concurrent.AggregateCompletionStage;
 import org.infinispan.util.concurrent.CompletionStages;
+import org.infinispan.util.function.TriConsumer;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
@@ -26,6 +27,27 @@ import io.netty.util.CharsetUtil;
 public class Resp3Handler extends Resp3AuthHandler {
    private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass(), Log.class);
    private static final ByteBuf OK = RespRequestHandler.stringToByteBuf("+OK\r\n", ByteBufAllocator.DEFAULT);
+
+   private static final TriConsumer<byte[], ChannelHandlerContext, Throwable> GET_TRICONSUMER = (innerValueBytes, innerCtx, t) -> {
+      if (t != null) {
+         log.trace("Exception encountered while performing GET", t);
+         handleThrowable(innerCtx, t);
+      } else if (innerValueBytes != null) {
+         ByteBuf buf = bytesToResult(innerValueBytes, innerCtx.alloc());
+         innerCtx.writeAndFlush(buf);
+      } else {
+         innerCtx.writeAndFlush(RespRequestHandler.stringToByteBuf("$-1\r\n", innerCtx.alloc()));
+      }
+   };
+
+   private static final TriConsumer<byte[], ChannelHandlerContext, Throwable> SET_TRICONSUMER = (ignore, innerCtx, t) -> {
+      if (t != null) {
+         log.trace("Exception encountered while performing SET", t);
+         handleThrowable(innerCtx, t);
+      } else {
+         innerCtx.writeAndFlush(statusOK());
+      }
+   };
 
    Resp3Handler(RespServer respServer) {
       super(respServer);
@@ -53,24 +75,10 @@ public class Resp3Handler extends Resp3AuthHandler {
             ctx.writeAndFlush(bufferToWrite);
             break;
          case "SET":
-            return performSet(ctx, cache, arguments.get(0), arguments.get(1), -1, type, statusOK());
+            return stageToReturn(cache.putAsync(arguments.get(0), arguments.get(1)), ctx, SET_TRICONSUMER);
          case "GET":
             byte[] keyBytes = arguments.get(0);
-
-            return stageToReturn(cache.getAsync(keyBytes), ctx, (innerValueBytes, t) -> {
-               if (t != null) {
-                  log.trace("Exception encountered while performing GET", t);
-                  handleThrowable(ctx, t);
-               } else if (innerValueBytes != null) {
-                  int length = innerValueBytes.length;
-                  ByteBuf buf = RespRequestHandler.stringToByteBufWithExtra("$" + length + "\r\n", ctx.alloc(), length + 2);
-                  buf.writeBytes(innerValueBytes);
-                  buf.writeByte('\r').writeByte('\n');
-                  ctx.writeAndFlush(buf);
-               } else {
-                  ctx.writeAndFlush(RespRequestHandler.stringToByteBuf("$-1\r\n", ctx.alloc()));
-               }
-            });
+            return stageToReturn(cache.getAsync(keyBytes), ctx, GET_TRICONSUMER);
          case "DEL":
             return performDelete(ctx, cache, arguments);
          case "MGET":
@@ -78,19 +86,19 @@ public class Resp3Handler extends Resp3AuthHandler {
          case "MSET":
             return performMset(ctx, cache, arguments);
          case "INCR":
-            return stageToReturn(counterIncOrDec(cache, arguments.get(0), true), ctx, (longValue, t) -> {
+            return stageToReturn(counterIncOrDec(cache, arguments.get(0), true), ctx, (longValue, innerCtx, t) -> {
                if (t != null) {
-                  handleThrowable(ctx, t);
+                  handleThrowable(innerCtx, t);
                } else {
-                  handleLongResult(ctx, longValue);
+                  handleLongResult(innerCtx, longValue);
                }
             });
          case "DECR":
-            return stageToReturn(counterIncOrDec(cache, arguments.get(0), false), ctx, (longValue, t) -> {
+            return stageToReturn(counterIncOrDec(cache, arguments.get(0), false), ctx, (longValue, innerCtx, t) -> {
                if (t != null) {
-                  handleThrowable(ctx, t);
+                  handleThrowable(innerCtx, t);
                } else {
-                  handleLongResult(ctx, longValue);
+                  handleLongResult(innerCtx, longValue);
                }
             });
          case "CONFIG":
@@ -118,8 +126,14 @@ public class Resp3Handler extends Resp3AuthHandler {
             // TODO: should we return the # of subscribers on this node?
             // We use expiration to remove the event values eventually while preventing them during high periods of
             // updates
-            return performSet(ctx, cache, SubscriberHandler.keyToChannel(arguments.get(0)),
-                  arguments.get(1), 3, type, RespRequestHandler.stringToByteBuf(":0\r\n", ctx.alloc()));
+            return stageToReturn(cache.putAsync(SubscriberHandler.keyToChannel(arguments.get(0)), arguments.get(1), 3, TimeUnit.SECONDS), ctx, (ignore, innerCtx, t) -> {
+               if (t != null) {
+                  log.trace("Exception encountered while performing PUBLISH", t);
+                  handleThrowable(innerCtx, t);
+               } else {
+                  innerCtx.writeAndFlush(RespRequestHandler.stringToByteBuf(":0\r\n", ctx.alloc()));
+               }
+            });
          case "SUBSCRIBE":
             SubscriberHandler subscriberHandler = new SubscriberHandler(respServer, this);
             return subscriberHandler.handleRequest(ctx, type, arguments);
@@ -231,30 +245,18 @@ public class Resp3Handler extends Resp3AuthHandler {
             });
    }
 
-   private CompletionStage<RespRequestHandler> performSet(ChannelHandlerContext ctx, Cache<byte[], byte[]> cache, byte[] key, byte[] value,
-         long lifespan, String type, ByteBuf messageOnSuccess) {
-      return stageToReturn(cache.putAsync(key, value, lifespan, TimeUnit.SECONDS), ctx, (ignore, t) -> {
-         if (t != null) {
-            log.trace("Exception encountered while performing " + type, t);
-            handleThrowable(ctx, t);
-         } else {
-            ctx.writeAndFlush(messageOnSuccess);
-         }
-      });
-   }
-
    private CompletionStage<RespRequestHandler> performDelete(ChannelHandlerContext ctx, Cache<byte[], byte[]> cache, List<byte[]> arguments) {
       int keysToRemove = arguments.size();
       if (keysToRemove == 1) {
          byte[] keyBytes = arguments.get(0);
-         return stageToReturn(cache.removeAsync(keyBytes), ctx, (prev, t) -> {
+         return stageToReturn(cache.removeAsync(keyBytes), ctx, (prev, innerCtx, t) -> {
             if (t != null) {
                log.trace("Exception encountered while performing DEL", t);
-               handleThrowable(ctx, t);
+               handleThrowable(innerCtx, t);
                return;
             }
-            ctx.writeAndFlush(RespRequestHandler.stringToByteBuf(":" + (prev == null ? "0" : "1") +
-                  "\r\n", ctx.alloc()));
+            innerCtx.writeAndFlush(RespRequestHandler.stringToByteBuf(":" + (prev == null ? "0" : "1") +
+                  "\r\n", innerCtx.alloc()));
          });
       } else if (keysToRemove == 0) {
          // TODO: is this an error?
@@ -271,13 +273,13 @@ public class Resp3Handler extends Resp3AuthHandler {
                      }
                   }));
          }
-         return stageToReturn(deleteStages.freeze(), ctx, (removals, t) -> {
+         return stageToReturn(deleteStages.freeze(), ctx, (removals, innerCtx, t) -> {
             if (t != null) {
                log.trace("Exception encountered while performing multiple DEL", t);
-               handleThrowable(ctx, t);
+               handleThrowable(innerCtx, t);
                return;
             }
-            ctx.writeAndFlush(RespRequestHandler.stringToByteBuf(":" + removals.get() + "\r\n", ctx.alloc()));
+            innerCtx.writeAndFlush(RespRequestHandler.stringToByteBuf(":" + removals.get() + "\r\n", innerCtx.alloc()));
          });
       }
    }
@@ -315,15 +317,15 @@ public class Resp3Handler extends Resp3AuthHandler {
                   resultBytesSize.addAndGet(2);
                }));
       }
-      return stageToReturn(getStage.freeze(), ctx, (ignore, t) -> {
+      return stageToReturn(getStage.freeze(), ctx, (ignore, innerCtx, t) -> {
          if (t != null) {
             log.trace("Exception encountered while performing multiple GET", t);
-            handleThrowable(ctx, t);
+            handleThrowable(innerCtx, t);
             return;
          }
          int elements = results.size();
          // * + digit length (log10 + 1) + \r\n
-         ByteBuf byteBuf = ctx.alloc().buffer(resultBytesSize.addAndGet(1 + (int) Math.log10(elements)
+         ByteBuf byteBuf = innerCtx.alloc().buffer(resultBytesSize.addAndGet(1 + (int) Math.log10(elements)
                + 1 + 2));
          byteBuf.writeCharSequence("*" + results.size(), CharsetUtil.UTF_8);
          byteBuf.writeByte('\r');
@@ -340,7 +342,7 @@ public class Resp3Handler extends Resp3AuthHandler {
             byteBuf.writeByte('\r');
             byteBuf.writeByte('\n');
          }
-         ctx.writeAndFlush(byteBuf);
+         innerCtx.writeAndFlush(byteBuf);
       });
    }
 
@@ -357,12 +359,12 @@ public class Resp3Handler extends Resp3AuthHandler {
          byte[] valueBytes = arguments.get(i + 1);
          setStage.dependsOn(cache.putAsync(keyBytes, valueBytes));
       }
-      return stageToReturn(setStage.freeze(), ctx, (ignore, t) -> {
+      return stageToReturn(setStage.freeze(), ctx, (ignore, innerCtx, t) -> {
          if (t != null) {
             log.trace("Exception encountered while performing MSET", t);
-            handleThrowable(ctx, t);
+            handleThrowable(innerCtx, t);
          } else {
-            ctx.writeAndFlush(statusOK());
+            innerCtx.writeAndFlush(statusOK());
          }
       });
    }

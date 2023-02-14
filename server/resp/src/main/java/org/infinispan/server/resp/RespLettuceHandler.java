@@ -100,17 +100,7 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
 
       public List<Object> getContent() {
 
-         List<Object> copy = new ArrayList<>();
-
-         for (Object o : get()) {
-            if (o instanceof ByteBuffer) {
-               copy.add(((ByteBuffer) o).asReadOnlyBuffer());
-            } else {
-               copy.add(o);
-            }
-         }
-
-         return Collections.unmodifiableList(copy);
+         return get();
       }
 
       // Copied from NestedMultiOutput
@@ -175,11 +165,15 @@ public class RespLettuceHandler extends ByteToMessageDecoder {
          String type = currentOutput.type().toUpperCase();
          // Read a complete command, use a new one for next round
          List<byte[]> contentToUse = (List) currentOutput.getContent();
-         currentOutput.reset();
          if (log.isTraceEnabled()) {
             log.tracef("Received command: %s with arguments %s", type, Util.toStr(contentToUse));
          }
-         CompletionStage<RespRequestHandler> stage = requestHandler.handleRequest(ctx, type, contentToUse);
+         CompletionStage<RespRequestHandler> stage;
+         try {
+            stage = requestHandler.handleRequest(ctx, type, contentToUse);
+         } finally {
+            currentOutput.reset();
+         }
          if (CompletionStages.isCompletedSuccessfully(stage)) {
             requestHandler = CompletionStages.join(stage);
          } else {

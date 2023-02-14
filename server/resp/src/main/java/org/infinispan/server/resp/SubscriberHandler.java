@@ -200,12 +200,12 @@ public class SubscriberHandler extends RespRequestHandler {
 
    private CompletionStage<RespRequestHandler> sendSubscriptions(ChannelHandlerContext ctx, CompletionStage<Void> stageToWaitFor,
          Collection<byte[]> keyChannels, boolean subscribeOrUnsubscribe) {
-      return stageToReturn(stageToWaitFor, ctx, (__, t) -> {
+      return stageToReturn(stageToWaitFor, ctx, (__, innerCtx, t) -> {
          if (t != null) {
             if (subscribeOrUnsubscribe) {
-               ctx.writeAndFlush("-ERR Failure adding client listener");
+               innerCtx.writeAndFlush("-ERR Failure adding client listener");
             } else {
-               ctx.writeAndFlush("-ERR Failure unsubscribing client listener");
+               innerCtx.writeAndFlush("-ERR Failure unsubscribing client listener");
             }
             return;
          }
@@ -213,11 +213,11 @@ public class SubscriberHandler extends RespRequestHandler {
             int bufferCap = subscribeOrUnsubscribe ? 20 : 22;
             String initialCharSeq = subscribeOrUnsubscribe ? "*2\r\n$9\r\nsubscribe\r\n$" : "*2\r\n$11\r\nunsubscribe\r\n$";
 
-            ByteBuf subscribeBuffer = ctx.alloc().buffer(bufferCap + (int) Math.log10(keyChannel.length) + 1 + keyChannel.length + 2);
+            ByteBuf subscribeBuffer = innerCtx.alloc().buffer(bufferCap + (int) Math.log10(keyChannel.length) + 1 + keyChannel.length + 2);
             subscribeBuffer.writeCharSequence(initialCharSeq + keyChannel.length + "\r\n", CharsetUtil.UTF_8);
             subscribeBuffer.writeBytes(keyChannel);
             subscribeBuffer.writeCharSequence("\r\n", CharsetUtil.UTF_8);
-            ctx.writeAndFlush(subscribeBuffer);
+            innerCtx.writeAndFlush(subscribeBuffer);
          }
       });
    }
