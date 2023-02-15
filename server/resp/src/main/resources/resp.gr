@@ -5,8 +5,6 @@ namespace resp3x;
 class org.infinispan.server.resp.RespDecoder extends ByteToMessageDecoder;
 
 // static final field values are literals
-// For some reason this isn't being picked up from the HR server jar - seems like a bug in generator
-constants io.gingersnapproject.hotrod.HotRodConstants;
 
 // methods simpleString, bulkString, byteArray, byte...
 intrinsics org.infinispan.server.resp.Intrinsics;
@@ -23,9 +21,11 @@ import org.infinispan.commons.logging.LogFactory;
 init {
    protected final static Log log = LogFactory.getLog(RespDecoder.class, Log.class);
    protected final Resp2LongProcessor longProcessor = new Resp2LongProcessor();
+   protected final RespRequestHandler requestHandler;
+   private boolean disabledRead = false;
 
-   public RespDecoder(CommandProcessor commandProcessor) {
-      this.commandProcessor = commandProcessor;
+   public RespDecoder(RespRequestHandler initialHandler) {
+      this.requestHandler = initialHandler;
    }
 
    /**
@@ -42,6 +42,12 @@ init {
    protected static <T> Set<T> allocSet(int size) {
       return size == 0 ? Collections.emptySet() : new HashSet<>(size);
    }
+
+   @Override
+   public void channelUnregistered(ChannelHandlerContext ctx) throws Exception {
+      super.channelUnregistered(ctx);
+      requestHandler.handleChannelDisconnect(ctx);
+   }
 }
 
 exceptionally {
@@ -52,10 +58,9 @@ exceptionally {
 
 // this is the root
 root request
-   : magic
-      header { if (log.isTraceEnabled()) log.tracef("Parsed header: %s", header);
-         if (version < VERSION_30) throw new UnknownVersionException("Gingersnap only supports 3.0 or newer of HR", version, messageId);}
-      parameters
+   : type
+     command
+     arguments { requestHandler = requestHandler.handleRequest(command, arguments) }
    ;
 
 header returns GingersnapHeader
@@ -64,113 +69,14 @@ header returns GingersnapHeader
     { new GingersnapHeader(operation, version, messageId, cacheName, flags, intelligence, topologyId, keyType, valueType, otherParams) }
 ;
 
-magic: byte;
-messageId: vLong;
-version: byte;
-operation returns HotRodOperation
-   : opCode { HotRodOperation.fromRequestOpCode(byte) }
-   ;
-opCode: byte;
-cacheName: string;
-flags: vInt;
-intelligence: byte;
-topologyId: vInt;
-keyType: mediaType;
-valueType: mediaType;
+type: byte;
+command returns String switch type
+   : { SIMPLE_STRING }? simpleString
+   : { BULK_STRING }? bulkString[longProcessor]
+arguments:
 
-mediaType returns MediaType
-   : mediaTypeDefinition mediaTypeDescription { mediaTypeDescription }
-   ;
-mediaTypeDefinition: byte;
-mediaTypeId: vInt;
-mediaTypeName: string;
-mediaTypeParams returns Map<String, String>
-   : mediaTypeParamsNum { mediaTypeParams = allocMap(mediaTypeParamsNum); }
-      #mediaTypeParamsNum ( mediaParamName mediaParamValue { mediaTypeParams.put(mediaParamName, mediaParamValue); } )
-   ;
-mediaTypeParamsNum: vInt;
-mediaParamName: string;
-mediaParamValue: string;
-mediaTypeDescription returns MediaType switch mediaTypeDefinition
-   : { 0 }? { MediaType.APPLICATION_UNKNOWN }
-   | { 1 }? mediaTypeId mediaTypeParams { MediaTypeIds.getMediaType((short) mediaTypeId).withParameters(mediaTypeParams) }
-   | { 2 }? mediaTypeName mediaTypeParams { MediaType.fromString(mediaTypeName).withParameters(mediaTypeParams) }
-   | { throw new RequestParsingException("Unknown MediaType definition: " + mediaTypeDefinition, version, messageId); }
-   ;
-
-otherParams returns Map<String, byte[]>
-: { version >= VERSION_40 }? otherParamsRev
-   | { null }
-   ;
-
-otherParamsNum: vInt;
-otherParamName: string;
-otherParamValue: array;
-otherParamsRev returns Map<String, byte[]>
-   : otherParamsNum { otherParamsRev = allocMap(otherParamsNum); }
-      #otherParamsNum ( otherParamName otherParamValue { otherParamsRev.put(otherParamName, otherParamValue); } )
-   ;
-
-key: array;
-value: array;
-supportsDuplicates
-   : { version < VERSION_40 }? { throw new UnknownVersionException("Gingersnap only supports 4.0 when using multi maps", version, messageId); }
-   | bool
-   ;
-
-// Maybe we should throw exception here instead?
-ignoreExpiration
-   : timeUnits lifespanLong maxIdleLong
-   ;
-lifespanLong
-   : { (timeUnits & 0xF0) != 0x70 && (timeUnits & 0xF0) != 0x80 }? vLong
-   | { 0L }
-   ;
-maxIdleLong
-   : { (timeUnits & 0x0F) != 0x07 && (timeUnits & 0x0F) != 0x08 }? vLong
-   | { 0L }
-   ;
-
-timeUnits : byte;
-
-queryBytes: array;
-
-numParams: byte;
-param: array;
-
-taskName: string;
-taskParam: string;
-taskParamValue: array;
-taskParams returns Map<String, byte[]>
-   : numParams { taskParams = allocMap(numParams); }
-      #numParams ( taskParam taskParamValue { taskParams.put(taskParam, taskParamValue); } )
-   ;
-
-numEntries: vInt;
-entryMap returns Map<byte[], byte[]>
-   : numEntries { entryMap = allocMap(numEntries); }
-     #numEntries ( key value { entryMap.put(key, value); } )
-   ;
-
-numKeys: vInt;
-keys returns Set<byte[]>:
-   numKeys { keys = allocSet(numKeys); } #numKeys ( key { keys.add(key); } )
-   ;
-
-segmentMask: optionalArray;
-filterConverterFactory: optionalString;
-filterConverterParams returns List<byte[]>
-   : { filterConverterFactory != null }? numParams { filterConverterParams = allocList(numParams); }
-      #numParams ( param { filterConverterParams.add(param); })
-   | { null }
-   ;
-batchSize: vInt;
-includeMetadata: bool;
-iterationId: string;
-
-parameters switch opCode
-// Cache operations
-   : { PUT_REQUEST }? key ignoreExpiration value { commandProcessor.put(getHeader(), key, value) }
+execute
+   : { SIMPLE_STRING }? arguments { requestHandler = requestHandler.handleRequest(command, arguments) }
    | { GET_REQUEST }? key { commandProcessor.get(getHeader(), key) }
    | { REMOVE_REQUEST }? key { commandProcessor.remove(getHeader(), key) }
    | { STATS_REQUEST }? { commandProcessor.stats(getHeader()) }
