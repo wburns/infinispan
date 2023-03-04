@@ -5,42 +5,40 @@ namespace resp3x;
 class org.infinispan.server.resp.RespDecoder extends ByteToMessageDecoder;
 
 // static final field values are literals
+constants org.infinispan.server.resp.RespConstants;
 
 // methods simpleString, bulkString, byteArray, byte...
 intrinsics org.infinispan.server.resp.Intrinsics;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
+
 import io.netty.handler.codec.ByteToMessageDecoder;
+
 import org.infinispan.commons.logging.LogFactory;
+import org.infinispan.commons.util.Util;
+import org.infinispan.server.resp.logging.Log;
+import org.infinispan.server.resp.Intrinsics.Resp2LongProcessor;
+import org.infinispan.util.concurrent.CompletionStages;
 
 init {
    protected final static Log log = LogFactory.getLog(RespDecoder.class, Log.class);
    protected final Resp2LongProcessor longProcessor = new Resp2LongProcessor();
-   protected final RespRequestHandler requestHandler;
+   protected RespRequestHandler requestHandler;
    private boolean disabledRead = false;
 
    public RespDecoder(RespRequestHandler initialHandler) {
       this.requestHandler = initialHandler;
    }
 
-   /**
-    * We usually know the size of the map ahead, and we want to return static empty map if we're not going to add anything.
-    */
-   protected static <K, V> Map<K, V> allocMap(int size) {
-      return size == 0 ? Collections.emptyMap() : new HashMap<>(size * 4/3, 0.75f);
-   }
-
    protected static <T> List<T> allocList(int size) {
       return size == 0 ? Collections.emptyList() : new ArrayList<>(size);
-   }
-
-   protected static <T> Set<T> allocSet(int size) {
-      return size == 0 ? Collections.emptySet() : new HashSet<>(size);
    }
 
    @Override
@@ -48,54 +46,71 @@ init {
       super.channelUnregistered(ctx);
       requestHandler.handleChannelDisconnect(ctx);
    }
-}
 
-exceptionally {
-   log.trace("Parsing error", t);
-   commandProcessor.writeException(getHeader(), t);
-   state = 0;
+   private void handleCommandAndArguments(ChannelHandlerContext ctx, String command, List<byte[]> arguments) {
+      if (log.isTraceEnabled()) {
+        log.tracef("Received command: %s with arguments %s", command, Util.toStr(arguments));
+     }
+
+     CompletionStage<RespRequestHandler> stage = requestHandler.handleRequest(ctx, command, arguments);
+     if (CompletionStages.isCompletedSuccessfully(stage)) {
+        requestHandler = CompletionStages.join(stage);
+     } else {
+        log.tracef("Disabling auto read for channel %s until previous command is complete", ctx.channel());
+        // Disable reading any more from socket - until command is complete
+        ctx.channel().config().setAutoRead(false);
+        disabledRead = true;
+        stage.whenComplete((handler, t) -> {
+           assert ctx.channel().eventLoop().inEventLoop();
+           log.tracef("Re-enabling auto read for channel %s as previous command is complete", ctx.channel());
+           ctx.channel().config().setAutoRead(true);
+           disabledRead = false;
+           if (t != null) {
+              exceptionCaught(ctx, t);
+           } else {
+              // Instate the new handler if there was no exception
+              requestHandler = handler;
+           }
+
+           // If there is any readable bytes left before we paused make sure to try to decode, just in case
+           // if a pending message was read before we disabled auto read
+           ByteBuf buf = internalBuffer();
+           if (buf.isReadable()) {
+              log.tracef("Bytes available from previous read for channel %s, trying decode directly", ctx.channel());
+              // callDecode will call us until the ByteBuf is no longer consumed
+              callDecode(ctx, buf, List.of());
+           }
+        });
+     }
+   }
+
+   @Override
+   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) {
+      log.unexpectedException(cause);
+      ctx.writeAndFlush(RespRequestHandler.stringToByteBuf("-ERR Server Error Encountered: " + cause.getMessage() + "\\r\\n", ctx.alloc()));
+      ctx.close();
+   }
 }
 
 // this is the root
 root request
    : type
      command
-     arguments { requestHandler = requestHandler.handleRequest(command, arguments) }
    ;
 
-header returns GingersnapHeader
-   : { magic != MAGIC_REQ }? { throw new InvalidMagicIdException("Error reading magic byte or message id: " + magic); }
-   | messageId version operation cacheName flags intelligence topologyId keyType valueType otherParams
-    { new GingersnapHeader(operation, version, messageId, cacheName, flags, intelligence, topologyId, keyType, valueType, otherParams) }
-;
-
-type: byte;
-command returns String switch type
-   : { SIMPLE_STRING }? simpleString
-   : { BULK_STRING }? bulkString[longProcessor]
-arguments:
-
-execute
-   : { SIMPLE_STRING }? arguments { requestHandler = requestHandler.handleRequest(command, arguments) }
-   | { GET_REQUEST }? key { commandProcessor.get(getHeader(), key) }
-   | { REMOVE_REQUEST }? key { commandProcessor.remove(getHeader(), key) }
-   | { STATS_REQUEST }? { commandProcessor.stats(getHeader()) }
-   | { PING_REQUEST }? { commandProcessor.ping(getHeader()); }
-   | { QUERY_REQUEST }? queryBytes { commandProcessor.query(getHeader(), queryBytes); }
-   | { EXEC_REQUEST }? taskName taskParams { commandProcessor.exec(getHeader(), taskName, taskParams); }
-   | { PUT_ALL_REQUEST }? ignoreExpiration entryMap { commandProcessor.putAll(getHeader(), entryMap) }
-   | { GET_ALL_REQUEST }? keys { commandProcessor.getAll(getHeader(), keys) }
-   | { ITERATION_START_REQUEST }? segmentMask filterConverterFactory filterConverterParams batchSize includeMetadata
-      { commandProcessor.iterationStart(getHeader(), segmentMask, filterConverterFactory, filterConverterParams, batchSize, includeMetadata); }
-   | { ITERATION_NEXT_REQUEST }? iterationId { commandProcessor.iterationNext(getHeader(), iterationId); }
-   | { ITERATION_END_REQUEST }? iterationId { commandProcessor.iterationEnd(getHeader(), iterationId); }
-
-// Multimap
-   | { GET_MULTIMAP_REQUEST }? key supportsDuplicates { if (!supportsDuplicates) throw new UnsupportedOperationException("Gingersnap only supports duplicates for multimap");
-   commandProcessor.getMultiMap(getHeader(), key); }
-   | { PUT_MULTIMAP_REQUEST }? key ignoreExpiration value supportsDuplicates { if (!supportsDuplicates) throw new UnsupportedOperationException("Gingersnap only supports duplicates for multimap");
-   commandProcessor.putMultiMap(getHeader(), key, value); }
-
-// Unknown
-   | { throw new HotRodUnknownOperationException("Unknown operation " + opCode, version, messageId); }
+type: singleByte;
+array: bulkArray[longProcessor];
+number: readNumber[longProcessor];
+arrayBytes returns List<byte[]>
+   :  number { arrayBytes = allocList((int) number); }
+     #number ( singleByte { assert singleByte == BULK_STRING; } array { arrayBytes.add(array); } )
+   ;
+command switch type
+   : { SIMPLE_STRING }? simpleString arrayBytes { handleCommandAndArguments(ctx, simpleString, arrayBytes); }
+   | { BULK_STRING }? bulkString[longProcessor] arrayBytes { handleCommandAndArguments(ctx, bulkString, arrayBytes); }
+   | { ARRAY }? number { number -= 1; arrayBytes = allocList((int) number); }
+      singleByte { assert singleByte == BULK_STRING; }
+      bulkString[longProcessor]
+      #number ( singleByte { assert singleByte == BULK_STRING; } array { arrayBytes.add(array); } ) { handleCommandAndArguments(ctx, bulkString, arrayBytes); }
+   | { throw new java.lang.UnsupportedOperationException("Unknown command type " + type); }
    ;
