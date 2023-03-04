@@ -31,7 +31,6 @@ init {
    protected final static Log log = LogFactory.getLog(RespDecoder.class, Log.class);
    protected final Resp2LongProcessor longProcessor = new Resp2LongProcessor();
    protected RespRequestHandler requestHandler;
-   private boolean disabledRead = false;
 
    public RespDecoder(RespRequestHandler initialHandler) {
       this.requestHandler = initialHandler;
@@ -59,12 +58,10 @@ init {
         log.tracef("Disabling auto read for channel %s until previous command is complete", ctx.channel());
         // Disable reading any more from socket - until command is complete
         ctx.channel().config().setAutoRead(false);
-        disabledRead = true;
         stage.whenComplete((handler, t) -> {
            assert ctx.channel().eventLoop().inEventLoop();
            log.tracef("Re-enabling auto read for channel %s as previous command is complete", ctx.channel());
            ctx.channel().config().setAutoRead(true);
-           disabledRead = false;
            if (t != null) {
               exceptionCaught(ctx, t);
            } else {
