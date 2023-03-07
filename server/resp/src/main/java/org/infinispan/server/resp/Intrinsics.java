@@ -20,8 +20,7 @@ public class Intrinsics {
       if (offset <= 0 || buf.getByte(offset - 1) != '\r') {
          return null;
       }
-      // TODO: this may need to be offset - 1
-      String simpleString = buf.toString(buf.readerIndex(), offset, StandardCharsets.US_ASCII);
+      String simpleString = buf.toString(buf.readerIndex(), offset - 1, StandardCharsets.US_ASCII);
       // toString doesn't move the reader index forward
       buf.skipBytes(offset + TERMINATOR_LENGTH);
       return simpleString;
@@ -45,7 +44,7 @@ public class Intrinsics {
          return null;
       }
       int size = (int) longSize;
-      if (buf.readableBytes() < size) {
+      if (buf.readableBytes() < size + TERMINATOR_LENGTH) {
          buf.resetReaderIndex();
          return null;
       }
