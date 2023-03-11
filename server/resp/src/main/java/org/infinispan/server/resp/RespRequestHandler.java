@@ -241,7 +241,7 @@ public abstract class RespRequestHandler {
    private static final FastThreadLocal<ByteBuf> bufferThreadLocal = new FastThreadLocal<>() {
       @Override
       protected ByteBuf initialValue() throws Exception {
-         // Using the correct type will prevent additional c
+         // Using the correct type will prevent additional casting and we don't want to use pool
          if (NativeTransport.USE_NATIVE_EPOLL || NativeTransport.USE_NATIVE_IOURING) {
             return Unpooled.directBuffer(1024, 1024);
          }

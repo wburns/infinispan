@@ -14,13 +14,14 @@ import org.infinispan.Cache;
 import org.infinispan.commons.CacheException;
 import org.infinispan.commons.logging.LogFactory;
 import org.infinispan.server.core.logging.Log;
+import org.infinispan.server.core.transport.NativeTransport;
 import org.infinispan.util.concurrent.AggregateCompletionStage;
 import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.function.TriConsumer;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.util.CharsetUtil;
 
@@ -29,9 +30,12 @@ public class Resp3Handler extends Resp3AuthHandler {
    private static final ByteBuf OK;
 
    static {
-      ByteBuf buffer = ByteBufAllocator.DEFAULT.buffer(5, 5);
-      buffer.writeCharSequence("+OK\r\n", CharsetUtil.US_ASCII);
-      OK = buffer;
+      if (NativeTransport.USE_NATIVE_EPOLL || NativeTransport.USE_NATIVE_IOURING) {
+         OK = Unpooled.directBuffer(5, 5);
+      } else {
+         OK = Unpooled.buffer(5, 5);
+      }
+      OK.writeCharSequence("+OK\r\n", CharsetUtil.US_ASCII);
    }
 
    private static final TriConsumer<byte[], ChannelHandlerContext, Throwable> GET_TRICONSUMER = (innerValueBytes, innerCtx, t) -> {
