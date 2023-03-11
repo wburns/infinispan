@@ -11,13 +11,16 @@ import java.util.function.Function;
 import org.infinispan.AdvancedCache;
 import org.infinispan.commons.dataconversion.MediaType;
 import org.infinispan.commons.util.concurrent.CompletableFutures;
+import org.infinispan.server.core.transport.NativeTransport;
 import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.function.TriConsumer;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import io.netty.buffer.ByteBufUtil;
+import io.netty.buffer.Unpooled;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.util.concurrent.FastThreadLocal;
 
 public abstract class RespRequestHandler {
    protected final CompletionStage<RespRequestHandler> myStage = CompletableFuture.completedStage(this);
@@ -133,7 +136,8 @@ public abstract class RespRequestHandler {
       String lengthString = String.valueOf(length);
 
       // Need 5 extra for $ and 2 sets of /r/n
-      ByteBuf buffer = allocator.buffer(lengthString.length() + length + 5);
+      int exactSize = lengthString.length() + length + 5;
+      ByteBuf buffer = bufferToUse(allocator, exactSize);
       buffer.writeByte('$');
       // Numbers are always in ascii range for UTF-8, so no need to write in UTF-8 as it adds extra checks
       buffer.writeCharSequence(lengthString, StandardCharsets.US_ASCII);
@@ -144,9 +148,42 @@ public abstract class RespRequestHandler {
       return buffer;
    }
 
+   static ByteBuf bufferToUse(ByteBufAllocator allocator, int exactSize) {
+      if (exactSize <= 1024) {
+         ByteBuf buf = bufferThreadLocal.get();
+         // Only use the cached buffer if we are the first one to request it. If refCnt is not 1 that means a previous
+         // request is still using the buffer. This is most likely caused by the client socket not reading fast enough
+         if (buf.refCnt() == 1) {
+            buf.clear();
+            buf.retain();
+            return buf;
+         }
+      }
+      return allocator.buffer(exactSize, exactSize);
+   }
+
+   private static final FastThreadLocal<ByteBuf> bufferThreadLocal = new FastThreadLocal<>() {
+      @Override
+      protected ByteBuf initialValue() throws Exception {
+         // Using the correct type will prevent additional c
+         if (NativeTransport.USE_NATIVE_EPOLL || NativeTransport.USE_NATIVE_IOURING) {
+            return Unpooled.directBuffer(1024, 1024);
+         }
+         return Unpooled.buffer(1024, 1024);
+      }
+
+      @Override
+      protected void onRemoval(ByteBuf value) throws Exception {
+         value.release();
+      }
+   };
+
    static ByteBuf stringToByteBufWithExtra(CharSequence string, ByteBufAllocator allocator, int extraBytes) {
       boolean release = true;
-      ByteBuf buffer = allocator.buffer(ByteBufUtil.utf8Bytes(string) + extraBytes);
+      // This is allocating 3x the string size. Unfortunately, no way to have netty write UTF-8 without checking this that I could find
+      int sizeToUse = ByteBufUtil.utf8MaxBytes(string) + extraBytes;
+
+      ByteBuf buffer = bufferToUse(allocator, sizeToUse);
 
       try {
          ByteBufUtil.writeUtf8(buffer, string);

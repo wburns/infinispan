@@ -26,9 +26,16 @@ import io.netty.util.CharsetUtil;
 
 public class Resp3Handler extends Resp3AuthHandler {
    private static final Log log = LogFactory.getLog(MethodHandles.lookup().lookupClass(), Log.class);
-   private static final ByteBuf OK = RespRequestHandler.stringToByteBuf("+OK\r\n", ByteBufAllocator.DEFAULT);
+   private static final ByteBuf OK;
+
+   static {
+      ByteBuf buffer = ByteBufAllocator.DEFAULT.buffer(5, 5);
+      buffer.writeCharSequence("+OK\r\n", CharsetUtil.US_ASCII);
+      OK = buffer;
+   }
 
    private static final TriConsumer<byte[], ChannelHandlerContext, Throwable> GET_TRICONSUMER = (innerValueBytes, innerCtx, t) -> {
+      assert innerCtx.channel().eventLoop().inEventLoop();
       if (t != null) {
          log.trace("Exception encountered while performing GET", t);
          handleThrowable(innerCtx, t);
@@ -325,8 +332,7 @@ public class Resp3Handler extends Resp3AuthHandler {
          }
          int elements = results.size();
          // * + digit length (log10 + 1) + \r\n
-         ByteBuf byteBuf = innerCtx.alloc().buffer(resultBytesSize.addAndGet(1 + (int) Math.log10(elements)
-               + 1 + 2));
+         ByteBuf byteBuf = bufferToUse(innerCtx.alloc(), resultBytesSize.addAndGet(1 + (int) Math.log10(elements) + 1 + 2));
          byteBuf.writeCharSequence("*" + results.size(), CharsetUtil.UTF_8);
          byteBuf.writeByte('\r');
          byteBuf.writeByte('\n');

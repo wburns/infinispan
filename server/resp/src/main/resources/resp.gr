@@ -31,6 +31,7 @@ import org.infinispan.util.concurrent.CompletionStages;
 init {
    protected final static Log log = LogFactory.getLog(RespDecoder.class, Log.class);
    protected final Resp2LongProcessor longProcessor = new Resp2LongProcessor();
+   protected final ArrayList<byte[]> argumentList = new ArrayList<>();
    protected RespRequestHandler requestHandler;
 
    public RespDecoder(RespRequestHandler initialHandler) {
@@ -97,6 +98,11 @@ beforedecode {
    }
 }
 
+reset {
+   // TODO: should we check size and just replace with new ArrayList if too big?
+   argumentList.clear();
+}
+
 // this is the root
 root request
    : singleByte { if (singleByte != ARRAY) throw new UnsupportedOperationException("Only array types are supported, received: " + singleByte); }
@@ -120,7 +126,7 @@ array returns byte[] switch singleByte
    | { throw new UnsupportedOperationException("Type not supported: " + singleByte); }
    ;
 arguments returns List<byte[]>
-   : { readNumber > 1 }? { arguments = new ArrayList<>((int) readNumber); } #readNumber ( singleByte array { arguments.add(array); } )
+   : { readNumber > 1 }? { argumentList.ensureCapacity((int) readNumber); arguments = argumentList; } #readNumber ( singleByte array { argumentList.add(array); } )
    | { readNumber == 1 }? singleByte array { Collections.singletonList(array) }
    | { Collections.emptyList(); }
    ;

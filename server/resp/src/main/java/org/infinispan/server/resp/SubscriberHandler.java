@@ -71,9 +71,8 @@ public class SubscriberHandler extends RespRequestHandler {
          byte[] key = channelToKey((byte[]) keyConversion.fromStorage(entryEvent.getKey()));
          byte[] value = (byte[]) valueConversion.fromStorage(entryEvent.getValue());
          if (key.length > 0 && value != null && value.length > 0) {
-            ByteBuf byteBuf = channel.alloc().buffer(2 + 2
-                  + 2 + 7 + 1 + (int) Math.log10(key.length) + 1 + 2
-                  + key.length + 2 + 1 + (int) Math.log10(value.length) + 1 + 2 + value.length + 2);
+            ByteBuf byteBuf = bufferToUse(channel.alloc(), 2 + 2 + 2 + 7 + 1 + (int) Math.log10(key.length) + 1
+                  + 2 + key.length + 2 + 1 + (int) Math.log10(value.length) + 1 + 2 + value.length + 2);
             byteBuf.writeCharSequence("*3\r\n$7\r\nmessage\r\n$" + key.length + "\r\n", CharsetUtil.UTF_8);
             byteBuf.writeBytes(key);
             byteBuf.writeCharSequence("\r\n$" + value.length + "\r\n", CharsetUtil.UTF_8);
@@ -213,7 +212,7 @@ public class SubscriberHandler extends RespRequestHandler {
             int bufferCap = subscribeOrUnsubscribe ? 20 : 22;
             String initialCharSeq = subscribeOrUnsubscribe ? "*2\r\n$9\r\nsubscribe\r\n$" : "*2\r\n$11\r\nunsubscribe\r\n$";
 
-            ByteBuf subscribeBuffer = innerCtx.alloc().buffer(bufferCap + (int) Math.log10(keyChannel.length) + 1 + keyChannel.length + 2);
+            ByteBuf subscribeBuffer = bufferToUse(innerCtx.alloc(), bufferCap + (int) Math.log10(keyChannel.length) + 1 + keyChannel.length + 2);
             subscribeBuffer.writeCharSequence(initialCharSeq + keyChannel.length + "\r\n", CharsetUtil.UTF_8);
             subscribeBuffer.writeBytes(keyChannel);
             subscribeBuffer.writeCharSequence("\r\n", CharsetUtil.UTF_8);
