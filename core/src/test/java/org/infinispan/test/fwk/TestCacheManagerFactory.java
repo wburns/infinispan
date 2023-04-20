@@ -28,8 +28,10 @@ import org.infinispan.configuration.global.TransportConfiguration;
 import org.infinispan.configuration.internal.PrivateGlobalConfigurationBuilder;
 import org.infinispan.configuration.parsing.ConfigurationBuilderHolder;
 import org.infinispan.configuration.parsing.ParserRegistry;
+import org.infinispan.factories.KnownComponentNames;
 import org.infinispan.factories.threads.CoreExecutorFactory;
 import org.infinispan.factories.threads.DefaultThreadFactory;
+import org.infinispan.factories.threads.NonBlockingThreadFactory;
 import org.infinispan.manager.DefaultCacheManager;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.protostream.SerializationContextInitializer;
@@ -415,7 +417,8 @@ public class TestCacheManagerFactory {
          builder.transport().addProperty(JGroupsTransport.CONFIGURATION_STRING, jgroupsConfig);
          if (jgroupsConfig.contains("NettyTP")) {
             if (workerEventLoop == null) {
-               EventLoopGroup elg = new NioEventLoopGroup(4);
+               EventLoopGroup elg = new NioEventLoopGroup(4, new NonBlockingThreadFactory("cached-group",
+                     Thread.NORM_PRIORITY, DefaultThreadFactory.DEFAULT_PATTERN, "local", KnownComponentNames.shortened(KnownComponentNames.NON_BLOCKING_EXECUTOR)));
                workerEventLoop = new NoShutdownEventLoopGroup(elg);
                TestResourceTracker.addSuiteResource(new EventLoopGroupCleaner(elg));
             }
