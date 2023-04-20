@@ -68,12 +68,12 @@ final class Primitives {
    private Primitives() {
    }
 
-   static void writePrimitive(Object obj, BytesObjectOutput out, int id) throws IOException {
+   static void writePrimitive(Object obj, InMemoryObjectOutput out, int id) throws IOException {
       out.writeByte(id);
       writeRawPrimitive(obj, out, id);
    }
 
-   static void writeRawPrimitive(Object obj, BytesObjectOutput out, int id) throws IOException {
+   static void writeRawPrimitive(Object obj, InMemoryObjectOutput out, int id) throws IOException {
       switch (id) {
          case ID_BYTE_ARRAY:
             Primitives.writeByteArray((byte[]) obj, out);
@@ -131,12 +131,12 @@ final class Primitives {
       }
    }
 
-   static Object readPrimitive(BytesObjectInput in) throws IOException, ClassNotFoundException {
+   static Object readPrimitive(InMemoryObjectInput in) throws IOException {
       int subId = in.readUnsignedByte();
       return readRawPrimitive(in, subId);
    }
 
-   static Object readRawPrimitive(BytesObjectInput in, int subId) throws IOException {
+   static Object readRawPrimitive(InMemoryObjectInput in, int subId) throws IOException {
       switch (subId) {
          case ID_BYTE_ARRAY:
             return readByteArray(in);
@@ -177,7 +177,7 @@ final class Primitives {
       }
    }
 
-   private static void writeByteArray(byte[] obj, BytesObjectOutput out) {
+   private static void writeByteArray(byte[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -196,7 +196,7 @@ final class Primitives {
       }
    }
 
-   private static void writeBooleanArray(boolean[] obj, BytesObjectOutput out) {
+   private static void writeBooleanArray(boolean[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -215,7 +215,7 @@ final class Primitives {
       }
    }
 
-   private static void writeBooleans(boolean[] obj, BytesObjectOutput out) {
+   private static void writeBooleans(boolean[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       final int bc = len & ~7;
       for (int i = 0; i < bc;) {
@@ -241,7 +241,7 @@ final class Primitives {
       }
    }
 
-   private static void writeCharArray(char[] obj, BytesObjectOutput out) {
+   private static void writeCharArray(char[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -260,7 +260,7 @@ final class Primitives {
       }
    }
 
-   private static void writeDoubleArray(double[] obj, BytesObjectOutput out) {
+   private static void writeDoubleArray(double[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -279,7 +279,7 @@ final class Primitives {
       }
    }
 
-   private static void writeFloatArray(float[] obj, BytesObjectOutput out) {
+   private static void writeFloatArray(float[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -298,7 +298,7 @@ final class Primitives {
       }
    }
 
-   private static void writeIntArray(int[] obj, BytesObjectOutput out) {
+   private static void writeIntArray(int[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -317,7 +317,7 @@ final class Primitives {
       }
    }
 
-   private static void writeLongArray(long[] obj, BytesObjectOutput out) {
+   private static void writeLongArray(long[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -336,7 +336,7 @@ final class Primitives {
       }
    }
 
-   private static void writeShortArray(short[] obj, BytesObjectOutput out) {
+   private static void writeShortArray(short[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -355,7 +355,7 @@ final class Primitives {
       }
    }
 
-   private static byte[] readByteArray(BytesObjectInput in) throws IOException {
+   private static byte[] readByteArray(InMemoryObjectInput in) throws IOException {
       byte type = in.readByte();
       switch (type) {
          case ID_ARRAY_EMPTY:
@@ -375,12 +375,12 @@ final class Primitives {
       return new byte[len];
    }
 
-   private static byte[] readFully(byte[] arr, BytesObjectInput in) throws EOFException {
+   private static byte[] readFully(byte[] arr, InMemoryObjectInput in) throws IOException {
       in.readFully(arr);
       return arr;
    }
 
-   private static boolean[] readBooleanArray(BytesObjectInput in) throws IOException {
+   private static boolean[] readBooleanArray(InMemoryObjectInput in) throws IOException {
       byte type = in.readByte();
       switch (type) {
          case ID_ARRAY_EMPTY:
@@ -400,7 +400,7 @@ final class Primitives {
       return new boolean[len];
    }
 
-   private static boolean[] readBooleans(boolean[] arr, BytesObjectInput in) throws EOFException {
+   private static boolean[] readBooleans(boolean[] arr, InMemoryObjectInput in) throws EOFException {
       final int len = arr.length;
       int v;
       int bc = len & ~7;
@@ -437,7 +437,7 @@ final class Primitives {
       return arr;
    }
 
-   private static char[] readCharArray(BytesObjectInput in) throws IOException {
+   private static char[] readCharArray(InMemoryObjectInput in) throws IOException {
       byte type = in.readByte();
       switch (type) {
          case ID_ARRAY_EMPTY:
@@ -457,13 +457,13 @@ final class Primitives {
       return new char[len];
    }
 
-   private static char[] readChars(char[] arr, BytesObjectInput in) throws EOFException {
+   private static char[] readChars(char[] arr, InMemoryObjectInput in) throws EOFException {
       final int len = arr.length;
       for (int i = 0; i < len; i ++) arr[i] = in.readChar();
       return arr;
    }
 
-   private static double[] readDoubleArray(BytesObjectInput in) throws IOException {
+   private static double[] readDoubleArray(InMemoryObjectInput in) throws IOException {
       byte type = in.readByte();
       switch (type) {
          case ID_ARRAY_EMPTY:
@@ -479,13 +479,13 @@ final class Primitives {
       }
    }
 
-   private static double[] readDoubles(double[] arr, BytesObjectInput in) throws EOFException {
+   private static double[] readDoubles(double[] arr, InMemoryObjectInput in) throws EOFException {
       final int len = arr.length;
       for (int i = 0; i < len; i ++) arr[i] = in.readDouble();
       return arr;
    }
 
-   private static float[] readFloatArray(BytesObjectInput in) throws IOException {
+   private static float[] readFloatArray(InMemoryObjectInput in) throws IOException {
       byte type = in.readByte();
       switch (type) {
          case ID_ARRAY_EMPTY:
@@ -501,13 +501,13 @@ final class Primitives {
       }
    }
 
-   private static float[] readFloats(float[] arr, BytesObjectInput in) throws EOFException {
+   private static float[] readFloats(float[] arr, InMemoryObjectInput in) throws EOFException {
       final int len = arr.length;
       for (int i = 0; i < len; i ++) arr[i] = in.readFloat();
       return arr;
    }
 
-   private static int[] readIntArray(BytesObjectInput in) throws IOException {
+   private static int[] readIntArray(InMemoryObjectInput in) throws IOException {
       byte type = in.readByte();
       switch (type) {
          case ID_ARRAY_EMPTY:
@@ -523,13 +523,13 @@ final class Primitives {
       }
    }
 
-   private static int[] readInts(int[] arr, BytesObjectInput in) throws EOFException {
+   private static int[] readInts(int[] arr, InMemoryObjectInput in) throws EOFException {
       final int len = arr.length;
       for (int i = 0; i < len; i ++) arr[i] = in.readInt();
       return arr;
    }
 
-   private static long[] readLongArray(BytesObjectInput in) throws IOException {
+   private static long[] readLongArray(InMemoryObjectInput in) throws IOException {
       byte type = in.readByte();
       switch (type) {
          case ID_ARRAY_EMPTY:
@@ -545,13 +545,13 @@ final class Primitives {
       }
    }
 
-   private static long[] readLongs(long[] arr, BytesObjectInput in) throws EOFException {
+   private static long[] readLongs(long[] arr, InMemoryObjectInput in) throws EOFException {
       final int len = arr.length;
       for (int i = 0; i < len; i ++) arr[i] = in.readLong();
       return arr;
    }
 
-   private static short[] readShortArray(BytesObjectInput in) throws IOException {
+   private static short[] readShortArray(InMemoryObjectInput in) throws IOException {
       byte type = in.readByte();
       switch (type) {
          case ID_ARRAY_EMPTY:
@@ -567,7 +567,7 @@ final class Primitives {
       }
    }
 
-   private static short[] readShorts(short[] arr, BytesObjectInput in) throws EOFException {
+   private static short[] readShorts(short[] arr, InMemoryObjectInput in) throws EOFException {
       final int len = arr.length;
       for (int i = 0; i < len; i ++) arr[i] = in.readShort();
       return arr;

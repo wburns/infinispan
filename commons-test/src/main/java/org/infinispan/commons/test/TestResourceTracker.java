@@ -21,6 +21,12 @@ public class TestResourceTracker {
    // Inheritable to allow for tests that spawn a thread to keep the test thread name of the original
    private static final ThreadLocal<String> threadTestName = new InheritableThreadLocal<>();
 
+   private static final String SUITE_NAME = "InfinispanSuiteComplete";
+
+   public static void addSuiteResource(final Cleaner<?> cleaner) {
+      addResource(SUITE_NAME, cleaner);
+   }
+
    public static void addResource(String testName, final Cleaner<?> cleaner) {
       TestResources resources = getTestResources(testName);
       resources.addResource(cleaner);
@@ -46,6 +52,10 @@ public class TestResourceTracker {
             }
          }
       }
+   }
+
+   public static void cleanUpSuiteResouces() {
+      cleanUpResources(SUITE_NAME);
    }
 
    public static String getCurrentTestShortName() {

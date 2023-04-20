@@ -15,14 +15,21 @@ import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.executors.ScheduledThreadPoolExecutorFactory;
 import org.infinispan.commons.executors.ThreadPoolExecutorFactory;
 import org.infinispan.configuration.global.GlobalConfiguration;
+import org.infinispan.configuration.global.JGroupsConfiguration;
 import org.infinispan.configuration.global.ThreadPoolConfiguration;
 import org.infinispan.executors.LazyInitializingBlockingTaskAwareExecutorService;
 import org.infinispan.executors.LazyInitializingScheduledExecutorService;
 import org.infinispan.factories.annotations.DefaultFactoryFor;
+import org.infinispan.factories.annotations.Inject;
+import org.infinispan.factories.impl.BasicComponentRegistry;
+import org.infinispan.factories.impl.ComponentRef;
 import org.infinispan.factories.threads.BlockingThreadFactory;
 import org.infinispan.factories.threads.CoreExecutorFactory;
 import org.infinispan.factories.threads.DefaultThreadFactory;
 import org.infinispan.factories.threads.NonBlockingThreadFactory;
+import org.infinispan.util.concurrent.BlockingTaskAwareExecutorServiceImpl;
+
+import io.netty.channel.EventLoopGroup;
 
 /**
  * A factory that specifically knows how to create named executors.
@@ -34,6 +41,8 @@ import org.infinispan.factories.threads.NonBlockingThreadFactory;
 @DefaultFactoryFor(names = {ASYNC_NOTIFICATION_EXECUTOR, BLOCKING_EXECUTOR, NON_BLOCKING_EXECUTOR,
                              EXPIRATION_SCHEDULED_EXECUTOR, TIMEOUT_SCHEDULE_EXECUTOR})
 public class NamedExecutorsFactory extends AbstractComponentFactory implements AutoInstantiableFactory {
+   @Inject
+   protected BasicComponentRegistry basicComponentRegistry;
    @Override
    public Object construct(String componentName) {
       try {
@@ -55,6 +64,13 @@ public class NamedExecutorsFactory extends AbstractComponentFactory implements A
                         EXPIRATION_SCHEDULED_EXECUTOR,
                         ExecutorServiceType.SCHEDULED);
          } else if (componentName.equals(NON_BLOCKING_EXECUTOR)) {
+            JGroupsConfiguration jGroupsConfiguration = globalConfiguration.transport().jgroups();
+            if (jGroupsConfiguration.isClustered() && hasNettyTP(jGroupsConfiguration)) {
+               ComponentRef<EventLoopGroup> ref = basicComponentRegistry.getComponent(EventLoopGroup.class);
+               // This means our event loop can't have a cyclical dependency on us otherwise we will get stuck
+               EventLoopGroup runningEventLoopGroup = ref.running();
+               return new BlockingTaskAwareExecutorServiceImpl(runningEventLoopGroup, globalComponentRegistry.getTimeService());
+            }
             return createExecutorService(
                         globalConfiguration.nonBlockingThreadPool(),
                         NON_BLOCKING_EXECUTOR, ExecutorServiceType.NON_BLOCKING);
@@ -68,6 +84,10 @@ public class NamedExecutorsFactory extends AbstractComponentFactory implements A
       } catch (Exception e) {
          throw new CacheConfigurationException("Unable to instantiate ExecutorFactory for named component " + componentName, e);
       }
+   }
+
+   boolean hasNettyTP(JGroupsConfiguration jGroupsConfiguration) {
+      return true;
    }
 
    @SuppressWarnings("unchecked")

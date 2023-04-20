@@ -99,6 +99,7 @@ public class TestNGTestListener implements ITestListener, IConfigurationListener
 
    @Override
    public void onFinish(ISuite suite) {
+      TestResourceTracker.cleanUpSuiteResouces();
       ThreadLeakChecker.checkForLeaks(suite.getName());
    }
 

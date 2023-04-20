@@ -206,6 +206,10 @@ public class LocalizedCacheTopology extends CacheTopology {
     */
    public Collection<Address> getWriteOwners(Object key) {
       int segmentId = isDistributed ? keyPartitioner.getSegment(key) : 0;
+      return getWriteOwners(segmentId);
+   }
+
+   public Collection<Address> getWriteOwners(int segmentId) {
       return distributionInfos[segmentId].writeOwners();
    }
 

@@ -1,4 +1,4 @@
-package org.infinispan.server.core.factories;
+package org.infinispan.factories.threads;
 
 import static org.infinispan.factories.KnownComponentNames.getDefaultThreadPrio;
 import static org.infinispan.factories.KnownComponentNames.getDefaultThreads;
@@ -11,10 +11,7 @@ import org.infinispan.factories.AbstractComponentFactory;
 import org.infinispan.factories.AutoInstantiableFactory;
 import org.infinispan.factories.KnownComponentNames;
 import org.infinispan.factories.annotations.DefaultFactoryFor;
-import org.infinispan.factories.threads.DefaultThreadFactory;
-import org.infinispan.factories.threads.NonBlockingThreadFactory;
-import org.infinispan.factories.threads.NonBlockingThreadPoolExecutorFactory;
-import org.infinispan.server.core.transport.NettyTransport;
+import org.infinispan.util.netty.NativeTransport;
 import org.infinispan.util.netty.NonRecursiveEventLoopGroup;
 
 import io.netty.channel.EventLoopGroup;
@@ -37,7 +34,6 @@ public class NettyEventLoopFactory extends AbstractComponentFactory implements A
       // Unfortunately, netty doesn't allow us to specify a max number of queued tasks and rejection policy at the same
       // time and the former has actually been deprecated, so we do not honor these settings when running in the server
       // which means the non blocking executor may have an unbounded queue, depending upon netty implementation
-      return new NonRecursiveEventLoopGroup(NettyTransport.buildEventLoop(threadAmount, threadFactory,
-            "non-blocking-thread-netty"));
+      return new NonRecursiveEventLoopGroup(NativeTransport.createEventLoopGroup(threadAmount, threadFactory));
    }
 }

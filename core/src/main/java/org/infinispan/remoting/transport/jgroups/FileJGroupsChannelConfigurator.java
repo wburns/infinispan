@@ -6,6 +6,7 @@ import java.util.List;
 import java.util.Properties;
 
 import org.infinispan.commons.util.StringPropertyReplacer;
+import org.infinispan.factories.GlobalComponentRegistry;
 import org.jgroups.JChannel;
 import org.jgroups.conf.ProtocolConfiguration;
 import org.jgroups.conf.XmlConfigurator;
@@ -45,8 +46,8 @@ public class FileJGroupsChannelConfigurator extends AbstractJGroupsChannelConfig
    }
 
    @Override
-   public JChannel createChannel(String name) throws Exception {
-      return amendChannel(new JChannel(this));
+   public JChannel createChannel(String name, GlobalComponentRegistry registry) throws Exception {
+      return amendChannel(new JChannel(this), registry);
    }
 
    public String getPath() {

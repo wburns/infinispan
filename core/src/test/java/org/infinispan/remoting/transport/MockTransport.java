@@ -23,7 +23,7 @@ import org.infinispan.commands.ReplicableCommand;
 import org.infinispan.commands.remote.CacheRpcCommand;
 import org.infinispan.commands.remote.SingleRpcCommand;
 import org.infinispan.commons.CacheConfigurationException;
-import org.infinispan.commons.util.Util;
+import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.factories.annotations.Start;
 import org.infinispan.factories.annotations.Stop;
 import org.infinispan.factories.scopes.Scope;
@@ -38,7 +38,6 @@ import org.infinispan.remoting.transport.impl.EmptyRaftManager;
 import org.infinispan.remoting.transport.impl.MapResponseCollector;
 import org.infinispan.remoting.transport.raft.RaftManager;
 import org.infinispan.topology.HeartBeatCommand;
-import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.infinispan.xsite.XSiteBackup;
@@ -126,25 +125,6 @@ public class MockTransport implements Transport {
                  blockedRequests.isEmpty());
    }
 
-   @Deprecated
-   @Override
-   public Map<Address, Response> invokeRemotely(Collection<Address> recipients, ReplicableCommand rpcCommand,
-                                                ResponseMode mode, long timeout, ResponseFilter responseFilter,
-                                                DeliverOrder deliverOrder, boolean anycast) throws Exception {
-      Collection<Address> targets = recipients != null ? recipients : members;
-      MapResponseCollector collector = MapResponseCollector.ignoreLeavers(shouldIgnoreLeavers(mode), targets.size());
-      CompletableFuture<Map<Address, Response>> rpcFuture = blockRequest(recipients, rpcCommand, collector);
-      if (mode.isAsynchronous()) {
-         return Collections.emptyMap();
-      } else {
-         try {
-            return rpcFuture.get(10, TimeUnit.SECONDS);
-         } catch (ExecutionException e) {
-            throw Util.rewrapAsCacheException(e.getCause());
-         }
-      }
-   }
-
    @Override
    public CompletableFuture<Map<Address, Response>> invokeRemotelyAsync(Collection<Address> recipients,
                                                                         ReplicableCommand rpcCommand, ResponseMode mode,
@@ -169,20 +149,6 @@ public class MockTransport implements Transport {
    @Override
    public void sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) {
       blockRequest(members, rpcCommand, null);
-   }
-
-   @Deprecated
-   @Override
-   public Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> rpcCommands, ResponseMode mode, long
-      timeout, boolean usePriorityQueue, ResponseFilter responseFilter, boolean totalOrder, boolean anycast) {
-      throw new UnsupportedOperationException();
-   }
-
-   @Deprecated
-   @Override
-   public Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> rpcCommands, ResponseMode mode, long
-      timeout, ResponseFilter responseFilter, DeliverOrder deliverOrder, boolean anycast) {
-      throw new UnsupportedOperationException();
    }
 
    @Deprecated

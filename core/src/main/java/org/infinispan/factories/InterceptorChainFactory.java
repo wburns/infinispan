@@ -14,6 +14,7 @@ import org.infinispan.factories.annotations.DefaultFactoryFor;
 import org.infinispan.factories.impl.ComponentRef;
 import org.infinispan.interceptors.AsyncInterceptor;
 import org.infinispan.interceptors.AsyncInterceptorChain;
+import org.infinispan.backpressure.BackpressureInterceptor;
 import org.infinispan.interceptors.EmptyAsyncInterceptorChain;
 import org.infinispan.interceptors.distribution.L1LastChanceInterceptor;
 import org.infinispan.interceptors.distribution.L1NonTxInterceptor;
@@ -125,6 +126,10 @@ public class InterceptorChainFactory extends AbstractNamedCacheComponentFactory 
       // load the cache management interceptor next
       if (configuration.statistics().available()) {
          interceptorChain.appendInterceptor(createInterceptor(new CacheMgmtInterceptor(), CacheMgmtInterceptor.class), false);
+      }
+
+      if (cacheMode.isClustered()) {
+         interceptorChain.appendInterceptor(createInterceptor(new BackpressureInterceptor(), BackpressureInterceptor.class), false);
       }
 
       // the state transfer interceptor sets the topology id and retries on topology changes

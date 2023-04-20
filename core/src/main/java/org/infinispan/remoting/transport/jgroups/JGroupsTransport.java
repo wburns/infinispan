@@ -25,7 +25,6 @@ import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -37,6 +36,7 @@ import java.util.stream.Collectors;
 
 import javax.management.ObjectName;
 
+import org.infinispan.backpressure.BackpressureNotifier;
 import org.infinispan.commands.ReplicableCommand;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.CacheException;
@@ -49,11 +49,11 @@ import org.infinispan.commons.util.FileLookupFactory;
 import org.infinispan.commons.util.TypedProperties;
 import org.infinispan.commons.util.Util;
 import org.infinispan.commons.util.concurrent.CompletableFutures;
-import org.infinispan.commons.util.logging.TraceException;
 import org.infinispan.configuration.global.GlobalConfiguration;
 import org.infinispan.configuration.global.TransportConfiguration;
 import org.infinispan.configuration.global.TransportConfigurationBuilder;
 import org.infinispan.external.JGroupsProtocolComponent;
+import org.infinispan.factories.GlobalComponentRegistry;
 import org.infinispan.factories.KnownComponentNames;
 import org.infinispan.factories.annotations.ComponentName;
 import org.infinispan.factories.annotations.Inject;
@@ -65,6 +65,7 @@ import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.jmx.CacheManagerJmxRegistration;
 import org.infinispan.jmx.ObjectNameKeys;
+import org.infinispan.marshall.core.GlobalMarshaller;
 import org.infinispan.metrics.impl.MetricsCollector;
 import org.infinispan.notifications.cachemanagerlistener.CacheManagerNotifier;
 import org.infinispan.remoting.inboundhandler.DeliverOrder;
@@ -95,14 +96,18 @@ import org.infinispan.remoting.transport.impl.SingletonMapResponseCollector;
 import org.infinispan.remoting.transport.impl.SiteUnreachableXSiteResponse;
 import org.infinispan.remoting.transport.impl.XSiteResponseImpl;
 import org.infinispan.remoting.transport.raft.RaftManager;
+import org.infinispan.util.NoShutdownEventLoopGroup;
 import org.infinispan.util.concurrent.CompletionStages;
+import org.infinispan.util.concurrent.NonBlockingManager;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.infinispan.util.netty.NativeTransport;
 import org.infinispan.xsite.GlobalXSiteAdminOperations;
 import org.infinispan.xsite.XSiteBackup;
 import org.infinispan.xsite.XSiteNamedCache;
 import org.infinispan.xsite.XSiteReplicateCommand;
 import org.infinispan.xsite.commands.XSiteViewNotificationCommand;
+import org.jgroups.ByteBufMessage;
 import org.jgroups.BytesMessage;
 import org.jgroups.ChannelListener;
 import org.jgroups.Event;
@@ -118,6 +123,7 @@ import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.fork.ForkChannel;
 import org.jgroups.jmx.JmxConfigurator;
 import org.jgroups.protocols.FORK;
+import org.jgroups.protocols.netty.NettyTP;
 import org.jgroups.protocols.relay.RELAY2;
 import org.jgroups.protocols.relay.RouteStatusListener;
 import org.jgroups.protocols.relay.SiteAddress;
@@ -125,8 +131,15 @@ import org.jgroups.protocols.relay.SiteMaster;
 import org.jgroups.stack.Protocol;
 import org.jgroups.stack.ProtocolStack;
 import org.jgroups.util.ExtendedUUID;
+import org.jgroups.util.MemberAvailabilityEvent;
 import org.jgroups.util.MessageBatch;
+import org.jgroups.util.MessageCompleteEvent;
+import org.jgroups.util.NettyAsyncHeader;
 import org.jgroups.util.SocketFactory;
+
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
+import io.netty.channel.EventLoopGroup;
 
 /**
  * An encapsulation of a JGroups transport. JGroups transports can be configured using a variety of methods, usually by
@@ -174,19 +187,34 @@ public class JGroupsTransport implements Transport, ChannelListener {
    private static final byte RESPONSE = 1;
    private static final byte SINGLE_MESSAGE = 2;
 
-   @Inject protected GlobalConfiguration configuration;
-   @Inject @ComponentName(KnownComponentNames.INTERNAL_MARSHALLER)
+   @Inject
+   protected GlobalConfiguration configuration;
+   @Inject
+   @ComponentName(KnownComponentNames.INTERNAL_MARSHALLER)
    protected StreamingMarshaller marshaller;
-   @Inject protected CacheManagerNotifier notifier;
-   @Inject protected TimeService timeService;
-   @Inject protected InboundInvocationHandler invocationHandler;
-   @Inject @ComponentName(KnownComponentNames.TIMEOUT_SCHEDULE_EXECUTOR)
+   @Inject
+   protected CacheManagerNotifier notifier;
+   @Inject
+   protected TimeService timeService;
+   @Inject
+   protected InboundInvocationHandler invocationHandler;
+   @Inject
+   @ComponentName(KnownComponentNames.TIMEOUT_SCHEDULE_EXECUTOR)
    protected ScheduledExecutorService timeoutExecutor;
-   @Inject @ComponentName(KnownComponentNames.NON_BLOCKING_EXECUTOR)
+   @Inject
+   @ComponentName(KnownComponentNames.NON_BLOCKING_EXECUTOR)
    protected ExecutorService nonBlockingExecutor;
-   @Inject protected CacheManagerJmxRegistration jmxRegistration;
-   @Inject protected GlobalXSiteAdminOperations globalXSiteAdminOperations;
+   @Inject
+   protected NonBlockingManager nonBlockingManager;
+   @Inject
+   protected CacheManagerJmxRegistration jmxRegistration;
+   @Inject
+   protected GlobalXSiteAdminOperations globalXSiteAdminOperations;
+   @Inject
+   protected GlobalComponentRegistry globalComponentRegistry;
    @Inject protected ComponentRef<MetricsCollector> metricsCollector;
+   @Inject
+   protected BackpressureNotifier backpressureNotifier;
 
    private final Lock viewUpdateLock = new ReentrantLock();
    private final Condition viewUpdateCondition = viewUpdateLock.newCondition();
@@ -212,7 +240,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
    // Lifecycle and setup stuff
    // ------------------------------------------------------------------------------------------------------------------
    private boolean running;
-
+   private NettyTP nettyTP;
    public static FORK findFork(JChannel channel) {
       return channel.getProtocolStack().findProtocol(FORK.class);
    }
@@ -303,40 +331,6 @@ public class JGroupsTransport implements Transport, ChannelListener {
       } else {
          logCommand(command, targets);
          sendCommand(targets, command, Request.NO_REQUEST_ID, deliverOrder, true);
-      }
-   }
-
-   @Override
-   @Deprecated
-   public Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> commands, ResponseMode mode,
-                                                long timeout, ResponseFilter responseFilter, DeliverOrder deliverOrder,
-                                                boolean anycast)
-         throws Exception {
-      if (commands == null || commands.isEmpty()) {
-         // don't send if recipients list is empty
-         log.trace("Destination list is empty: no need to send message");
-         return Collections.emptyMap();
-      }
-
-      if (mode.isSynchronous()) {
-         MapResponseCollector collector = MapResponseCollector.validOnly(commands.size());
-         CompletionStage<Map<Address, Response>> request =
-               invokeCommands(commands.keySet(), commands::get, collector, deliverOrder, timeout, TimeUnit.MILLISECONDS);
-
-         try {
-            return CompletableFutures.await(request.toCompletableFuture());
-         } catch (ExecutionException e) {
-            Throwable cause = e.getCause();
-            cause.addSuppressed(new TraceException());
-            throw Util.rewrapAsCacheException(cause);
-         }
-      } else {
-         commands.forEach(
-               (a, command) -> {
-                  logCommand(command, a);
-                  sendCommand(a, command, Request.NO_REQUEST_ID, deliverOrder, true, true);
-               });
-         return Collections.emptyMap();
       }
    }
 
@@ -765,6 +759,22 @@ public class JGroupsTransport implements Transport, ChannelListener {
          Protocol protocol = channel.getProtocolStack().getTopProtocol();
          protocol.setSocketFactory((SocketFactory) props.get(SOCKET_FACTORY));
       }
+
+      nettyTP = channel.getProtocolStack().findProtocol(NettyTP.class);
+      if (nettyTP != null) {
+         EventLoopGroup eventLoopGroup = globalComponentRegistry.getComponent(EventLoopGroup.class);
+         if (eventLoopGroup != null) {
+            // We are managing this event loop group, so don't let JGroups shut it down
+            NoShutdownEventLoopGroup noShutdownEventLoopGroup = new NoShutdownEventLoopGroup(eventLoopGroup);
+            nettyTP.replaceWorkerEventLoop(noShutdownEventLoopGroup);
+            nettyTP.replaceBossEventLoop(NativeTransport.createEventLoopGroup(1, r ->
+                  new Thread(r, channel.getName() + "-boss")));
+            nettyTP.setThreadPool(noShutdownEventLoopGroup);
+
+            nettyTP.setServerChannel(NativeTransport.serverSocketChannelClass());
+            nettyTP.setSocketChannel(NativeTransport.clientSocketChannelClass());
+         }
+      }
    }
 
    private void channelFromConfigurator(JGroupsChannelConfigurator configurator) {
@@ -777,7 +787,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       }
       configurator.addChannelListener(this);
       try {
-         channel = configurator.createChannel(configuration.transport().clusterName());
+         channel = configurator.createChannel(configuration.transport().clusterName(), globalComponentRegistry);
       } catch (Exception e) {
          throw CLUSTER.errorCreatingChannelFromConfigurator(configurator.getProtocolStackString(), e);
       }
@@ -866,8 +876,9 @@ public class JGroupsTransport implements Transport, ChannelListener {
       // Targets leaving may finish some requests and potentially potentially block for a long time.
       // We don't want to block view handling, so we unblock the commands on a separate thread.
       nonBlockingExecutor.execute(() -> {
+         Set<Address> view = clusterView.getMembersSet();
          if (requests != null) {
-            requests.forEach(request -> request.onNewView(clusterView.getMembersSet()));
+            requests.forEach(request -> request.onNewView(view));
          }
       });
 
@@ -982,6 +993,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       try {
          while (channel != null && getViewId() < viewId && remainingNanos > 0) {
             log.tracef("Waiting for view %d, current view is %d", viewId, clusterView.getViewId());
+            // TODO: make this non blocking...
             remainingNanos = viewUpdateCondition.awaitNanos(remainingNanos);
          }
       } finally {
@@ -1204,14 +1216,36 @@ public class JGroupsTransport implements Transport, ChannelListener {
       if (checkView && !clusterView.contains(target))
          return;
 
-      Message message = new BytesMessage(toJGroupsAddress(target));
-      marshallRequest(message, command, requestId);
-      setMessageFlags(message, deliverOrder, noRelay);
+      Message message = messageFromCommand(target, command, requestId, deliverOrder, noRelay);
 
       send(message);
    }
 
-   private static org.jgroups.Address toJGroupsAddress(Address address) {
+   private Message messageFromCommand(Address target, ReplicableCommand command, long requestId,
+                                        DeliverOrder deliverOrder, boolean noRelay) {
+      org.jgroups.Address jgroupsAddress = target != null ? toJGroupsAddress(target) : null;
+      Message message;
+      try {
+         if (nettyTP != null && marshaller instanceof GlobalMarshaller) {
+            ByteBuf buf = ((GlobalMarshaller) marshaller).objectToByteBuf(command);
+            message = new ByteBufMessage(ByteBufAllocator.DEFAULT, buf);
+            message.setDest(jgroupsAddress);
+            addRequestHeader(message, requestId);
+         } else {
+            message = new BytesMessage(jgroupsAddress);
+            marshallRequest(message, command, requestId);
+         }
+      } catch (RuntimeException e) {
+         throw e;
+      } catch (Exception e) {
+         throw new RuntimeException("Failure to marshal argument(s)", e);
+      }
+      setMessageFlags(message, deliverOrder, noRelay);
+
+      return message;
+   }
+
+   static org.jgroups.Address toJGroupsAddress(Address address) {
       return ((JGroupsAddress) address).getJGroupsAddress();
    }
 
@@ -1238,11 +1272,16 @@ public class JGroupsTransport implements Transport, ChannelListener {
    }
 
    private void send(Message message) {
+      // When using netty TP we don't need reliability on any messages
+      if (nettyTP != null) {
+         message.setFlag(Message.Flag.NO_RELIABILITY);
+      }
       try {
          JChannel channel = this.channel;
          if (channel != null) {
             channel.send(message);
          }
+         log.tracef("Sent message %s down through JGroupsChannel", message);
       } catch (Exception e) {
          if (running) {
             throw new CacheException(e);
@@ -1302,6 +1341,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
                                                                                   DeliverOrder deliverOrder,
                                                                                   boolean broadcast,
                                                                                   Address singleTarget) {
+      CompletionStage<Void> stage;
       if (broadcast) {
          logCommand(command, "all");
          sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder);
@@ -1356,9 +1396,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
     * Send a command to the entire cluster.
     */
    private void sendCommandToAll(ReplicableCommand command, long requestId, DeliverOrder deliverOrder) {
-      Message message = new BytesMessage();
-      marshallRequest(message, command, requestId);
-      setMessageFlags(message, deliverOrder, true);
+      Message message = messageFromCommand(null, command, requestId, deliverOrder, true);
       send(message);
    }
 
@@ -1390,6 +1428,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       } else {
          //for the case where the coordinator isn't the site master.
          //TODO improve this by checking if the coordinator is a site master or not.
+         // Ignoring back pressure as this should have infrequently
          sendTo(getCoordinator(), new XSiteViewNotificationCommand(sitesUp), DeliverOrder.NONE);
       }
    }
@@ -1421,11 +1460,8 @@ public class JGroupsTransport implements Transport, ChannelListener {
    private void sendCommand(Collection<Address> targets, ReplicableCommand command, long requestId,
                             DeliverOrder deliverOrder, boolean checkView) {
       Objects.requireNonNull(targets);
-      Message message = new BytesMessage();
-      marshallRequest(message, command, requestId);
-      setMessageFlags(message, deliverOrder, true);
 
-      Message copy = message;
+      Message copy = messageFromCommand(null, command, requestId, deliverOrder, true);
       for (Iterator<Address> it = targets.iterator(); it.hasNext(); ) {
          Address address = it.next();
 
@@ -1435,13 +1471,15 @@ public class JGroupsTransport implements Transport, ChannelListener {
          if (address.equals(getAddress()))
             continue;
 
-         copy.dest(toJGroupsAddress(address));
-         send(copy);
-
-         // Send a different Message instance to each target
+         Message messageToSend;
          if (it.hasNext()) {
-            copy = copy.copy(true, true);
+            messageToSend = copy.copy(true, true);
+         } else {
+            messageToSend = copy;
          }
+
+         copy.dest(toJGroupsAddress(address));
+         send(messageToSend);
       }
    }
 
@@ -1454,11 +1492,9 @@ public class JGroupsTransport implements Transport, ChannelListener {
    }
 
    void processMessage(Message message) {
+//      log.tracef("Received message: " + message);
       org.jgroups.Address src = message.src();
       short flags = message.getFlags();
-      byte[] buffer = message.getArray();
-      int offset = message.getOffset();
-      int length = message.getLength();
       RequestCorrelator.Header header = message.getHeader(HEADER_ID);
       byte type;
       long requestId;
@@ -1480,10 +1516,10 @@ public class JGroupsTransport implements Transport, ChannelListener {
       switch (type) {
          case SINGLE_MESSAGE:
          case REQUEST:
-            processRequest(src, flags, buffer, offset, length, requestId);
+            processRequest(src, message, flags, requestId);
             break;
          case RESPONSE:
-            processResponse(src, buffer, offset, length, requestId);
+            processResponse(src, message, requestId);
             break;
          default:
             CLUSTER.invalidMessageType(type, src);
@@ -1493,33 +1529,13 @@ public class JGroupsTransport implements Transport, ChannelListener {
    private void sendResponse(org.jgroups.Address target, Response response, long requestId, ReplicableCommand command) {
       if (log.isTraceEnabled())
          log.tracef("%s sending response for request %d to %s: %s", getAddress(), requestId, target, response);
-      ByteBuffer bytes;
       JChannel channel = this.channel;
       if (channel == null) {
          // Avoid NPEs during stop()
          return;
       }
       try {
-         bytes = marshaller.objectToBuffer(response);
-      } catch (Throwable t) {
-         try {
-            // this call should succeed (all exceptions are serializable)
-            Exception e = t instanceof Exception ? ((Exception) t) : new CacheException(t);
-            bytes = marshaller.objectToBuffer(new ExceptionResponse(e));
-         } catch (Throwable tt) {
-            if (channel.isConnected()) {
-               CLUSTER.errorSendingResponse(requestId, target, command);
-            }
-            return;
-         }
-      }
-
-      try {
-         Message message = new BytesMessage(target).setFlag(REPLY_FLAGS, false);
-         message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
-         RequestCorrelator.Header header = new RequestCorrelator.Header(RESPONSE, requestId,
-               CORRELATOR_ID);
-         message.putHeader(HEADER_ID, header);
+         Message message = messageFromResponse(target, response, requestId);
 
          channel.send(message);
       } catch (Throwable t) {
@@ -1529,8 +1545,36 @@ public class JGroupsTransport implements Transport, ChannelListener {
       }
    }
 
-   private void processRequest(org.jgroups.Address src, short flags, byte[] buffer, int offset, int length,
-                               long requestId) {
+   private Message messageFromResponse(org.jgroups.Address target, Response response, long requestId)
+         throws IOException, InterruptedException {
+      Message message;
+      try {
+         if (nettyTP != null && marshaller instanceof GlobalMarshaller) {
+            ByteBuf buf = ((GlobalMarshaller) marshaller).objectToByteBuf(response);
+            message = new ByteBufMessage(ByteBufAllocator.DEFAULT, buf);
+            message.setDest(target);
+         } else {
+            ByteBuffer bytes = marshaller.objectToBuffer(response);
+            message = new BytesMessage(target);
+            message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
+         }
+         message.setFlag(REPLY_FLAGS, false);
+      } catch (Throwable t) {
+         // this call should succeed (all exceptions are serializable)
+         Exception e = t instanceof Exception ? ((Exception) t) : new CacheException(t);
+         message = new BytesMessage(target);
+         ByteBuffer bytes = marshaller.objectToBuffer(new ExceptionResponse(e));
+         message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
+      }
+
+      RequestCorrelator.Header header = new RequestCorrelator.Header(RESPONSE, requestId,
+            CORRELATOR_ID);
+      message.putHeader(HEADER_ID, header);
+
+      return message;
+   }
+
+   private void processRequest(org.jgroups.Address src, Message message, short flags, long requestId) {
       try {
          DeliverOrder deliverOrder = decodeDeliverMode(flags);
          if (src.equals(((JGroupsAddress) getAddress()).getJGroupsAddress())) {
@@ -1540,7 +1584,18 @@ public class JGroupsTransport implements Transport, ChannelListener {
             return;
          }
 
-         ReplicableCommand command = (ReplicableCommand) marshaller.objectFromByteBuffer(buffer, offset, length);
+         ReplicableCommand command;
+         if (message instanceof ByteBufMessage) {
+            ByteBuf byteBuf = ((ByteBufMessage) message).getBuf();
+            int readerIndex = byteBuf.readerIndex();
+            int length = message.getLength();
+            command = (ReplicableCommand) ((GlobalMarshaller) marshaller).objectFromByteBuf(byteBuf);
+
+            assert byteBuf.readerIndex() == readerIndex + length;
+         } else {
+            command = (ReplicableCommand) marshaller.objectFromByteBuffer(message.getArray(),
+                  message.getOffset(), message.getLength());
+         }
          Reply reply;
          if (requestId != Request.NO_REQUEST_ID) {
             if (log.isTraceEnabled())
@@ -1550,6 +1605,17 @@ public class JGroupsTransport implements Transport, ChannelListener {
             if (log.isTraceEnabled())
                log.tracef("%s received command from %s: %s", getAddress(), src, command);
             reply = Reply.NO_OP;
+         }
+         if (deliverOrder.preserveOrder() && nettyTP != null) {
+            message.putHeader(nettyTP.getId(), new NettyAsyncHeader());
+            log.tracef("Registering command %s from message %s to be completed later", command, message.hashCode());
+            Reply previous = reply;
+            reply = response -> {
+               previous.reply(response);
+               log.tracef("Completing command %s from message %s", command, message.hashCode());
+               // Send that we completed an ordered request
+               nettyTP.down(new MessageCompleteEvent(message));
+            };
          }
          if (src instanceof SiteAddress) {
             String originSite = ((SiteAddress) src).getSite();
@@ -1566,14 +1632,23 @@ public class JGroupsTransport implements Transport, ChannelListener {
       }
    }
 
-   private void processResponse(org.jgroups.Address src, byte[] buffer, int offset, int length, long requestId) {
+   private void processResponse(org.jgroups.Address src, Message message, long requestId) {
       try {
          Response response;
+         int length = message.getLength();
          if (length == 0) {
             // Empty buffer signals the ForkChannel with this name is not running on the remote node
             response = CacheNotFoundResponse.INSTANCE;
          } else {
-            response = (Response) marshaller.objectFromByteBuffer(buffer, offset, length);
+            if (message instanceof ByteBufMessage) {
+               ByteBuf byteBuf = ((ByteBufMessage) message).getBuf();
+               int readerIndex = byteBuf.readerIndex();
+               response = (Response) ((GlobalMarshaller) marshaller).objectFromByteBuf(byteBuf);
+
+               assert byteBuf.readerIndex() == readerIndex + length;
+            } else {
+               response = (Response) marshaller.objectFromByteBuffer(message.getArray(), message.getOffset(), length);
+            }
             if (response == null) {
                response = SuccessfulResponse.SUCCESSFUL_EMPTY_RESPONSE;
             }
@@ -1682,6 +1757,17 @@ public class JGroupsTransport implements Transport, ChannelListener {
                String site = site_master.getSite();
                siteUnreachable(site);
                break;
+            case Event.USER_DEFINED:
+               if (evt instanceof MemberAvailabilityEvent) {
+                  Address addr = fromJGroupsAddress(((MemberAvailabilityEvent) evt).getMember());
+                  boolean available = ((MemberAvailabilityEvent) evt).isAvailable();
+                  log.tracef("A member %s availability has changed to %s", addr, available);
+                  if (available) {
+                     backpressureNotifier.memberRelieved(addr);
+                  } else {
+                     backpressureNotifier.memberPressured(addr);
+                  }
+               }
          }
          return null;
       }

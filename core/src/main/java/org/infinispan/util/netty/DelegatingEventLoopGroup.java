@@ -1,4 +1,4 @@
-package org.infinispan.server.core.utils;
+package org.infinispan.util.netty;
 
 import java.util.Collection;
 import java.util.Iterator;

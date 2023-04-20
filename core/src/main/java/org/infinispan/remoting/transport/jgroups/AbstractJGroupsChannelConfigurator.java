@@ -4,6 +4,7 @@ package org.infinispan.remoting.transport.jgroups;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.infinispan.factories.GlobalComponentRegistry;
 import org.jgroups.ChannelListener;
 import org.jgroups.JChannel;
 import org.jgroups.stack.Protocol;
@@ -26,7 +27,7 @@ public abstract class AbstractJGroupsChannelConfigurator implements JGroupsChann
       return socketFactory;
    }
 
-   protected JChannel amendChannel(JChannel channel) {
+   protected JChannel amendChannel(JChannel channel, GlobalComponentRegistry globalComponentRegistry) {
       if (socketFactory != null) {
          Protocol protocol = channel.getProtocolStack().getTopProtocol();
          protocol.setSocketFactory(socketFactory);

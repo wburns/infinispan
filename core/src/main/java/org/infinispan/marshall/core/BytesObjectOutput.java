@@ -9,7 +9,7 @@ import org.infinispan.commons.io.ByteBufferImpl;
 /**
  * Array backed, expandable {@link ObjectOutput} implementation.
  */
-final class BytesObjectOutput implements ObjectOutput {
+final class BytesObjectOutput implements InMemoryObjectOutput {
 
    final GlobalMarshaller marshaller;
 
@@ -27,28 +27,10 @@ final class BytesObjectOutput implements ObjectOutput {
    }
 
    @Override
-   public void write(int b) {
-      writeByte(b);
-   }
-
-   @Override
-   public void write(byte[] b) {
-      final int len = b.length;
-      final int newcount = ensureCapacity(len);
-      System.arraycopy(b, 0, bytes, pos, len);
-      pos = newcount;
-   }
-
-   @Override
    public void write(byte[] b, int off, int len) {
       final int newcount = ensureCapacity(len);
       System.arraycopy(b, off, bytes, pos, len);
       pos = newcount;
-   }
-
-   @Override
-   public void writeBoolean(boolean v) {
-      writeByte((byte) (v ? 1 : 0));
    }
 
    @Override
@@ -103,26 +85,7 @@ final class BytesObjectOutput implements ObjectOutput {
    }
 
    @Override
-   public void writeFloat(float v) {
-      writeInt(Float.floatToIntBits(v));
-   }
-
-   @Override
-   public void writeDouble(double v) {
-      writeLong(Double.doubleToLongBits(v));
-   }
-
-   @Override
-   public void writeBytes(String s) {
-      writeString(s);
-   }
-
-   @Override
-   public void writeChars(String s) {
-      writeString(s);
-   }
-
-   void writeString(String s) {
+   public void writeString(String s) {
       int len;
       if ((len = s.length()) == 0){
          writeByte(0); // empty string
@@ -209,16 +172,6 @@ final class BytesObjectOutput implements ObjectOutput {
       buf[index+1] = (byte) ((intValue >>> 16) & 0xFF);
       buf[index+2] = (byte) ((intValue >>>  8) & 0xFF);
       buf[index+3] = (byte) (intValue & 0xFF);
-   }
-
-   @Override
-   public void flush() {
-      // No-op
-   }
-
-   @Override
-   public void close() {
-      // No-op
    }
 
    private int ensureCapacity(int len) {

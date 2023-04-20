@@ -18,7 +18,7 @@ public class SubstituteNettyClasses {
 }
 
 @Delete
-@TargetClass(className = "org.infinispan.server.core.transport.NativeTransport")
+@TargetClass(className = "org.infinispan.util.netty.NativeTransport")
 final class Delete_org_infinispan_server_core_transport_NativeTransport { }
 
 @TargetClass(NettyTransport.class)

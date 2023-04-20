@@ -1,16 +1,19 @@
-package org.infinispan.server.core.transport;
-
-import static org.infinispan.server.core.logging.Log.SERVER;
+package org.infinispan.util.netty;
 
 import java.util.concurrent.ThreadFactory;
+
+import org.infinispan.commons.logging.Log;
 
 import io.netty.channel.MultithreadEventLoopGroup;
 import io.netty.channel.epoll.Epoll;
 import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.epoll.EpollServerSocketChannel;
+import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.ServerSocketChannel;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
 
 // This is a separate class for easier replacement within Quarkus
 public final class NativeTransport {
@@ -32,12 +35,12 @@ public final class NativeTransport {
             return !EPOLL_DISABLED && IS_LINUX;
          } else {
             if (IS_LINUX) {
-               SERVER.epollNotAvailable(Epoll.unavailabilityCause().toString());
+               Log.CONTAINER.epollNotAvailable(Epoll.unavailabilityCause().toString());
             }
          }
       } catch (ClassNotFoundException e) {
          if (IS_LINUX) {
-            SERVER.epollNotAvailable(e.getMessage());
+            Log.CONTAINER.epollNotAvailable(e.getMessage());
          }
       }
       return false;
@@ -50,12 +53,12 @@ public final class NativeTransport {
             return !IOURING_DISABLED && IS_LINUX;
          } else {
             if (IS_LINUX) {
-               SERVER.ioUringNotAvailable(io.netty.incubator.channel.uring.IOUring.unavailabilityCause().toString());
+               Log.CONTAINER.ioUringNotAvailable(io.netty.incubator.channel.uring.IOUring.unavailabilityCause().toString());
             }
          }
       } catch (ClassNotFoundException e) {
          if (IS_LINUX) {
-            SERVER.ioUringNotAvailable(e.getMessage());
+            Log.CONTAINER.ioUringNotAvailable(e.getMessage());
          }
       }
       return false;
@@ -63,14 +66,24 @@ public final class NativeTransport {
 
    public static Class<? extends ServerSocketChannel> serverSocketChannelClass() {
       if (USE_NATIVE_EPOLL) {
-         SERVER.usingTransport("Epoll");
+         Log.CONTAINER.usingTransport("Epoll");
          return EpollServerSocketChannel.class;
       } else if (USE_NATIVE_IOURING) {
-         SERVER.usingTransport("IOUring");
+         Log.CONTAINER.usingTransport("IOUring");
          return IOURingNativeTransport.serverSocketChannelClass();
       } else {
-         SERVER.usingTransport("NIO");
+         Log.CONTAINER.usingTransport("NIO");
          return NioServerSocketChannel.class;
+      }
+   }
+
+   public static Class<? extends SocketChannel> clientSocketChannelClass() {
+      if (USE_NATIVE_EPOLL) {
+         return EpollSocketChannel.class;
+      } else if (USE_NATIVE_IOURING) {
+         return IOURingNativeTransport.clientSocketChannelClass();
+      } else {
+         return NioSocketChannel.class;
       }
    }
 

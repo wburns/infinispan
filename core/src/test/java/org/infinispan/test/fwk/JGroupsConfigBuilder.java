@@ -10,6 +10,7 @@ import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.FD_SOCK2
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.LOCAL_PING;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.MERGE3;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.MPING;
+import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.NettyTP;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.PING;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.TCP;
 import static org.infinispan.test.fwk.JGroupsConfigBuilder.ProtocolType.TCP_NIO2;
@@ -174,7 +175,7 @@ public class JGroupsConfigBuilder {
 
    private static void replaceTcpStartPort(JGroupsProtocolCfg jgroupsCfg, int siteIndex) {
       ProtocolType transportProtocol = jgroupsCfg.transportType;
-      if (transportProtocol != TCP && transportProtocol != TCP_NIO2)
+      if (transportProtocol != TCP && transportProtocol != TCP_NIO2 && transportProtocol != NettyTP)
          return;
 
       Map<String, String> props = jgroupsCfg.getProtocol(transportProtocol).getProperties();
@@ -292,7 +293,7 @@ public class JGroupsConfigBuilder {
    }
 
    enum ProtocolType {
-      TCP, TCP_NIO2, UDP, SHARED_LOOPBACK,
+      TCP, TCP_NIO2, NettyTP, UDP, SHARED_LOOPBACK,
       RED,
       MPING, PING, TCPPING, LOCAL_PING, SHARED_LOOPBACK_PING,
       MERGE2, MERGE3,

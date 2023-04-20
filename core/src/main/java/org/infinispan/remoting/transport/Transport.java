@@ -1,6 +1,5 @@
 package org.infinispan.remoting.transport;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -8,8 +7,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -19,7 +16,6 @@ import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.api.Lifecycle;
 import org.infinispan.commons.util.Experimental;
 import org.infinispan.commons.util.Util;
-import org.infinispan.commons.util.logging.TraceException;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.remoting.inboundhandler.DeliverOrder;
@@ -28,7 +24,6 @@ import org.infinispan.remoting.rpc.ResponseFilter;
 import org.infinispan.remoting.rpc.ResponseMode;
 import org.infinispan.remoting.transport.raft.RaftManager;
 import org.infinispan.util.concurrent.AggregateCompletionStage;
-import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.logging.Log;
 import org.infinispan.xsite.XSiteBackup;
@@ -44,41 +39,6 @@ import org.infinispan.xsite.XSiteReplicateCommand;
  */
 @Scope(Scopes.GLOBAL)
 public interface Transport extends Lifecycle {
-   /**
-    * Invokes an RPC call on other caches in the cluster.
-    *
-    * @param recipients     a list of Addresses to invoke the call on.  If this is null, the call is broadcast to the
-    *                       entire cluster.
-    * @param rpcCommand     the cache command to invoke
-    * @param mode           the response mode to use
-    * @param timeout        a timeout after which to throw a replication exception. implementations.
-    * @param responseFilter a response filter with which to filter out failed/unwanted/invalid responses.
-    * @param deliverOrder   the {@link org.infinispan.remoting.inboundhandler.DeliverOrder}.
-    * @param anycast        used when {@param totalOrder} is {@code true}, it means that it must use TOA instead of
-    *                       TOB.
-    * @return a map of responses from each member contacted.
-    * @throws Exception in the event of problems.
-    * @deprecated Since 9.2, please use {@link #invokeCommand(Collection, ReplicableCommand, ResponseCollector, DeliverOrder, long, TimeUnit)} instead.
-    */
-   @Deprecated
-   default Map<Address, Response> invokeRemotely(Collection<Address> recipients, ReplicableCommand rpcCommand,
-                                                 ResponseMode mode, long timeout,
-                                                 ResponseFilter responseFilter, DeliverOrder deliverOrder,
-                                                 boolean anycast) throws Exception {
-      CompletableFuture<Map<Address, Response>> future = invokeRemotelyAsync(recipients, rpcCommand, mode,
-                                                                             timeout, responseFilter, deliverOrder,
-                                                                             anycast);
-      try {
-         //no need to set a timeout for the future. The rpc invocation is guaranteed to complete within the timeout
-         // milliseconds
-         return CompletableFutures.await(future);
-      } catch (ExecutionException e) {
-         Throwable cause = e.getCause();
-         cause.addSuppressed(new TraceException());
-         throw Util.rewrapAsCacheException(cause);
-      }
-   }
-
    CompletableFuture<Map<Address, Response>> invokeRemotelyAsync(Collection<Address> recipients,
                                                                  ReplicableCommand rpcCommand,
                                                                  ResponseMode mode, long timeout,
@@ -88,7 +48,9 @@ public interface Transport extends Lifecycle {
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the destination using the specified {@link DeliverOrder}.
-    *
+    * <p>
+    * The returend {@link CompletionStage} is used for back pressure purposes only and if this a highly invoked code path
+    * it should pay attention to it.
     * @param destination  the destination's {@link Address}.
     * @param rpcCommand   the {@link ReplicableCommand} to send.
     * @param deliverOrder the {@link DeliverOrder} to use.
@@ -99,7 +61,9 @@ public interface Transport extends Lifecycle {
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the set of destination using the specified {@link
     * DeliverOrder}.
-    *
+    * <p>
+    * The returend {@link CompletionStage} is used for back pressure purposes only and if this a highly invoked code path
+    * it should pay attention to it.
     * @param destinations the collection of destination's {@link Address}. If {@code null}, it sends to all the members
     *                     in the cluster.
     * @param rpcCommand   the {@link ReplicableCommand} to send.
@@ -110,72 +74,12 @@ public interface Transport extends Lifecycle {
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the entire cluster.
-    *
     * @since 9.2
     */
    @Experimental
    default void sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
       sendToMany(null, rpcCommand, deliverOrder);
    }
-
-   /**
-    * @deprecated Use {@link #invokeRemotely(Map, ResponseMode, long, ResponseFilter, DeliverOrder, boolean)} instead
-    */
-   @Deprecated
-   default Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> rpcCommands, ResponseMode mode,
-                                                 long timeout,
-                                                 boolean usePriorityQueue, ResponseFilter responseFilter,
-                                                 boolean totalOrder,
-                                                 boolean anycast) throws Exception {
-      if (totalOrder) {
-         throw new UnsupportedOperationException();
-      }
-      DeliverOrder deliverOrder = usePriorityQueue ? DeliverOrder.NONE : DeliverOrder.PER_SENDER;
-      return invokeRemotely(rpcCommands, mode, timeout, responseFilter, deliverOrder, anycast);
-   }
-
-   /**
-    * @deprecated Since 9.2, please use {@link #invokeRemotelyAsync(Collection, ReplicableCommand, ResponseMode, long, ResponseFilter, DeliverOrder, boolean)} instead.
-    */
-   @Deprecated
-   default Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> rpcCommands, ResponseMode mode,
-                                                 long timeout, ResponseFilter responseFilter,
-                                                 DeliverOrder deliverOrder, boolean anycast) throws Exception {
-      // This overload didn't have an async version, so implement it on top of the regular invokeRemotelyAsync
-      Map<Address, Response> result = new ConcurrentHashMap<>(rpcCommands.size());
-      ResponseFilter partResponseFilter = new ResponseFilter() {
-         @Override
-         public boolean isAcceptable(Response response, Address sender) {
-            // Guarantee collector.addResponse() isn't called concurrently
-            synchronized (result) {
-               result.put(sender, response);
-               return responseFilter.isAcceptable(response, sender);
-            }
-         }
-
-         @Override
-         public boolean needMoreResponses() {
-            return responseFilter.needMoreResponses();
-         }
-      };
-
-      List<CompletableFuture<Map<Address, Response>>> futures = new ArrayList<>(rpcCommands.size());
-      for (Map.Entry<Address, ReplicableCommand> e : rpcCommands.entrySet()) {
-         futures.add(invokeRemotelyAsync(Collections.singleton(e.getKey()), e.getValue(), mode,
-                                         timeout, partResponseFilter, deliverOrder, anycast));
-      }
-      try {
-         //no need to set a timeout for the future. The rpc invocation is guaranteed to complete within the timeout
-         // milliseconds
-         CompletableFutures.await(CompletableFuture.allOf(futures.toArray(new CompletableFuture[rpcCommands.size()])));
-         return result;
-      } catch (ExecutionException e) {
-         Throwable cause = e.getCause();
-         cause.addSuppressed(new TraceException());
-         throw Util.rewrapAsCacheException(cause);
-      }
-   }
-
 
    /**
     * @deprecated since 10.0. Use {@link #backupRemotely(XSiteBackup, XSiteReplicateCommand)} instead.
