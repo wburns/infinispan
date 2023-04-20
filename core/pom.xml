@@ -69,10 +69,9 @@
       <dependency>
          <groupId>org.jgroups</groupId>
          <artifactId>jgroups-netty</artifactId>
-         <optional>true</optional>
          <exclusions>
             <exclusion>
-               <groupId>io.netty</groupId>
+               <groupId>*</groupId>
                <artifactId>*</artifactId>
             </exclusion>
          </exclusions>

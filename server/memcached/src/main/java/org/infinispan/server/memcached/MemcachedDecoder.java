@@ -73,7 +73,7 @@ import org.infinispan.container.versioning.VersionGenerator;
 import org.infinispan.context.Flag;
 import org.infinispan.factories.ComponentRegistry;
 import org.infinispan.metadata.Metadata;
-import org.infinispan.util.netty.NettyTransport;
+import org.infinispan.server.core.transport.NettyTransport;
 import org.infinispan.server.memcached.logging.Log;
 import org.infinispan.stats.Stats;
 import org.infinispan.util.KeyValuePair;

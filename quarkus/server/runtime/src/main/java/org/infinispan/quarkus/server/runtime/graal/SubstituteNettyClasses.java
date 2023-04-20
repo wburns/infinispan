@@ -10,7 +10,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.infinispan.server.core.configuration.ProtocolServerConfiguration;
 import org.infinispan.server.core.logging.Log;
-import org.infinispan.util.netty.NettyTransport;
+import org.infinispan.server.core.transport.NettyTransport;
 
 import java.util.concurrent.ThreadFactory;
 

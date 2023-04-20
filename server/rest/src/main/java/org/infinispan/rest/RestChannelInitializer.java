@@ -4,7 +4,7 @@ import java.util.Collections;
 
 import org.infinispan.rest.configuration.RestServerConfiguration;
 import org.infinispan.server.core.transport.NettyChannelInitializer;
-import org.infinispan.util.netty.NettyTransport;
+import org.infinispan.server.core.transport.NettyTransport;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandler;
