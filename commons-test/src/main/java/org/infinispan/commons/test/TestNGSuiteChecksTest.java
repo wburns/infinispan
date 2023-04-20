@@ -43,6 +43,7 @@ public class TestNGSuiteChecksTest {
 
    @AfterSuite(alwaysRun = true)
    public void afterSuite() {
+      TestResourceTracker.cleanUpSuiteResouces();
       ThreadLeakChecker.checkForLeaks("");
    }
 

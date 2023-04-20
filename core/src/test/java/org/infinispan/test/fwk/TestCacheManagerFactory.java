@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 
+import org.infinispan.commands.module.TestGlobalConfigurationBuilder;
 import org.infinispan.commons.configuration.io.ConfigurationResourceResolver;
 import org.infinispan.commons.dataconversion.MediaType;
 import org.infinispan.commons.executors.ThreadPoolExecutorFactory;
@@ -35,8 +36,14 @@ import org.infinispan.protostream.SerializationContextInitializer;
 import org.infinispan.remoting.transport.jgroups.JGroupsTransport;
 import org.infinispan.security.Security;
 import org.infinispan.transaction.TransactionMode;
+import org.infinispan.util.DelegatingEventLoopGroup;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.util.concurrent.Future;
+import io.netty.util.concurrent.SucceededFuture;
 
 /**
  * CacheManagers in unit tests should be created with this factory, in order to avoid resource clashes. See
@@ -57,6 +64,8 @@ public class TestCacheManagerFactory {
          "infinispan.test.marshaller.class", "infinispan.marshaller.class");
 
    private static final Log log = LogFactory.getLog(TestCacheManagerFactory.class);
+
+   private static EventLoopGroup workerEventLoop;
 
    /**
     * Note this method does not amend the global configuration to reduce overall resource footprint.  It is therefore
@@ -262,7 +271,7 @@ public class TestCacheManagerFactory {
    public static void amendGlobalConfiguration(GlobalConfigurationBuilder gcb, TransportFlags flags) {
       amendMarshaller(gcb);
       minimizeThreads(gcb);
-      amendTransport(gcb, flags);
+      amendTransportAndApplyEventLoopGroup(gcb, flags);
    }
 
    public static EmbeddedCacheManager createCacheManager(ConfigurationBuilder builder) {
@@ -383,10 +392,10 @@ public class TestCacheManagerFactory {
    }
 
    public static void amendTransport(GlobalConfigurationBuilder cfg) {
-      amendTransport(cfg, new TransportFlags());
+      amendTransportAndApplyEventLoopGroup(cfg, new TransportFlags());
    }
-
-   private static void amendTransport(GlobalConfigurationBuilder builder, TransportFlags flags) {
+   
+   private static void amendTransportAndApplyEventLoopGroup(GlobalConfigurationBuilder builder, TransportFlags flags) {
       String testName = TestResourceTracker.getCurrentTestName();
 
       GlobalConfiguration gc = builder.build();
@@ -404,7 +413,39 @@ public class TestCacheManagerFactory {
          builder.transport().removeProperty(JGroupsTransport.CONFIGURATION_FILE);
          builder.transport().removeProperty(JGroupsTransport.CHANNEL_CONFIGURATOR);
 
-         builder.transport().addProperty(JGroupsTransport.CONFIGURATION_STRING, getJGroupsConfig(testName, flags));
+         String jgroupsConfig = getJGroupsConfig(testName, flags);
+         builder.transport().addProperty(JGroupsTransport.CONFIGURATION_STRING, jgroupsConfig);
+         if (jgroupsConfig.contains("NettyTP")) {
+            if (workerEventLoop == null) {
+               EventLoopGroup elg = new NioEventLoopGroup(3);
+               workerEventLoop = new DelegatingEventLoopGroup() {
+                  @Override
+                  protected EventLoopGroup delegate() {
+                     return elg;
+                  }
+
+                  @Override
+                  public Future<?> shutdownGracefully() {
+                     // Prevent shut down as this is a suite resource
+                     return new SucceededFuture<>(null, null);
+                  }
+               };
+               TestResourceTracker.addSuiteResource(new EventLoopGroupCleaner(elg));
+            }
+            builder.addModule(TestGlobalConfigurationBuilder.class).testGlobalComponent(EventLoopGroup.class, workerEventLoop);
+         }
+      }
+   }
+
+   static class EventLoopGroupCleaner extends TestResourceTracker.Cleaner<EventLoopGroup> {
+      protected EventLoopGroupCleaner(EventLoopGroup ref) {
+         super(ref);
+      }
+
+      @Override
+      public void close() {
+         TestCacheManagerFactory.log.debugf("Stopping shared event loop group %s", ref);
+         ref.shutdownGracefully();
       }
    }
 

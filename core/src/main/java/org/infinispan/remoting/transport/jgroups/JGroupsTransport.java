@@ -120,6 +120,7 @@ import org.jgroups.fork.ForkChannel;
 import org.jgroups.jmx.JmxConfigurator;
 import org.jgroups.protocols.FORK;
 import org.jgroups.protocols.netty.MessageCompleteEvent;
+import org.jgroups.protocols.netty.NettyTP;
 import org.jgroups.protocols.relay.RELAY2;
 import org.jgroups.protocols.relay.RouteStatusListener;
 import org.jgroups.protocols.relay.SiteAddress;
@@ -129,6 +130,8 @@ import org.jgroups.stack.ProtocolStack;
 import org.jgroups.util.ExtendedUUID;
 import org.jgroups.util.MessageBatch;
 import org.jgroups.util.SocketFactory;
+
+import io.netty.channel.EventLoopGroup;
 
 /**
  * An encapsulation of a JGroups transport. JGroups transports can be configured using a variety of methods, usually by
@@ -767,6 +770,14 @@ public class JGroupsTransport implements Transport, ChannelListener {
       if (props != null && props.containsKey(SOCKET_FACTORY) && !props.containsKey(CHANNEL_CONFIGURATOR)) {
          Protocol protocol = channel.getProtocolStack().getTopProtocol();
          protocol.setSocketFactory((SocketFactory) props.get(SOCKET_FACTORY));
+      }
+
+      NettyTP nettyTP = channel.getProtocolStack().findProtocol(NettyTP.class);
+      if (nettyTP != null) {
+         EventLoopGroup eventLoopGroup = globalComponentRegistry.getComponent(EventLoopGroup.class);
+         if (eventLoopGroup != null) {
+            nettyTP.replaceWorkerEventLoop(eventLoopGroup);
+         }
       }
    }
 

@@ -9,7 +9,7 @@ import org.infinispan.factories.annotations.Stop;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.server.core.logging.Log;
-import org.infinispan.server.core.utils.DelegatingEventLoopGroup;
+import org.infinispan.util.DelegatingEventLoopGroup;
 
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.MultithreadEventLoopGroup;

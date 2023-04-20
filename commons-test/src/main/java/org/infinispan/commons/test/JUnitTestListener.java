@@ -99,6 +99,7 @@ public class JUnitTestListener extends RunListener {
    @Override
    public void testRunFinished(Result result) {
       try {
+         TestResourceTracker.cleanUpSuiteResouces();
          // We don't use @RunWith(Suite.class) so we only have a single suite
          ThreadLeakChecker.checkForLeaks(currentTestRunName);
       } catch (Throwable e) {
