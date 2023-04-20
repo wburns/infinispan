@@ -22,7 +22,6 @@ import org.infinispan.topology.ClusterTopologyManagerImpl;
 import org.infinispan.topology.LocalTopologyManagerImpl;
 import org.infinispan.transaction.impl.TransactionTable;
 import org.infinispan.transaction.xa.recovery.RecoveryManagerImpl;
-import org.jgroups.Version;
 import org.jgroups.protocols.pbcast.GMS;
 import org.jgroups.util.Util;
 import org.kohsuke.MetaInfServices;

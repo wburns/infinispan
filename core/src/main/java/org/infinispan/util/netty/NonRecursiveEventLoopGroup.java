@@ -1,4 +1,4 @@
-package org.infinispan.server.core.transport;
+package org.infinispan.util.netty;
 
 import java.lang.invoke.MethodHandles;
 import java.util.concurrent.Callable;
@@ -8,8 +8,7 @@ import org.infinispan.commons.logging.LogFactory;
 import org.infinispan.factories.annotations.Stop;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
-import org.infinispan.server.core.logging.Log;
-import org.infinispan.util.DelegatingEventLoopGroup;
+import org.infinispan.util.logging.Log;
 
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.MultithreadEventLoopGroup;

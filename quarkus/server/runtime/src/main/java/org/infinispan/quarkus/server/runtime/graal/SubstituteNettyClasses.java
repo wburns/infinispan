@@ -10,7 +10,7 @@ import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import org.infinispan.server.core.configuration.ProtocolServerConfiguration;
 import org.infinispan.server.core.logging.Log;
-import org.infinispan.server.core.transport.NettyTransport;
+import org.infinispan.util.netty.NettyTransport;
 
 import java.util.concurrent.ThreadFactory;
 
@@ -18,7 +18,7 @@ public class SubstituteNettyClasses {
 }
 
 @Delete
-@TargetClass(className = "org.infinispan.server.core.transport.NativeTransport")
+@TargetClass(className = "org.infinispan.util.netty.NativeTransport")
 final class Delete_org_infinispan_server_core_transport_NativeTransport { }
 
 @TargetClass(NettyTransport.class)

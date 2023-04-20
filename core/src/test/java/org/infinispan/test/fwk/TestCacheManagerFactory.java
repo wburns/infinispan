@@ -392,7 +392,7 @@ public class TestCacheManagerFactory {
    public static void amendTransport(GlobalConfigurationBuilder cfg) {
       amendTransportAndApplyEventLoopGroup(cfg, new TransportFlags());
    }
-   
+
    private static void amendTransportAndApplyEventLoopGroup(GlobalConfigurationBuilder builder, TransportFlags flags) {
       String testName = TestResourceTracker.getCurrentTestName();
 

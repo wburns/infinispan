@@ -1,4 +1,4 @@
-package org.infinispan.server.core.transport;
+package org.infinispan.util.netty;
 
 import java.util.concurrent.ThreadFactory;
 

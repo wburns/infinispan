@@ -16,7 +16,6 @@ import org.jgroups.ChannelListener;
 import org.jgroups.JChannel;
 import org.jgroups.conf.ProtocolConfiguration;
 import org.jgroups.conf.ProtocolStackConfigurator;
-import org.jgroups.protocols.netty.NettyTP;
 import org.jgroups.protocols.relay.RELAY2;
 import org.jgroups.protocols.relay.config.RelayConfig;
 import org.jgroups.stack.Configurator;
@@ -25,8 +24,6 @@ import org.jgroups.stack.ProtocolHook;
 import org.jgroups.stack.ProtocolStack;
 import org.jgroups.util.SocketFactory;
 import org.jgroups.util.StackType;
-
-import io.netty.channel.EventLoopGroup;
 
 /**
  * A JGroups {@link ProtocolStackConfigurator} which

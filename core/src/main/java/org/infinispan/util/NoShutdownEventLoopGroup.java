@@ -4,7 +4,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import org.infinispan.util.DelegatingEventLoopGroup;
+import org.infinispan.util.netty.DelegatingEventLoopGroup;
 
 import io.netty.channel.EventLoopGroup;
 import io.netty.util.concurrent.Future;

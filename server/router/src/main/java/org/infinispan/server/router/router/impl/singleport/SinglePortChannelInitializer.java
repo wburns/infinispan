@@ -8,7 +8,7 @@ import org.infinispan.rest.ALPNHandler;
 import org.infinispan.rest.RestServer;
 import org.infinispan.server.core.ProtocolServer;
 import org.infinispan.server.core.transport.NettyChannelInitializer;
-import org.infinispan.server.core.transport.NettyTransport;
+import org.infinispan.util.netty.NettyTransport;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.server.resp.RespServer;
 import org.infinispan.server.router.configuration.SinglePortRouterConfiguration;

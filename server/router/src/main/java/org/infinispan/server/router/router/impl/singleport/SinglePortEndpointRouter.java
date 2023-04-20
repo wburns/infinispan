@@ -13,7 +13,7 @@ import org.infinispan.security.actions.SecurityActions;
 import org.infinispan.server.core.AbstractProtocolServer;
 import org.infinispan.server.core.ProtocolServer;
 import org.infinispan.server.core.transport.NettyInitializers;
-import org.infinispan.server.core.transport.NettyTransport;
+import org.infinispan.util.netty.NettyTransport;
 import org.infinispan.server.router.RoutingTable;
 import org.infinispan.server.router.configuration.SinglePortRouterConfiguration;
 import org.infinispan.server.router.logging.RouterLogger;

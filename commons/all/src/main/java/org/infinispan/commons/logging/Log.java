@@ -1,5 +1,6 @@
 package org.infinispan.commons.logging;
 
+import static org.jboss.logging.Logger.Level.DEBUG;
 import static org.jboss.logging.Logger.Level.ERROR;
 import static org.jboss.logging.Logger.Level.INFO;
 import static org.jboss.logging.Logger.Level.WARN;
@@ -275,6 +276,25 @@ public interface Log extends BasicLogger {
    @Message(value = "Invalid configuration in '%s'", id = 963)
    IllegalArgumentException invalidConfiguration(String name);
 
+   @LogMessage(level = INFO)
+   @Message(value = "Native Epoll transport not available, using NIO instead: %s", id = 964)
+   void epollNotAvailable(String message);
+
+   @LogMessage(level = INFO)
+   @Message(value = "Native IOUring transport not available, using NIO instead: %s", id = 965)
+   void ioUringNotAvailable(String message);
+
+   @LogMessage(level = INFO)
+   @Message(value = "Using transport: %s", id = 966)
+   void usingTransport(String transportName);
+
+   @LogMessage(level = DEBUG)
+   @Message(value = "Using Netty SocketChannel %s for %s", id = 967)
+   void createdSocketChannel(String channelClassName, String configuration);
+
+   @LogMessage(level = DEBUG)
+   @Message(value = "Using Netty EventLoop %s for %s", id = 968)
+   void createdNettyEventLoop(String eventLoopClassName, String configuration);
 
    //----- counters exceptions // don't use the same id range ------
 

@@ -86,9 +86,9 @@ public interface Log extends BasicLogger {
    @Message(value = "SSL Enabled but no SNI domain configured", id = 5027)
    CacheConfigurationException noSniDomainConfigured();
 
-   @LogMessage(level = INFO)
-   @Message(value = "Native Epoll transport not available, using NIO instead: %s", id = 5028)
-   void epollNotAvailable(String message);
+//   @LogMessage(level = INFO)
+//   @Message(value = "Native Epoll transport not available, using NIO instead: %s", id = 5028)
+//   void epollNotAvailable(String message);
 
    @Message(value = "No task manager available to register the admin operations handler", id = 5029)
    CacheConfigurationException cannotRegisterAdminOperationsHandler();
@@ -171,11 +171,11 @@ public interface Log extends BasicLogger {
    @Message(value = "The supplied configuration for cache '%s' must contain a single cache configuration for it: %s", id = 5053)
    CacheConfigurationException configurationMustContainSingleCache(String name, String configuration);
 
-   @LogMessage(level = INFO)
-   @Message(value = "Native IOUring transport not available, using NIO instead: %s", id = 5054)
-   void ioUringNotAvailable(String message);
-
-   @LogMessage(level = INFO)
-   @Message(value = "Using transport: %s")
-   void usingTransport(String transportName);
+//   @LogMessage(level = INFO)
+//   @Message(value = "Native IOUring transport not available, using NIO instead: %s", id = 5054)
+//   void ioUringNotAvailable(String message);
+//
+//   @LogMessage(level = INFO)
+//   @Message(value = "Using transport: %s")
+//   void usingTransport(String transportName);
 }
