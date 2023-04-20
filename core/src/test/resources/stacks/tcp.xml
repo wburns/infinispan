@@ -49,6 +49,7 @@
    <pbcast.GMS print_local_addr="false"
                join_timeout="${jgroups.join_timeout:2000}"
                max_join_attempts="3"
+               view_ack_collection_timeout="1"
    />
 
    <org.infinispan.test.fwk.TEST_RELAY2 site="__site_name__" config="configs/xsite/relay-config.xml" relay_multicasts="true" async_relay_creation="false"/>

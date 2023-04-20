@@ -120,7 +120,6 @@ import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.fork.ForkChannel;
 import org.jgroups.jmx.JmxConfigurator;
 import org.jgroups.protocols.FORK;
-import org.jgroups.protocols.netty.MessageCompleteEvent;
 import org.jgroups.protocols.netty.NettyTP;
 import org.jgroups.protocols.relay.RELAY2;
 import org.jgroups.protocols.relay.RouteStatusListener;
@@ -130,6 +129,7 @@ import org.jgroups.stack.Protocol;
 import org.jgroups.stack.ProtocolStack;
 import org.jgroups.util.ExtendedUUID;
 import org.jgroups.util.MessageBatch;
+import org.jgroups.util.MessageCompleteEvent;
 import org.jgroups.util.SocketFactory;
 
 import io.netty.channel.EventLoopGroup;

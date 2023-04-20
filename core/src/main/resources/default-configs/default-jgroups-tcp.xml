@@ -34,5 +34,6 @@
    />
    <pbcast.GMS print_local_addr="false"
                join_timeout="${jgroups.join_timeout:2000}"
+               view_ack_collection_timeout="1"
    />
 </config>
