@@ -10,11 +10,13 @@ import java.util.Map;
 
 import org.infinispan.commons.util.Util;
 import org.infinispan.configuration.global.JGroupsConfiguration;
+import org.infinispan.factories.GlobalComponentRegistry;
 import org.infinispan.xsite.XSiteNamedCache;
 import org.jgroups.ChannelListener;
 import org.jgroups.JChannel;
 import org.jgroups.conf.ProtocolConfiguration;
 import org.jgroups.conf.ProtocolStackConfigurator;
+import org.jgroups.protocols.netty.NettyTP;
 import org.jgroups.protocols.relay.RELAY2;
 import org.jgroups.protocols.relay.config.RelayConfig;
 import org.jgroups.stack.Configurator;
@@ -23,6 +25,8 @@ import org.jgroups.stack.ProtocolHook;
 import org.jgroups.stack.ProtocolStack;
 import org.jgroups.util.SocketFactory;
 import org.jgroups.util.StackType;
+
+import io.netty.channel.EventLoopGroup;
 
 /**
  * A JGroups {@link ProtocolStackConfigurator} which
@@ -74,7 +78,7 @@ public class EmbeddedJGroupsChannelConfigurator extends AbstractJGroupsChannelCo
    }
 
    @Override
-   public JChannel createChannel(String name) throws Exception {
+   public JChannel createChannel(String name, GlobalComponentRegistry globalComponentRegistry) throws Exception {
       StackType stackType = org.jgroups.util.Util.getIpStackType();
       List<ProtocolConfiguration> actualStack = combineStack(jgroupsConfiguration.configurator(parent), stack);
       List<Protocol> protocols = new ArrayList<>(actualStack.size());
@@ -123,7 +127,7 @@ public class EmbeddedJGroupsChannelConfigurator extends AbstractJGroupsChannelCo
                   @Override
                   public JChannel createChannel() throws Exception {
                      // TODO The bridge channel is created lazily, and Infinispan doesn't see any errors
-                     return configurator.createChannel(getClusterName());
+                     return configurator.createChannel(getClusterName(), globalComponentRegistry);
                   }
                });
                relay2.addSite(remoteSite.getKey(), siteConfig);
@@ -137,7 +141,7 @@ public class EmbeddedJGroupsChannelConfigurator extends AbstractJGroupsChannelCo
       }
 
       // Need to initialize components including injecting component attributes (ie. TP.msg_processing_policy.max_buffer_size)
-      JChannel jChannel = amendChannel(new JChannel(protocols));
+      JChannel jChannel = new JChannel(protocols);
       for (int i = 0; i < protocols.size(); i++) {
          Protocol prot = protocols.get(i);
          if (prot.getProtocolStack() == null)
@@ -150,7 +154,7 @@ public class EmbeddedJGroupsChannelConfigurator extends AbstractJGroupsChannelCo
          prot.init();
          ProtocolStack.initComponents(prot, configs.get(i));
       }
-      return jChannel;
+      return amendChannel(jChannel, globalComponentRegistry);
    }
 
    private static List<ProtocolConfiguration> combineStack(JGroupsChannelConfigurator baseStack, List<ProtocolConfiguration> stack) {

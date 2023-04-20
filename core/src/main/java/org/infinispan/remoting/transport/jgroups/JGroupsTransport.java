@@ -54,6 +54,7 @@ import org.infinispan.configuration.global.GlobalConfiguration;
 import org.infinispan.configuration.global.TransportConfiguration;
 import org.infinispan.configuration.global.TransportConfigurationBuilder;
 import org.infinispan.external.JGroupsProtocolComponent;
+import org.infinispan.factories.GlobalComponentRegistry;
 import org.infinispan.factories.KnownComponentNames;
 import org.infinispan.factories.annotations.ComponentName;
 import org.infinispan.factories.annotations.Inject;
@@ -118,6 +119,7 @@ import org.jgroups.conf.ClassConfigurator;
 import org.jgroups.fork.ForkChannel;
 import org.jgroups.jmx.JmxConfigurator;
 import org.jgroups.protocols.FORK;
+import org.jgroups.protocols.netty.MessageCompleteEvent;
 import org.jgroups.protocols.relay.RELAY2;
 import org.jgroups.protocols.relay.RouteStatusListener;
 import org.jgroups.protocols.relay.SiteAddress;
@@ -186,6 +188,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
    protected ExecutorService nonBlockingExecutor;
    @Inject protected CacheManagerJmxRegistration jmxRegistration;
    @Inject protected GlobalXSiteAdminOperations globalXSiteAdminOperations;
+   @Inject protected GlobalComponentRegistry globalComponentRegistry;
    @Inject protected ComponentRef<MetricsCollector> metricsCollector;
 
    private final Lock viewUpdateLock = new ReentrantLock();
@@ -777,7 +780,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       }
       configurator.addChannelListener(this);
       try {
-         channel = configurator.createChannel(configuration.transport().clusterName());
+         channel = configurator.createChannel(configuration.transport().clusterName(), globalComponentRegistry);
       } catch (Exception e) {
          throw CLUSTER.errorCreatingChannelFromConfigurator(configurator.getProtocolStackString(), e);
       }
@@ -1480,7 +1483,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       switch (type) {
          case SINGLE_MESSAGE:
          case REQUEST:
-            processRequest(src, flags, buffer, offset, length, requestId);
+            processRequest(src, message, flags, buffer, offset, length, requestId);
             break;
          case RESPONSE:
             processResponse(src, buffer, offset, length, requestId);
@@ -1529,7 +1532,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       }
    }
 
-   private void processRequest(org.jgroups.Address src, short flags, byte[] buffer, int offset, int length,
+   private void processRequest(org.jgroups.Address src, Message message, short flags, byte[] buffer, int offset, int length,
                                long requestId) {
       try {
          DeliverOrder deliverOrder = decodeDeliverMode(flags);
@@ -1550,6 +1553,14 @@ public class JGroupsTransport implements Transport, ChannelListener {
             if (log.isTraceEnabled())
                log.tracef("%s received command from %s: %s", getAddress(), src, command);
             reply = Reply.NO_OP;
+         }
+         if (deliverOrder.preserveOrder()) {
+            Reply previous = reply;
+            reply = response -> {
+               previous.reply(response);
+               // Send that we completed an ordered request
+               channel.down(new MessageCompleteEvent(message));
+            };
          }
          if (src instanceof SiteAddress) {
             String originSite = ((SiteAddress) src).getSite();
