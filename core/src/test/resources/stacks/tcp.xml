@@ -6,8 +6,7 @@
                   bind_port="${jgroups.bind.port,jgroups.tcp.port:7800}"
                   diag.enabled="${jgroups.diag.enabled:false}"
                   thread_naming_pattern="pl"
-                  bundler_type="transfer-queue"
-                  bundler.max_size="${jgroups.bundler.max_size:64000}"
+                  bundler_type="no-bundler"
 
                   thread_pool.min_threads="${jgroups.thread_pool.min_threads:0}"
                   thread_pool.max_threads="${jgroups.thread_pool.max_threads:200}"

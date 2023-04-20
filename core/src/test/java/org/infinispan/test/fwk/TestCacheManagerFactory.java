@@ -36,14 +36,12 @@ import org.infinispan.protostream.SerializationContextInitializer;
 import org.infinispan.remoting.transport.jgroups.JGroupsTransport;
 import org.infinispan.security.Security;
 import org.infinispan.transaction.TransactionMode;
-import org.infinispan.util.DelegatingEventLoopGroup;
+import org.infinispan.util.NoShutdownEventLoopGroup;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 
 import io.netty.channel.EventLoopGroup;
 import io.netty.channel.nio.NioEventLoopGroup;
-import io.netty.util.concurrent.Future;
-import io.netty.util.concurrent.SucceededFuture;
 
 /**
  * CacheManagers in unit tests should be created with this factory, in order to avoid resource clashes. See
@@ -417,19 +415,8 @@ public class TestCacheManagerFactory {
          builder.transport().addProperty(JGroupsTransport.CONFIGURATION_STRING, jgroupsConfig);
          if (jgroupsConfig.contains("NettyTP")) {
             if (workerEventLoop == null) {
-               EventLoopGroup elg = new NioEventLoopGroup(3);
-               workerEventLoop = new DelegatingEventLoopGroup() {
-                  @Override
-                  protected EventLoopGroup delegate() {
-                     return elg;
-                  }
-
-                  @Override
-                  public Future<?> shutdownGracefully() {
-                     // Prevent shut down as this is a suite resource
-                     return new SucceededFuture<>(null, null);
-                  }
-               };
+               EventLoopGroup elg = new NioEventLoopGroup(4);
+               workerEventLoop = new NoShutdownEventLoopGroup(elg);
                TestResourceTracker.addSuiteResource(new EventLoopGroupCleaner(elg));
             }
             builder.addModule(TestGlobalConfigurationBuilder.class).testGlobalComponent(EventLoopGroup.class, workerEventLoop);

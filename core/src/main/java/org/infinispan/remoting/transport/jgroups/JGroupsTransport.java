@@ -96,6 +96,7 @@ import org.infinispan.remoting.transport.impl.SingletonMapResponseCollector;
 import org.infinispan.remoting.transport.impl.SiteUnreachableXSiteResponse;
 import org.infinispan.remoting.transport.impl.XSiteResponseImpl;
 import org.infinispan.remoting.transport.raft.RaftManager;
+import org.infinispan.util.NoShutdownEventLoopGroup;
 import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
@@ -776,7 +777,10 @@ public class JGroupsTransport implements Transport, ChannelListener {
       if (nettyTP != null) {
          EventLoopGroup eventLoopGroup = globalComponentRegistry.getComponent(EventLoopGroup.class);
          if (eventLoopGroup != null) {
-            nettyTP.replaceWorkerEventLoop(eventLoopGroup);
+            // We are managing this event loop group, so don't let JGroups shut it down
+            NoShutdownEventLoopGroup noShutdownEventLoopGroup = new NoShutdownEventLoopGroup(eventLoopGroup);
+            nettyTP.replaceWorkerEventLoop(noShutdownEventLoopGroup);
+            nettyTP.setThreadPool(noShutdownEventLoopGroup);
          }
       }
    }
