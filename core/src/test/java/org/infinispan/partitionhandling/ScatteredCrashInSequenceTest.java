@@ -9,6 +9,7 @@ import static org.testng.AssertJUnit.assertTrue;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.IntStream;
@@ -240,7 +241,7 @@ public class ScatteredCrashInSequenceTest extends BasePartitionHandlingTest {
       }
 
       @Override
-      public void sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      public CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
          BlockedRequest current = blockedRequest;
          if (current != null && rpcCommand instanceof RebalanceStartCommand) {
             RebalanceStartCommand rebalanceStartCommand = (RebalanceStartCommand) rpcCommand;
@@ -255,7 +256,7 @@ public class ScatteredCrashInSequenceTest extends BasePartitionHandlingTest {
                });
             }
          }
-         super.sendToAll(rpcCommand, deliverOrder);
+         return super.sendToAll(rpcCommand, deliverOrder);
       }
 
       BlockedRequest block(String cacheName) {

@@ -13,6 +13,7 @@ import org.infinispan.commands.ReplicableCommand;
 import org.infinispan.commands.remote.recovery.TxCompletionNotificationCommand;
 import org.infinispan.commands.tx.CommitCommand;
 import org.infinispan.commands.tx.PrepareCommand;
+import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.context.impl.TxInvocationContext;
@@ -119,14 +120,15 @@ public abstract class AbstractCrashTest extends MultipleCacheManagersTest {
    protected void skipTxCompletion(final AdvancedCache<Object, Object> cache, final CountDownLatch releaseLocksLatch) {
       RpcManager rpcManager = new AbstractDelegatingRpcManager(cache.getRpcManager()) {
          @Override
-         protected <T> void performSend(Collection<Address> targets, ReplicableCommand command,
+         protected <T> CompletionStage<T> performSend(Collection<Address> targets, ReplicableCommand command,
                                         Function<ResponseCollector<T>, CompletionStage<T>> invoker) {
             if (command instanceof TxCompletionNotificationCommand) {
                releaseLocksLatch.countDown();
                log.tracef("Skipping TxCompletionNotificationCommand");
             } else {
-               super.performSend(targets, command, invoker);
+               return super.performSend(targets, command, invoker);
             }
+            return CompletableFutures.completedNull();
          }
       };
 

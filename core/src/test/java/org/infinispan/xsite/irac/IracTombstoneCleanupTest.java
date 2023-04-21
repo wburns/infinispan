@@ -367,13 +367,13 @@ public class IracTombstoneCleanupTest extends MultipleCacheManagersTest {
       }
 
       @Override
-      protected <T> void performSend(Collection<Address> targets, ReplicableCommand command, Function<ResponseCollector<T>, CompletionStage<T>> invoker) {
+      protected <T> CompletionStage<T> performSend(Collection<Address> targets, ReplicableCommand command, Function<ResponseCollector<T>, CompletionStage<T>> invoker) {
          if (recording && command instanceof CacheRpcCommand) {
             synchronized (this) {
                commandList.add((CacheRpcCommand) command);
             }
          }
-         super.performSend(targets, command, invoker);
+         return super.performSend(targets, command, invoker);
       }
    }
 }

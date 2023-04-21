@@ -157,32 +157,18 @@ public class MockTransport implements Transport {
    }
 
    @Override
-   public void sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) {
-      blockRequest(Collections.singleton(destination), rpcCommand, null);
+   public CompletionStage<Void> sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) {
+      return blockRequest(Collections.singleton(destination), rpcCommand, null);
    }
 
    @Override
-   public void sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) {
-      blockRequest(destinations, rpcCommand, null);
+   public CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) {
+      return blockRequest(destinations, rpcCommand, null);
    }
 
    @Override
-   public void sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) {
-      blockRequest(members, rpcCommand, null);
-   }
-
-   @Deprecated
-   @Override
-   public Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> rpcCommands, ResponseMode mode, long
-      timeout, boolean usePriorityQueue, ResponseFilter responseFilter, boolean totalOrder, boolean anycast) {
-      throw new UnsupportedOperationException();
-   }
-
-   @Deprecated
-   @Override
-   public Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> rpcCommands, ResponseMode mode, long
-      timeout, ResponseFilter responseFilter, DeliverOrder deliverOrder, boolean anycast) {
-      throw new UnsupportedOperationException();
+   public CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) {
+      return blockRequest(members, rpcCommand, null);
    }
 
    @Deprecated

@@ -235,9 +235,9 @@ public class ControlledRpcManager extends AbstractDelegatingRpcManager {
    }
 
    @Override
-   protected <T> void performSend(Collection<Address> targets, ReplicableCommand command,
+   protected <T> CompletionStage<T> performSend(Collection<Address> targets, ReplicableCommand command,
                                   Function<ResponseCollector<T>, CompletionStage<T>> invoker) {
-      performRequest(targets, command, null, invoker, null);
+      return performRequest(targets, command, null, invoker, null);
    }
 
    @Stop
