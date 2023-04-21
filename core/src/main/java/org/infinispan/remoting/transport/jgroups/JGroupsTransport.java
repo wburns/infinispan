@@ -20,15 +20,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
+import java.util.Queue;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
@@ -129,6 +133,7 @@ import org.jgroups.protocols.relay.SiteMaster;
 import org.jgroups.stack.Protocol;
 import org.jgroups.stack.ProtocolStack;
 import org.jgroups.util.ExtendedUUID;
+import org.jgroups.util.MemberAvailabilityEvent;
 import org.jgroups.util.MessageBatch;
 import org.jgroups.util.MessageCompleteEvent;
 import org.jgroups.util.NettyAsyncHeader;
@@ -182,20 +187,31 @@ public class JGroupsTransport implements Transport, ChannelListener {
    private static final byte RESPONSE = 1;
    private static final byte SINGLE_MESSAGE = 2;
 
-   @Inject protected GlobalConfiguration configuration;
-   @Inject @ComponentName(KnownComponentNames.INTERNAL_MARSHALLER)
+   @Inject
+   protected GlobalConfiguration configuration;
+   @Inject
+   @ComponentName(KnownComponentNames.INTERNAL_MARSHALLER)
    protected StreamingMarshaller marshaller;
-   @Inject protected CacheManagerNotifier notifier;
-   @Inject protected TimeService timeService;
-   @Inject protected InboundInvocationHandler invocationHandler;
-   @Inject @ComponentName(KnownComponentNames.TIMEOUT_SCHEDULE_EXECUTOR)
+   @Inject
+   protected CacheManagerNotifier notifier;
+   @Inject
+   protected TimeService timeService;
+   @Inject
+   protected InboundInvocationHandler invocationHandler;
+   @Inject
+   @ComponentName(KnownComponentNames.TIMEOUT_SCHEDULE_EXECUTOR)
    protected ScheduledExecutorService timeoutExecutor;
-   @Inject @ComponentName(KnownComponentNames.NON_BLOCKING_EXECUTOR)
+   @Inject
+   @ComponentName(KnownComponentNames.NON_BLOCKING_EXECUTOR)
    protected ExecutorService nonBlockingExecutor;
-   @Inject protected CacheManagerJmxRegistration jmxRegistration;
-   @Inject protected GlobalXSiteAdminOperations globalXSiteAdminOperations;
-   @Inject protected GlobalComponentRegistry globalComponentRegistry;
-   @Inject protected ComponentRef<MetricsCollector> metricsCollector;
+   @Inject
+   protected CacheManagerJmxRegistration jmxRegistration;
+   @Inject
+   protected GlobalXSiteAdminOperations globalXSiteAdminOperations;
+   @Inject
+   protected GlobalComponentRegistry globalComponentRegistry;
+   @Inject
+   protected ComponentRef<MetricsCollector> metricsCollector;
 
    private final Lock viewUpdateLock = new ReentrantLock();
    private final Condition viewUpdateCondition = viewUpdateLock.newCondition();
@@ -222,6 +238,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
    // ------------------------------------------------------------------------------------------------------------------
    private boolean running;
    private NettyTP nettyTP;
+   private BackpressureHandler backpressureHandler = BackpressureHandler.NoOpBackPressureHandler.getInstance();
 
    public static FORK findFork(JChannel channel) {
       return channel.getProtocolStack().findProtocol(FORK.class);
@@ -778,13 +795,15 @@ public class JGroupsTransport implements Transport, ChannelListener {
 
       nettyTP = channel.getProtocolStack().findProtocol(NettyTP.class);
       if (nettyTP != null) {
+         // TODO: make this configurable
+         backpressureHandler = new DelayBackpressureHandler();
          EventLoopGroup eventLoopGroup = globalComponentRegistry.getComponent(EventLoopGroup.class);
          if (eventLoopGroup != null) {
             // We are managing this event loop group, so don't let JGroups shut it down
             NoShutdownEventLoopGroup noShutdownEventLoopGroup = new NoShutdownEventLoopGroup(eventLoopGroup);
             nettyTP.replaceWorkerEventLoop(noShutdownEventLoopGroup);
             nettyTP.replaceBossEventLoop(NativeTransport.createEventLoopGroup(1, r ->
-               new Thread(r, channel.getName() + "-boss") ));
+                  new Thread(r, channel.getName() + "-boss")));
             nettyTP.setThreadPool(noShutdownEventLoopGroup);
 
             nettyTP.setServerChannel(NativeTransport.serverSocketChannelClass());
@@ -892,10 +911,14 @@ public class JGroupsTransport implements Transport, ChannelListener {
       // Targets leaving may finish some requests and potentially potentially block for a long time.
       // We don't want to block view handling, so we unblock the commands on a separate thread.
       nonBlockingExecutor.execute(() -> {
+         Set<Address> view = clusterView.getMembersSet();
          if (requests != null) {
-            requests.forEach(request -> request.onNewView(clusterView.getMembersSet()));
+            requests.forEach(request -> request.onNewView(view));
          }
+         backpressureHandler.viewChange(view);
       });
+
+      backpressureHandler.viewChange(clusterView.getMembersSet());
 
       JGroupsAddressCache.pruneAddressCache();
    }
@@ -1008,6 +1031,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       try {
          while (channel != null && getViewId() < viewId && remainingNanos > 0) {
             log.tracef("Waiting for view %d, current view is %d", viewId, clusterView.getViewId());
+            // TODO: make this non blocking...
             remainingNanos = viewUpdateCondition.awaitNanos(remainingNanos);
          }
       } finally {
@@ -1237,7 +1261,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       send(message);
    }
 
-   private static org.jgroups.Address toJGroupsAddress(Address address) {
+   static org.jgroups.Address toJGroupsAddress(Address address) {
       return ((JGroupsAddress) address).getJGroupsAddress();
    }
 
@@ -1264,13 +1288,17 @@ public class JGroupsTransport implements Transport, ChannelListener {
    }
 
    private void send(Message message) {
+      // When using netty TP we don't need reliability on any messages
+      if (nettyTP != null) {
+         message.setFlag(Message.Flag.NO_RELIABILITY);
+      }
+      // Back pressure is handling this message, don't send it
+      if (backpressureHandler.handle(message)) {
+         return;
+      }
       try {
          JChannel channel = this.channel;
          if (channel != null) {
-            // When using netty TP we don't need reliability on any messages
-            if (nettyTP != null) {
-               message.setFlag(Message.Flag.NO_RELIABILITY);
-            }
             channel.send(message);
          }
       } catch (Exception e) {
@@ -1721,6 +1749,17 @@ public class JGroupsTransport implements Transport, ChannelListener {
                String site = site_master.getSite();
                siteUnreachable(site);
                break;
+            case Event.USER_DEFINED:
+               if (evt instanceof MemberAvailabilityEvent) {
+                  Address addr = fromJGroupsAddress(((MemberAvailabilityEvent) evt).getMember());
+                  boolean available = ((MemberAvailabilityEvent) evt).isAvailable();
+                  log.tracef("A member %s availability has changed to %s", addr, available);
+                  if (available) {
+                     backpressureHandler.memberAvailable(addr);
+                  } else {
+                     backpressureHandler.memberNotAvailable(addr);
+                  }
+               }
          }
          return null;
       }
@@ -1749,5 +1788,134 @@ public class JGroupsTransport implements Transport, ChannelListener {
    private enum SiteUnreachableReason {
       SITE_DOWN_EVENT,
       SITE_UNREACHABLE_EVENT
+   }
+
+   interface BackpressureHandler {
+
+      class NoOpBackPressureHandler implements BackpressureHandler {
+         private NoOpBackPressureHandler() { }
+
+         private final static NoOpBackPressureHandler INSTANCE = new NoOpBackPressureHandler();
+
+         public static NoOpBackPressureHandler getInstance() {
+            return INSTANCE;
+         }
+      }
+      /**
+       * Whether back pressure will handle the message. If <b>false</b> is returned the invoker should
+       * directly submit the task to the {@link JChannel}
+       * @param message the message to check if it requires back pressure
+       * @return whether the handler will process the message
+       */
+      default boolean handle(Message message) {
+         return false;
+      }
+
+      default void memberAvailable(Address address) { }
+
+      default void memberNotAvailable(Address address) { }
+
+      default void viewChange(Set<Address> view) { }
+   }
+
+   // TODO: need to throw AvailablilityBasedOnBytes
+   class DelayBackpressureHandler implements BackpressureHandler {
+      private final AtomicInteger unavailableMembers = new AtomicInteger();
+      private final Queue<Message> pendingMcastMessages = new ConcurrentLinkedQueue<>();
+      private final ConcurrentMap<Address, Queue<Message>> pendingUcastMessages = new ConcurrentHashMap<>();
+
+      @Override
+      public boolean handle(Message message) {
+         org.jgroups.Address jgroupsAddress = message.getDest();
+         if (jgroupsAddress == null) {
+            if (unavailableMembers.get() > 0) {
+               log.tracef("A Member is unavailable delaying %s", message);
+               pendingMcastMessages.add(message);
+               // Double check for concurrent leave or availability pulling from queue
+               if (unavailableMembers.get() > 0 || !pendingMcastMessages.remove(message)) {
+                  return true;
+               }
+               log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s", message);
+            }
+         } else {
+            Address address = fromJGroupsAddress(jgroupsAddress);
+            Queue<Message> queue = pendingUcastMessages.get(address);
+            if (queue != null) {
+               log.tracef("Member %s is unavailable delaying %s", address, message);
+               queue.add(message);
+               // Double check for concurrent leave or availability pulling from queue
+               if (pendingUcastMessages.get(address) == queue || !queue.remove(message)) {
+                  return true;
+               }
+               log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s", message);
+            }
+         }
+         return false;
+      }
+
+      @Override
+      public void memberAvailable(Address address) {
+         log.tracef("Member %s is available for messages, sending as many messages as possible", address);
+         Queue<Message> queue = pendingUcastMessages.remove(address);
+         if (queue == null) {
+            log.tracef("Member %s backpressure resolved but no queue was present, maybe concurrent leave?", address);
+            return;
+         }
+         Message messageToSend;
+         while ((messageToSend = queue.poll()) != null) {
+            log.tracef("Sending delayed message %s", messageToSend);
+            channel.down(messageToSend);
+            // Sending the message down may cause this node to become unavailable again, if so just requeue the values
+            // NOTE: we use replace here just in case if this node becomes unresponsive again so we add the newQueue
+            // to our queue instead to maintain ordering
+            Queue<Message> newQueue = pendingUcastMessages.replace(address, queue);
+            if (newQueue != null) {
+               log.tracef("Member %s became unavailable during resending messages, merging queues together", address);
+               queue.addAll(newQueue);
+               break;
+            }
+         }
+
+         if (unavailableMembers.decrementAndGet() == 0) {
+            log.trace("All members are available again, sending outstanding mcast messages");
+            processPendingMcastMessage();
+         }
+      }
+
+      @Override
+      public void memberNotAvailable(Address address) {
+         log.tracef("Member %s is no longer available for messages, throttling messages until available again", address);
+         Queue<Message> prevQueue = pendingUcastMessages.put(address, new ConcurrentLinkedQueue<>());
+         assert prevQueue == null;
+         int unavailableCount = unavailableMembers.incrementAndGet();
+         log.tracef("There are %d members currently unavailable", unavailableCount);
+      }
+
+      @Override
+      public void viewChange(Set<Address> view) {
+         view.forEach(addr -> {
+            Queue<Message> queue = pendingUcastMessages.remove(address);
+            if (queue != null) {
+               log.tracef("Member %s is no longer in cluster, removed backpressure queue", address);
+               if (unavailableMembers.decrementAndGet() == 0) {
+                  processPendingMcastMessage();
+               }
+            }
+         });
+
+      }
+
+      private void processPendingMcastMessage() {
+         Message messageToSend;
+         while ((messageToSend = pendingMcastMessages.poll()) != null) {
+            // Any node may become unavailable in the middle in which case stop processing
+            if (unavailableMembers.get() > 0) {
+               log.trace("A Member became unavailable for messages while resending mcast messages, stopping send");
+               break;
+            }
+            log.tracef("Sending delayed message %s", messageToSend);
+            channel.down(messageToSend);
+         }
+      }
    }
 }
