@@ -39,24 +39,6 @@ public abstract class AbstractDelegatingTransport implements Transport {
       this.actual = actual;
    }
 
-   @Deprecated
-   @Override
-   public Map<Address, Response> invokeRemotely(Collection<Address> recipients, ReplicableCommand rpcCommand, ResponseMode mode, long timeout, ResponseFilter responseFilter, DeliverOrder deliverOrder, boolean anycast) throws Exception {
-      return actual.invokeRemotely(recipients, rpcCommand, mode, timeout, responseFilter, deliverOrder, anycast);
-   }
-
-   @Deprecated
-   @Override
-   public Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> rpcCommands, ResponseMode mode, long timeout, boolean usePriorityQueue, ResponseFilter responseFilter, boolean totalOrder, boolean anycast) throws Exception {
-      return actual.invokeRemotely(rpcCommands, mode, timeout, usePriorityQueue, responseFilter, totalOrder, anycast);
-   }
-
-   @Deprecated
-   @Override
-   public Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> rpcCommands, ResponseMode mode, long timeout, ResponseFilter responseFilter, DeliverOrder deliverOrder, boolean anycast) throws Exception {
-      return actual.invokeRemotely(rpcCommands, mode, timeout, responseFilter, deliverOrder, anycast);
-   }
-
    @Override
    public CompletableFuture<Map<Address, Response>> invokeRemotelyAsync(Collection<Address> recipients,
                                                                         ReplicableCommand rpcCommand,
@@ -68,18 +50,18 @@ public abstract class AbstractDelegatingTransport implements Transport {
    }
 
    @Override
-   public void sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
-      actual.sendTo(destination, rpcCommand, deliverOrder);
+   public CompletionStage<Void> sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      return actual.sendTo(destination, rpcCommand, deliverOrder);
    }
 
    @Override
-   public void sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
-      actual.sendToMany(destinations, rpcCommand, deliverOrder);
+   public CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      return actual.sendToMany(destinations, rpcCommand, deliverOrder);
    }
 
    @Override
-   public void sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
-      actual.sendToAll(rpcCommand, deliverOrder);
+   public CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      return actual.sendToAll(rpcCommand, deliverOrder);
    }
 
    @Override

@@ -139,6 +139,7 @@ public class XSiteStateProviderImpl implements XSiteStateProvider {
          stateTransferManager.running().notifyStatePushFinished(siteName, origin, statusOk);
       } else {
          XSiteStateTransferFinishSendCommand command = commandsFactory.buildXSiteStateTransferFinishSendCommand(siteName, statusOk);
+         // This should be infrequent so not worrying about back pressure
          rpcManager.sendTo(origin, command, DeliverOrder.NONE);
       }
    }

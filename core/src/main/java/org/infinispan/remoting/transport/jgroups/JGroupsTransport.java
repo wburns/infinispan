@@ -6,6 +6,8 @@ import static org.infinispan.util.logging.Log.CONTAINER;
 import static org.infinispan.util.logging.Log.XSITE;
 
 import java.io.ByteArrayInputStream;
+import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -28,7 +30,6 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -37,6 +38,7 @@ import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import javax.management.ObjectName;
@@ -53,7 +55,6 @@ import org.infinispan.commons.util.FileLookupFactory;
 import org.infinispan.commons.util.TypedProperties;
 import org.infinispan.commons.util.Util;
 import org.infinispan.commons.util.concurrent.CompletableFutures;
-import org.infinispan.commons.util.logging.TraceException;
 import org.infinispan.configuration.global.GlobalConfiguration;
 import org.infinispan.configuration.global.TransportConfiguration;
 import org.infinispan.configuration.global.TransportConfigurationBuilder;
@@ -101,7 +102,9 @@ import org.infinispan.remoting.transport.impl.SiteUnreachableXSiteResponse;
 import org.infinispan.remoting.transport.impl.XSiteResponseImpl;
 import org.infinispan.remoting.transport.raft.RaftManager;
 import org.infinispan.util.NoShutdownEventLoopGroup;
+import org.infinispan.util.concurrent.AggregateCompletionStage;
 import org.infinispan.util.concurrent.CompletionStages;
+import org.infinispan.util.concurrent.NonBlockingManager;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.infinispan.util.netty.NativeTransport;
@@ -204,6 +207,8 @@ public class JGroupsTransport implements Transport, ChannelListener {
    @Inject
    @ComponentName(KnownComponentNames.NON_BLOCKING_EXECUTOR)
    protected ExecutorService nonBlockingExecutor;
+   @Inject
+   protected NonBlockingManager nonBlockingManager;
    @Inject
    protected CacheManagerJmxRegistration jmxRegistration;
    @Inject
@@ -312,58 +317,24 @@ public class JGroupsTransport implements Transport, ChannelListener {
    }
 
    @Override
-   public void sendTo(Address destination, ReplicableCommand command, DeliverOrder deliverOrder) {
+   public CompletionStage<Void> sendTo(Address destination, ReplicableCommand command, DeliverOrder deliverOrder) {
       if (destination.equals(address)) { //removed requireNonNull. this will throw a NPE in that case
          if (log.isTraceEnabled())
             log.tracef("%s not sending command to self: %s", address, command);
-         return;
+         return CompletableFutures.completedNull();
       }
       logCommand(command, destination);
-      sendCommand(destination, command, Request.NO_REQUEST_ID, deliverOrder, true, true);
+      return sendCommand(destination, command, Request.NO_REQUEST_ID, deliverOrder, true, true);
    }
 
    @Override
-   public void sendToMany(Collection<Address> targets, ReplicableCommand command, DeliverOrder deliverOrder) {
+   public CompletionStage<Void> sendToMany(Collection<Address> targets, ReplicableCommand command, DeliverOrder deliverOrder) {
       if (targets == null) {
          logCommand(command, "all");
-         sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder);
+         return sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder);
       } else {
          logCommand(command, targets);
-         sendCommand(targets, command, Request.NO_REQUEST_ID, deliverOrder, true);
-      }
-   }
-
-   @Override
-   @Deprecated
-   public Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> commands, ResponseMode mode,
-                                                long timeout, ResponseFilter responseFilter, DeliverOrder deliverOrder,
-                                                boolean anycast)
-         throws Exception {
-      if (commands == null || commands.isEmpty()) {
-         // don't send if recipients list is empty
-         log.trace("Destination list is empty: no need to send message");
-         return Collections.emptyMap();
-      }
-
-      if (mode.isSynchronous()) {
-         MapResponseCollector collector = MapResponseCollector.validOnly(commands.size());
-         CompletionStage<Map<Address, Response>> request =
-               invokeCommands(commands.keySet(), commands::get, collector, deliverOrder, timeout, TimeUnit.MILLISECONDS);
-
-         try {
-            return CompletableFutures.await(request.toCompletableFuture());
-         } catch (ExecutionException e) {
-            Throwable cause = e.getCause();
-            cause.addSuppressed(new TraceException());
-            throw Util.rewrapAsCacheException(cause);
-         }
-      } else {
-         commands.forEach(
-               (a, command) -> {
-                  logCommand(command, a);
-                  sendCommand(a, command, Request.NO_REQUEST_ID, deliverOrder, true, true);
-               });
-         return Collections.emptyMap();
+         return sendCommand(targets, command, Request.NO_REQUEST_ID, deliverOrder, true);
       }
    }
 
@@ -1111,7 +1082,8 @@ public class JGroupsTransport implements Transport, ChannelListener {
       try {
          addRequest(request);
          boolean checkView = request.onNewView(clusterView.getMembersSet());
-         sendCommand(targets, command, requestId, deliverOrder, checkView);
+         CompletionStage<Void> stage = sendCommand(targets, command, requestId, deliverOrder, checkView);
+         assert CompletionStages.isCompletedSuccessfully(stage) : "Command contained a requestId, it should not require a delay stage";
       } catch (Throwable t) {
          request.cancel(true);
          throw t;
@@ -1249,16 +1221,16 @@ public class JGroupsTransport implements Transport, ChannelListener {
       }
    }
 
-   void sendCommand(Address target, ReplicableCommand command, long requestId, DeliverOrder deliverOrder,
+   CompletionStage<Void> sendCommand(Address target, ReplicableCommand command, long requestId, DeliverOrder deliverOrder,
                     boolean noRelay, boolean checkView) {
       if (checkView && !clusterView.contains(target))
-         return;
+         return CompletableFutures.completedNull();
 
       Message message = new BytesMessage(toJGroupsAddress(target));
       marshallRequest(message, command, requestId);
       setMessageFlags(message, deliverOrder, noRelay);
 
-      send(message);
+      return send(message);
    }
 
    static org.jgroups.Address toJGroupsAddress(Address address) {
@@ -1287,20 +1259,22 @@ public class JGroupsTransport implements Transport, ChannelListener {
       message.setFlag(Message.TransientFlag.DONT_LOOPBACK);
    }
 
-   private void send(Message message) {
+   private CompletionStage<Void> send(Message message) {
       // When using netty TP we don't need reliability on any messages
       if (nettyTP != null) {
          message.setFlag(Message.Flag.NO_RELIABILITY);
       }
       // Back pressure is handling this message, don't send it
-      if (backpressureHandler.handle(message)) {
-         return;
+      CompletionStage<Void> stage = backpressureHandler.handle(message);
+      if (stage != null) {
+         return stage;
       }
       try {
          JChannel channel = this.channel;
          if (channel != null) {
             channel.send(message);
          }
+         return CompletableFutures.completedNull();
       } catch (Exception e) {
          if (running) {
             throw new CacheException(e);
@@ -1360,17 +1334,18 @@ public class JGroupsTransport implements Transport, ChannelListener {
                                                                                   DeliverOrder deliverOrder,
                                                                                   boolean broadcast,
                                                                                   Address singleTarget) {
+      CompletionStage<Void> stage;
       if (broadcast) {
          logCommand(command, "all");
-         sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder);
+         stage = sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder);
       } else if (singleTarget != null) {
          logCommand(command, singleTarget);
-         sendCommand(singleTarget, command, Request.NO_REQUEST_ID, deliverOrder, true, true);
+         stage = sendCommand(singleTarget, command, Request.NO_REQUEST_ID, deliverOrder, true, true);
       } else {
          logCommand(command, recipients);
-         sendCommand(recipients, command, Request.NO_REQUEST_ID, deliverOrder, true);
+         stage = sendCommand(recipients, command, Request.NO_REQUEST_ID, deliverOrder, true);
       }
-      return EMPTY_RESPONSES_FUTURE;
+      return stage.thenCompose(___ -> EMPTY_RESPONSES_FUTURE).toCompletableFuture();
    }
 
    private CompletableFuture<Map<Address, Response>> performSyncRemoteInvocation(
@@ -1405,19 +1380,19 @@ public class JGroupsTransport implements Transport, ChannelListener {
       return request.toCompletableFuture();
    }
 
-   public void sendToAll(ReplicableCommand command, DeliverOrder deliverOrder) {
+   public CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder) {
       logCommand(command, "all");
-      sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder);
+      return sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder);
    }
 
    /**
     * Send a command to the entire cluster.
     */
-   private void sendCommandToAll(ReplicableCommand command, long requestId, DeliverOrder deliverOrder) {
+   private CompletionStage<Void> sendCommandToAll(ReplicableCommand command, long requestId, DeliverOrder deliverOrder) {
       Message message = new BytesMessage();
       marshallRequest(message, command, requestId);
       setMessageFlags(message, deliverOrder, true);
-      send(message);
+      return send(message);
    }
 
    private void logRequest(long requestId, ReplicableCommand command, Object targets, String type) {
@@ -1448,6 +1423,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       } else {
          //for the case where the coordinator isn't the site master.
          //TODO improve this by checking if the coordinator is a site master or not.
+         // Ignoring back pressure as this should have infrequently
          sendTo(getCoordinator(), new XSiteViewNotificationCommand(sitesUp), DeliverOrder.NONE);
       }
    }
@@ -1476,13 +1452,14 @@ public class JGroupsTransport implements Transport, ChannelListener {
    /**
     * Send a command to multiple targets.
     */
-   private void sendCommand(Collection<Address> targets, ReplicableCommand command, long requestId,
+   private CompletionStage<Void> sendCommand(Collection<Address> targets, ReplicableCommand command, long requestId,
                             DeliverOrder deliverOrder, boolean checkView) {
       Objects.requireNonNull(targets);
       Message message = new BytesMessage();
       marshallRequest(message, command, requestId);
       setMessageFlags(message, deliverOrder, true);
 
+      AggregateCompletionStage<Void> aggregateCompletionStage = CompletionStages.aggregateCompletionStage();
       Message copy = message;
       for (Iterator<Address> it = targets.iterator(); it.hasNext(); ) {
          Address address = it.next();
@@ -1494,13 +1471,14 @@ public class JGroupsTransport implements Transport, ChannelListener {
             continue;
 
          copy.dest(toJGroupsAddress(address));
-         send(copy);
+         aggregateCompletionStage.dependsOn(send(copy));
 
          // Send a different Message instance to each target
          if (it.hasNext()) {
             copy = copy.copy(true, true);
          }
       }
+      return aggregateCompletionStage.freeze();
    }
 
    TimeService getTimeService() {
@@ -1790,6 +1768,45 @@ public class JGroupsTransport implements Transport, ChannelListener {
       SITE_UNREACHABLE_EVENT
    }
 
+   private static final short FUTURE_MAGIC_ID = 1321;
+
+   class FutureHeader extends Header {
+      private final CompletableFuture<Void> future;
+
+      FutureHeader(CompletableFuture<Void> future) {
+         this.future = future;
+      }
+
+      public CompletableFuture<Void> getFuture() {
+         return future;
+      }
+
+      @Override
+      public short getMagicId() {
+         return FUTURE_MAGIC_ID;
+      }
+
+      @Override
+      public Supplier<? extends Header> create() {
+         throw new UnsupportedOperationException("Never serialized");
+      }
+
+      @Override
+      public int serializedSize() {
+         throw new UnsupportedOperationException("Never serialized");
+      }
+
+      @Override
+      public void writeTo(DataOutput out) throws IOException {
+         throw new UnsupportedOperationException("Never serialized");
+      }
+
+      @Override
+      public void readFrom(DataInput in) throws IOException, ClassNotFoundException {
+         throw new UnsupportedOperationException("Never serialized");
+      }
+   }
+
    interface BackpressureHandler {
 
       class NoOpBackPressureHandler implements BackpressureHandler {
@@ -1807,8 +1824,8 @@ public class JGroupsTransport implements Transport, ChannelListener {
        * @param message the message to check if it requires back pressure
        * @return whether the handler will process the message
        */
-      default boolean handle(Message message) {
-         return false;
+      default CompletionStage<Void> handle(Message message) {
+         return null;
       }
 
       default void memberAvailable(Address address) { }
@@ -1825,15 +1842,16 @@ public class JGroupsTransport implements Transport, ChannelListener {
       private final ConcurrentMap<Address, Queue<Message>> pendingUcastMessages = new ConcurrentHashMap<>();
 
       @Override
-      public boolean handle(Message message) {
+      public CompletionStage<Void> handle(Message message) {
          org.jgroups.Address jgroupsAddress = message.getDest();
          if (jgroupsAddress == null) {
             if (unavailableMembers.get() > 0) {
                log.tracef("A Member is unavailable delaying %s", message);
+               CompletionStage<Void> future = prepareMessage(message);
                pendingMcastMessages.add(message);
                // Double check for concurrent leave or availability pulling from queue
                if (unavailableMembers.get() > 0 || !pendingMcastMessages.remove(message)) {
-                  return true;
+                  return future;
                }
                log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s", message);
             }
@@ -1842,15 +1860,26 @@ public class JGroupsTransport implements Transport, ChannelListener {
             Queue<Message> queue = pendingUcastMessages.get(address);
             if (queue != null) {
                log.tracef("Member %s is unavailable delaying %s", address, message);
-               queue.add(message);
+               CompletionStage<Void> future = prepareMessage(message);
                // Double check for concurrent leave or availability pulling from queue
                if (pendingUcastMessages.get(address) == queue || !queue.remove(message)) {
-                  return true;
+                  return future;
                }
                log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s", message);
             }
          }
-         return false;
+         return null;
+      }
+
+      private CompletionStage<Void> prepareMessage(Message message) {
+         // A message that has the header id requires a response from the node to complete
+         // so in that case we just send back a completed stage to signal that the message is still delayed
+         CompletableFuture<Void> future = CompletableFutures.completedNull();
+         if (message.getHeader(HEADER_ID) == null) {
+            future = new CompletableFuture<>();
+            message.putHeader(FUTURE_MAGIC_ID, new FutureHeader(future));
+         }
+         return future;
       }
 
       @Override
@@ -1865,6 +1894,10 @@ public class JGroupsTransport implements Transport, ChannelListener {
          while ((messageToSend = queue.poll()) != null) {
             log.tracef("Sending delayed message %s", messageToSend);
             channel.down(messageToSend);
+            FutureHeader futureHeader = messageToSend.getHeader(FUTURE_MAGIC_ID);
+            if (futureHeader != null) {
+               nonBlockingManager.complete(futureHeader.future, null);
+            }
             // Sending the message down may cause this node to become unavailable again, if so just requeue the values
             // NOTE: we use replace here just in case if this node becomes unresponsive again so we add the newQueue
             // to our queue instead to maintain ordering
@@ -1915,6 +1948,10 @@ public class JGroupsTransport implements Transport, ChannelListener {
             }
             log.tracef("Sending delayed message %s", messageToSend);
             channel.down(messageToSend);
+            FutureHeader futureHeader = messageToSend.getHeader(FUTURE_MAGIC_ID);
+            if (futureHeader != null) {
+               nonBlockingManager.complete(futureHeader.future, null);
+            }
          }
       }
    }

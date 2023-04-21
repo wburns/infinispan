@@ -365,6 +365,7 @@ public class TriangleDistributionInterceptor extends BaseDistributionInterceptor
                log.tracef("Command %s got sequence %s for segment %s", command.getCommandInvocationId(), segmentId,
                           sequence);
             }
+            // TODO: needs to be backpressure aware!!
             rpcManager.sendToMany(backups, backupCommand, DeliverOrder.NONE);
          } catch (Throwable t) {
             sendBackupNoopCommand(command, backups, segmentId, sequence);
@@ -378,6 +379,7 @@ public class TriangleDistributionInterceptor extends BaseDistributionInterceptor
       for (Map.Entry<Address, Set<Object>> entry : splitter.primaries.entrySet()) {
          C copy = commandCopy.copySubset(command, entry.getValue());
          copy.setTopologyId(command.getTopologyId());
+         // TODO: this needs to be back pressure aware!
          rpcManager.sendTo(entry.getKey(), copy, DeliverOrder.NONE);
       }
    }
@@ -481,6 +483,7 @@ public class TriangleDistributionInterceptor extends BaseDistributionInterceptor
       noopCommand.setWriteCommand(command);
       noopCommand.setSegmentId(segment);
       noopCommand.setSequence(sequence);
+      // TODO: This can be made back pressure aware!!
       rpcManager.sendToMany(targets, noopCommand, DeliverOrder.NONE);
    }
 
@@ -523,6 +526,7 @@ public class TriangleDistributionInterceptor extends BaseDistributionInterceptor
          }
          // TODO Should we use sendToAll in replicated mode?
          // we must send the message only after the collector is registered in the map
+         // TODO: This should be made back pressure aware
          rpcManager.sendToMany(backupOwners, backupCommand, DeliverOrder.NONE);
       } catch (Throwable t) {
          sendBackupNoopCommand(command, backupOwners, segmentId, sequenceNumber);
@@ -551,8 +555,7 @@ public class TriangleDistributionInterceptor extends BaseDistributionInterceptor
             throw t;
          }
       } else {
-         rpcManager.sendTo(distributionInfo.primary(), command, DeliverOrder.NONE);
-         return null;
+         return asyncValue(rpcManager.sendTo(distributionInfo.primary(), command, DeliverOrder.NONE));
       }
    }
 

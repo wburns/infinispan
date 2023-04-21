@@ -8,7 +8,6 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.PrimitiveIterator;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.function.BiConsumer;
 
@@ -44,6 +43,8 @@ import org.infinispan.remoting.transport.impl.SingleResponseCollector;
 import org.infinispan.remoting.transport.impl.SingletonMapResponseCollector;
 import org.infinispan.statetransfer.OutdatedTopologyException;
 import org.infinispan.util.CacheTopologyUtil;
+import org.infinispan.util.concurrent.AggregateCompletionStage;
+import org.infinispan.util.concurrent.CompletionStages;
 
 /**
  * Non-transactional interceptor used by distributed caches that support concurrent writes.
@@ -452,20 +453,21 @@ public class NonTxDistributionInterceptor extends BaseDistributionInterceptor {
                backupCopy.setTopologyId(rCommand.getTopologyId());
                if (helper.getItems(backupCopy).isEmpty()) continue;
                Address backupOwner = backup.getKey();
+               allFuture.increment();
+               CompletionStage<?> stage;
                if (isSynchronous(backupCopy)) {
-                  allFuture.increment();
-                  rpcManager.invokeCommand(backupOwner, backupCopy, SingleResponseCollector.validOnly(),
-                                           rpcManager.getSyncRpcOptions())
-                        .whenComplete((response, remoteThrowable) -> {
-                           if (remoteThrowable != null) {
-                              allFuture.completeExceptionally(remoteThrowable);
-                           } else {
-                              allFuture.countDown();
-                           }
-                        });
+                  stage = rpcManager.invokeCommand(backupOwner, backupCopy, SingleResponseCollector.validOnly(),
+                                           rpcManager.getSyncRpcOptions());
                } else {
-                  rpcManager.sendTo(backupOwner, backupCopy, DeliverOrder.PER_SENDER);
+                  stage = rpcManager.sendTo(backupOwner, backupCopy, DeliverOrder.PER_SENDER);
                }
+               stage.whenComplete((response, remoteThrowable) -> {
+                  if (remoteThrowable != null) {
+                     allFuture.completeExceptionally(remoteThrowable);
+                  } else {
+                     allFuture.countDown();
+                  }
+               });
             }
             allFuture.countDown();
          } catch (Throwable t) {
@@ -499,22 +501,20 @@ public class NonTxDistributionInterceptor extends BaseDistributionInterceptor {
          return rv;
       }
       boolean isSync = isSynchronous(command);
-      CompletableFuture[] futures = isSync ? new CompletableFuture[backups.size()] : null;
-      int future = 0;
+      AggregateCompletionStage<Object> aggregateCompletionStage = CompletionStages.aggregateCompletionStage(rv);
       for (Entry<Address, IntSet> backup : backups.entrySet()) {
          C copy = helper.copyForBackup(command, topology, backup.getKey(), backup.getValue());
          copy.setTopologyId(command.getTopologyId());
          Address backupOwner = backup.getKey();
          if (isSync) {
-            futures[future++] = rpcManager
+            aggregateCompletionStage.dependsOn(rpcManager
                   .invokeCommand(backupOwner, copy, SingleResponseCollector.validOnly(),
-                        rpcManager.getSyncRpcOptions())
-                  .toCompletableFuture();
+                        rpcManager.getSyncRpcOptions()));
          } else {
-            rpcManager.sendTo(backupOwner, copy, DeliverOrder.PER_SENDER);
+            aggregateCompletionStage.dependsOn(rpcManager.sendTo(backupOwner, copy, DeliverOrder.PER_SENDER));
          }
       }
-      return isSync ? asyncValue(CompletableFuture.allOf(futures).thenApply(nil -> rv)) : rv;
+      return asyncValue(aggregateCompletionStage.freeze());
 
    }
 

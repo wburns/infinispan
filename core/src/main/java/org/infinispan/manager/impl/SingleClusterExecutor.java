@@ -79,6 +79,7 @@ class SingleClusterExecutor extends AbstractClusterExecutor<SingleClusterExecuto
          } else {
             try {
                ReplicableCommand command = new ReplicableRunnableCommand(runnable);
+               // TODO: this does not support back pressure, but the API is also not reactive
                transport.sendTo(target, command, DeliverOrder.NONE);
             } catch (Exception e) {
                throw new CacheException(e);

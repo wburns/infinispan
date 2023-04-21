@@ -98,11 +98,11 @@ public class TxCompletionNotificationCommand extends BaseRpcCommand implements T
          remoteTx = txTable.removeRemoteTransaction(gtx);
       }
       if (remoteTx == null) return CompletableFutures.completedNull();
-      forwardCommandRemotely(remoteTx, componentRegistry);
+      CompletionStage<Void> stage = forwardCommandRemotely(remoteTx, componentRegistry);
 
       LockManager lockManager = componentRegistry.getLockManager().running();
       lockManager.unlockAll(remoteTx.getLockedKeys(), remoteTx.getGlobalTransaction());
-      return CompletableFutures.completedNull();
+      return stage;
    }
 
    public GlobalTransaction getGlobalTransaction() {
@@ -112,7 +112,7 @@ public class TxCompletionNotificationCommand extends BaseRpcCommand implements T
    /**
     * This only happens during state transfer.
     */
-   private void forwardCommandRemotely(RemoteTransaction remoteTx, ComponentRegistry registry) {
+   private CompletionStage<Void> forwardCommandRemotely(RemoteTransaction remoteTx, ComponentRegistry registry) {
       DistributionManager distributionManager = registry.getDistributionManager();
       RpcManager rpcManager = registry.getRpcManager().running();
       Set<Object> affectedKeys = remoteTx.getAffectedKeys();
@@ -124,7 +124,7 @@ public class TxCompletionNotificationCommand extends BaseRpcCommand implements T
          if (log.isTraceEnabled()) {
             log.tracef("Not Forwarding command %s because topology is null.", this);
          }
-         return;
+         return CompletableFutures.completedNull();
       }
       // forward commands with older topology ids to their new targets
       // but we need to make sure we have the latest topology
@@ -135,7 +135,7 @@ public class TxCompletionNotificationCommand extends BaseRpcCommand implements T
       }
 
       if (topologyId >= localTopologyId) {
-         return;
+         return CompletableFutures.completedNull();
       }
 
       Collection<Address> newTargets = new HashSet<>(cacheTopology.getWriteOwners(affectedKeys));
@@ -154,8 +154,9 @@ public class TxCompletionNotificationCommand extends BaseRpcCommand implements T
          }
          // TxCompletionNotificationCommands are the only commands being forwarded now,
          // and they must be OOB + asynchronous
-         rpcManager.sendToMany(newTargets, this, DeliverOrder.NONE);
+         return rpcManager.sendToMany(newTargets, this, DeliverOrder.NONE);
       }
+      return CompletableFutures.completedNull();
    }
 
    @Override

@@ -1,6 +1,5 @@
 package org.infinispan.remoting.transport;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -8,7 +7,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -19,6 +17,7 @@ import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.api.Lifecycle;
 import org.infinispan.commons.util.Experimental;
 import org.infinispan.commons.util.Util;
+import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.commons.util.logging.TraceException;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
@@ -28,7 +27,6 @@ import org.infinispan.remoting.rpc.ResponseFilter;
 import org.infinispan.remoting.rpc.ResponseMode;
 import org.infinispan.remoting.transport.raft.RaftManager;
 import org.infinispan.util.concurrent.AggregateCompletionStage;
-import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.logging.Log;
 import org.infinispan.xsite.XSiteBackup;
@@ -88,94 +86,41 @@ public interface Transport extends Lifecycle {
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the destination using the specified {@link DeliverOrder}.
-    *
+    * <p>
+    * The returend {@link CompletionStage} is used for back pressure purposes only and if this a highly invoked code path
+    * it should pay attention to it.
     * @param destination  the destination's {@link Address}.
     * @param rpcCommand   the {@link ReplicableCommand} to send.
     * @param deliverOrder the {@link DeliverOrder} to use.
     * @throws Exception if there was problem sending the request.
     */
-   void sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception;
+   CompletionStage<Void> sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception;
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the set of destination using the specified {@link
     * DeliverOrder}.
-    *
+    * <p>
+    * The returend {@link CompletionStage} is used for back pressure purposes only and if this a highly invoked code path
+    * it should pay attention to it.
     * @param destinations the collection of destination's {@link Address}. If {@code null}, it sends to all the members
     *                     in the cluster.
     * @param rpcCommand   the {@link ReplicableCommand} to send.
     * @param deliverOrder the {@link DeliverOrder} to use.
     * @throws Exception if there was problem sending the request.
     */
-   void sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception;
+   CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception;
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the entire cluster.
-    *
+    * <p>
+    * The returend {@link CompletionStage} is used for back pressure purposes only and if this a highly invoked code path
+    * it should pay attention to it.
     * @since 9.2
     */
    @Experimental
-   default void sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
-      sendToMany(null, rpcCommand, deliverOrder);
+   default CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      return sendToMany(null, rpcCommand, deliverOrder);
    }
-
-   /**
-    * @deprecated Use {@link #invokeRemotely(Map, ResponseMode, long, ResponseFilter, DeliverOrder, boolean)} instead
-    */
-   @Deprecated
-   default Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> rpcCommands, ResponseMode mode,
-                                                 long timeout,
-                                                 boolean usePriorityQueue, ResponseFilter responseFilter,
-                                                 boolean totalOrder,
-                                                 boolean anycast) throws Exception {
-      if (totalOrder) {
-         throw new UnsupportedOperationException();
-      }
-      DeliverOrder deliverOrder = usePriorityQueue ? DeliverOrder.NONE : DeliverOrder.PER_SENDER;
-      return invokeRemotely(rpcCommands, mode, timeout, responseFilter, deliverOrder, anycast);
-   }
-
-   /**
-    * @deprecated Since 9.2, please use {@link #invokeRemotelyAsync(Collection, ReplicableCommand, ResponseMode, long, ResponseFilter, DeliverOrder, boolean)} instead.
-    */
-   @Deprecated
-   default Map<Address, Response> invokeRemotely(Map<Address, ReplicableCommand> rpcCommands, ResponseMode mode,
-                                                 long timeout, ResponseFilter responseFilter,
-                                                 DeliverOrder deliverOrder, boolean anycast) throws Exception {
-      // This overload didn't have an async version, so implement it on top of the regular invokeRemotelyAsync
-      Map<Address, Response> result = new ConcurrentHashMap<>(rpcCommands.size());
-      ResponseFilter partResponseFilter = new ResponseFilter() {
-         @Override
-         public boolean isAcceptable(Response response, Address sender) {
-            // Guarantee collector.addResponse() isn't called concurrently
-            synchronized (result) {
-               result.put(sender, response);
-               return responseFilter.isAcceptable(response, sender);
-            }
-         }
-
-         @Override
-         public boolean needMoreResponses() {
-            return responseFilter.needMoreResponses();
-         }
-      };
-
-      List<CompletableFuture<Map<Address, Response>>> futures = new ArrayList<>(rpcCommands.size());
-      for (Map.Entry<Address, ReplicableCommand> e : rpcCommands.entrySet()) {
-         futures.add(invokeRemotelyAsync(Collections.singleton(e.getKey()), e.getValue(), mode,
-                                         timeout, partResponseFilter, deliverOrder, anycast));
-      }
-      try {
-         //no need to set a timeout for the future. The rpc invocation is guaranteed to complete within the timeout
-         // milliseconds
-         CompletableFutures.await(CompletableFuture.allOf(futures.toArray(new CompletableFuture[rpcCommands.size()])));
-         return result;
-      } catch (ExecutionException e) {
-         Throwable cause = e.getCause();
-         cause.addSuppressed(new TraceException());
-         throw Util.rewrapAsCacheException(cause);
-      }
-   }
-
 
    /**
     * @deprecated since 10.0. Use {@link #backupRemotely(XSiteBackup, XSiteReplicateCommand)} instead.

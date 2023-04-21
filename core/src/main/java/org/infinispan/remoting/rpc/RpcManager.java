@@ -116,7 +116,7 @@ public interface RpcManager {
     * @param command      the {@link ReplicableCommand} to send.
     * @param deliverOrder the {@link DeliverOrder} to use.
     */
-   void sendTo(Address destination, ReplicableCommand command, DeliverOrder deliverOrder);
+   CompletionStage<Void> sendTo(Address destination, ReplicableCommand command, DeliverOrder deliverOrder);
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the set of destination using the specified {@link
@@ -127,14 +127,14 @@ public interface RpcManager {
     * @param command      the {@link ReplicableCommand} to send.
     * @param deliverOrder the {@link DeliverOrder} to use.
     */
-   void sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder);
+   CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder);
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the entire cluster.
     *
     * @since 9.2
     */
-   void sendToAll(ReplicableCommand command, DeliverOrder deliverOrder);
+   CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder);
 
    /**
     * Sends the {@link XSiteReplicateCommand} to a remote site.

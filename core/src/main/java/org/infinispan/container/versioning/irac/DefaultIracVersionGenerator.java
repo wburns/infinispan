@@ -111,6 +111,7 @@ public class DefaultIracVersionGenerator implements IracVersionGenerator {
       TOPOLOGY_UPDATED.incrementAndGet(this);
       if (newTopology.getPhase().isRebalance()) {
          IracUpdateVersionCommand cmd = commandsFactory.buildIracUpdateVersionCommand(peek());
+         // We ignore back pressure as this only happens during topology change
          rpcManager.sendToAll(cmd, DeliverOrder.NONE);
       }
    }

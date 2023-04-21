@@ -266,6 +266,7 @@ public class DefaultIracTombstoneManager implements IracTombstoneManager {
       if (trace) {
          log.tracef("[IRAC] Cleaning up %d tombstones: %s", cmd.getTombstonesToRemove().size(), cmd.getTombstonesToRemove());
       }
+      // This should be infrequent so not worrying about back pressure
       rpcManager.sendToMany(owners, cmd, DeliverOrder.NONE);
    }
 

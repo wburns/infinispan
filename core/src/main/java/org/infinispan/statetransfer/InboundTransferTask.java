@@ -234,6 +234,7 @@ public class InboundTransferTask {
    private void sendCancelCommand(IntSet cancelledSegments) {
       CacheRpcCommand cmd = commandsFactory.buildStateTransferCancelCommand(topologyId, cancelledSegments);
       try {
+         // This should be infrequent so not worrying about back pressure
          rpcManager.sendTo(source, cmd, DeliverOrder.NONE);
       } catch (Exception e) {
          // Ignore exceptions here, the worst that can happen is that the provider will send some extra state

@@ -246,14 +246,15 @@ public abstract class BaseDistributionInterceptor extends ClusteringInterceptor 
       // Ignore the previous value on the backup owners
       command.setValueMatcher(ValueMatcher.MATCH_ALWAYS);
       if (!isSynchronous(command)) {
+         CompletionStage<Void> stage;
          if (isReplicated) {
-            rpcManager.sendToAll(command, DeliverOrder.PER_SENDER);
+            stage = rpcManager.sendToAll(command, DeliverOrder.PER_SENDER);
          } else {
-            rpcManager.sendToMany(owners, command, DeliverOrder.PER_SENDER);
+            stage = rpcManager.sendToMany(owners, command, DeliverOrder.PER_SENDER);
          }
          // Switch to the retry policy, in case the primary owner changes before we commit locally
          command.setValueMatcher(originalMatcher.matcherForRetry());
-         return localResult;
+         return asyncValue(stage.thenApply(___ -> localResult));
       }
       VoidResponseCollector collector = VoidResponseCollector.ignoreLeavers();
       RpcOptions rpcOptions = rpcManager.getSyncRpcOptions();
@@ -679,8 +680,7 @@ public abstract class BaseDistributionInterceptor extends ClusteringInterceptor 
       boolean isSyncForwarding = isSynchronous(command) || command.isReturnValueExpected();
 
       if (!isSyncForwarding) {
-         rpcManager.sendTo(primaryOwner, command, DeliverOrder.PER_SENDER);
-         return null;
+         return asyncValue(rpcManager.sendTo(primaryOwner, command, DeliverOrder.PER_SENDER));
       }
       CompletionStage<ValidResponse> remoteInvocation;
       try {

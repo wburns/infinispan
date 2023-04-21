@@ -366,42 +366,48 @@ public class RpcManagerImpl implements RpcManager, JmxStatisticsExposer, CustomM
    }
 
    @Override
-   public void sendTo(Address destination, ReplicableCommand command, DeliverOrder deliverOrder) {
+   public CompletionStage<Void> sendTo(Address destination, ReplicableCommand command, DeliverOrder deliverOrder) {
       // Set the topology id of the command, in case we don't have it yet
       setTopologyId(command);
       CacheRpcCommand cacheRpc = toCacheRpcCommand(command);
 
       try {
-         t.sendTo(destination, cacheRpc, deliverOrder);
+         return t.sendTo(destination, cacheRpc, deliverOrder);
       } catch (Exception e) {
          errorReplicating(e);
       }
+      // TODO: is it okay to ignore the exception?
+      return CompletableFutures.completedNull();
    }
 
    @Override
-   public void sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder) {
+   public CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder) {
       // Set the topology id of the command, in case we don't have it yet
       setTopologyId(command);
       CacheRpcCommand cacheRpc = toCacheRpcCommand(command);
 
       try {
-         t.sendToMany(destinations, cacheRpc, deliverOrder);
+         return t.sendToMany(destinations, cacheRpc, deliverOrder);
       } catch (Exception e) {
          errorReplicating(e);
       }
+      // TODO: is it okay to ignore the exception?
+      return CompletableFutures.completedNull();
    }
 
    @Override
-   public void sendToAll(ReplicableCommand command, DeliverOrder deliverOrder) {
+   public CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder) {
       // Set the topology id of the command, in case we don't have it yet
       setTopologyId(command);
       CacheRpcCommand cacheRpc = toCacheRpcCommand(command);
 
       try {
-         t.sendToAll(cacheRpc, deliverOrder);
+         return t.sendToAll(cacheRpc, deliverOrder);
       } catch (Exception e) {
          errorReplicating(e);
       }
+      // TODO: is it okay to ignore the exception?
+      return CompletableFutures.completedNull();
    }
 
    @Override
