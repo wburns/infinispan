@@ -8,9 +8,12 @@ import io.netty.channel.MultithreadEventLoopGroup;
 import io.netty.channel.epoll.Epoll;
 import io.netty.channel.epoll.EpollEventLoopGroup;
 import io.netty.channel.epoll.EpollServerSocketChannel;
+import io.netty.channel.epoll.EpollSocketChannel;
 import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.ServerSocketChannel;
+import io.netty.channel.socket.SocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.channel.socket.nio.NioSocketChannel;
 
 // This is a separate class for easier replacement within Quarkus
 public final class NativeTransport {
@@ -71,6 +74,16 @@ public final class NativeTransport {
       } else {
          Log.CONTAINER.usingTransport("NIO");
          return NioServerSocketChannel.class;
+      }
+   }
+
+   public static Class<? extends SocketChannel> clientSocketChannelClass() {
+      if (USE_NATIVE_EPOLL) {
+         return EpollSocketChannel.class;
+      } else if (USE_NATIVE_IOURING) {
+         return IOURingNativeTransport.clientSocketChannelClass();
+      } else {
+         return NioSocketChannel.class;
       }
    }
 

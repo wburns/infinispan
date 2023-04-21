@@ -100,6 +100,7 @@ import org.infinispan.util.NoShutdownEventLoopGroup;
 import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.infinispan.util.netty.NativeTransport;
 import org.infinispan.xsite.GlobalXSiteAdminOperations;
 import org.infinispan.xsite.XSiteBackup;
 import org.infinispan.xsite.XSiteNamedCache;
@@ -130,6 +131,7 @@ import org.jgroups.stack.ProtocolStack;
 import org.jgroups.util.ExtendedUUID;
 import org.jgroups.util.MessageBatch;
 import org.jgroups.util.MessageCompleteEvent;
+import org.jgroups.util.NettyAsyncHeader;
 import org.jgroups.util.SocketFactory;
 
 import io.netty.channel.EventLoopGroup;
@@ -219,6 +221,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
    // Lifecycle and setup stuff
    // ------------------------------------------------------------------------------------------------------------------
    private boolean running;
+   private NettyTP nettyTP;
 
    public static FORK findFork(JChannel channel) {
       return channel.getProtocolStack().findProtocol(FORK.class);
@@ -773,14 +776,19 @@ public class JGroupsTransport implements Transport, ChannelListener {
          protocol.setSocketFactory((SocketFactory) props.get(SOCKET_FACTORY));
       }
 
-      NettyTP nettyTP = channel.getProtocolStack().findProtocol(NettyTP.class);
+      nettyTP = channel.getProtocolStack().findProtocol(NettyTP.class);
       if (nettyTP != null) {
          EventLoopGroup eventLoopGroup = globalComponentRegistry.getComponent(EventLoopGroup.class);
          if (eventLoopGroup != null) {
             // We are managing this event loop group, so don't let JGroups shut it down
             NoShutdownEventLoopGroup noShutdownEventLoopGroup = new NoShutdownEventLoopGroup(eventLoopGroup);
             nettyTP.replaceWorkerEventLoop(noShutdownEventLoopGroup);
+            nettyTP.replaceBossEventLoop(NativeTransport.createEventLoopGroup(1, r ->
+               new Thread(r, channel.getName() + "-boss") ));
             nettyTP.setThreadPool(noShutdownEventLoopGroup);
+
+            nettyTP.setServerChannel(NativeTransport.serverSocketChannelClass());
+            nettyTP.setSocketChannel(NativeTransport.clientSocketChannelClass());
          }
       }
    }
@@ -1259,6 +1267,10 @@ public class JGroupsTransport implements Transport, ChannelListener {
       try {
          JChannel channel = this.channel;
          if (channel != null) {
+            // When using netty TP we don't need reliability on any messages
+            if (nettyTP != null) {
+               message.setFlag(Message.Flag.NO_RELIABILITY);
+            }
             channel.send(message);
          }
       } catch (Exception e) {
@@ -1569,7 +1581,8 @@ public class JGroupsTransport implements Transport, ChannelListener {
                log.tracef("%s received command from %s: %s", getAddress(), src, command);
             reply = Reply.NO_OP;
          }
-         if (deliverOrder.preserveOrder()) {
+         if (deliverOrder.preserveOrder() && nettyTP != null) {
+            message.putHeader(nettyTP.getId(), new NettyAsyncHeader());
             Reply previous = reply;
             reply = response -> {
                previous.reply(response);

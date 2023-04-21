@@ -7,11 +7,8 @@ import java.util.List;
 import org.infinispan.factories.GlobalComponentRegistry;
 import org.jgroups.ChannelListener;
 import org.jgroups.JChannel;
-import org.jgroups.protocols.netty.NettyTP;
 import org.jgroups.stack.Protocol;
 import org.jgroups.util.SocketFactory;
-
-import io.netty.channel.EventLoopGroup;
 
 /**
  * @author Tristan Tarrant &lt;tristan@infinispan.org&gt;
@@ -37,13 +34,6 @@ public abstract class AbstractJGroupsChannelConfigurator implements JGroupsChann
       }
       for(ChannelListener listener : channelListeners) {
          channel.addChannelListener(listener);
-      }
-      EventLoopGroup eventLoopGroup = globalComponentRegistry.getComponent(EventLoopGroup.class);
-      if (eventLoopGroup != null) {
-         NettyTP nettyTP = channel.getProtocolStack().findProtocol(NettyTP.class);
-         if (nettyTP != null) {
-            nettyTP.replaceWorkerEventLoop(eventLoopGroup);
-         }
       }
       return channel;
    }

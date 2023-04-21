@@ -20,8 +20,6 @@ import org.jgroups.protocols.relay.RELAY2;
 import org.jgroups.protocols.relay.config.RelayConfig;
 import org.jgroups.stack.Configurator;
 import org.jgroups.stack.Protocol;
-import org.jgroups.stack.ProtocolHook;
-import org.jgroups.stack.ProtocolStack;
 import org.jgroups.util.SocketFactory;
 import org.jgroups.util.StackType;
 
@@ -139,18 +137,7 @@ public class EmbeddedJGroupsChannelConfigurator extends AbstractJGroupsChannelCo
 
       // Need to initialize components including injecting component attributes (ie. TP.msg_processing_policy.max_buffer_size)
       JChannel jChannel = new JChannel(protocols);
-      for (int i = 0; i < protocols.size(); i++) {
-         Protocol prot = protocols.get(i);
-         if (prot.getProtocolStack() == null)
-            prot.setProtocolStack(jChannel.getProtocolStack());
-         if (prot.afterCreationHook() != null) {
-            Class<ProtocolHook> clazz = (Class<ProtocolHook>) org.jgroups.util.Util.loadClass(prot.afterCreationHook(), prot.getClass());
-            ProtocolHook hook = clazz.getDeclaredConstructor().newInstance();
-            hook.afterCreation(prot);
-         }
-         prot.init();
-         ProtocolStack.initComponents(prot, configs.get(i));
-      }
+      jChannel.getProtocolStack().initProtocolStack(actualStack);
       return amendChannel(jChannel, globalComponentRegistry);
    }
 
