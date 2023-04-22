@@ -766,7 +766,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
 
       nettyTP = channel.getProtocolStack().findProtocol(NettyTP.class);
       if (nettyTP != null) {
-         // TODO: make this configurable
+         ClassConfigurator.add(FUTURE_MAGIC_ID, FutureHeader.class);
          backpressureHandler = new DelayBackpressureHandler();
          EventLoopGroup eventLoopGroup = globalComponentRegistry.getComponent(EventLoopGroup.class);
          if (eventLoopGroup != null) {
@@ -1770,8 +1770,13 @@ public class JGroupsTransport implements Transport, ChannelListener {
 
    private static final short FUTURE_MAGIC_ID = 1321;
 
-   class FutureHeader extends Header {
+   // Has to be public for JGroups reflection
+   public static class FutureHeader extends Header {
       private final CompletableFuture<Void> future;
+
+      public FutureHeader() {
+         this(null);
+      }
 
       FutureHeader(CompletableFuture<Void> future) {
          this.future = future;
@@ -1788,22 +1793,22 @@ public class JGroupsTransport implements Transport, ChannelListener {
 
       @Override
       public Supplier<? extends Header> create() {
-         throw new UnsupportedOperationException("Never serialized");
+         return FutureHeader::new;
       }
 
       @Override
       public int serializedSize() {
-         throw new UnsupportedOperationException("Never serialized");
+         return 0;
       }
 
       @Override
       public void writeTo(DataOutput out) throws IOException {
-         throw new UnsupportedOperationException("Never serialized");
+         // Do nothing - unfortunately no way to remove a header from a JGroups message...
       }
 
       @Override
       public void readFrom(DataInput in) throws IOException, ClassNotFoundException {
-         throw new UnsupportedOperationException("Never serialized");
+         // Do nothing - unfortunately no way to remove a header from a JGroups message...
       }
    }
 
@@ -1846,26 +1851,26 @@ public class JGroupsTransport implements Transport, ChannelListener {
          org.jgroups.Address jgroupsAddress = message.getDest();
          if (jgroupsAddress == null) {
             if (unavailableMembers.get() > 0) {
-               log.tracef("A Member is unavailable delaying %s", message);
+               log.tracef("A Member is unavailable delaying %s hashCode %s", message, message.hashCode());
                CompletionStage<Void> future = prepareMessage(message);
                pendingMcastMessages.add(message);
                // Double check for concurrent leave or availability pulling from queue
                if (unavailableMembers.get() > 0 || !pendingMcastMessages.remove(message)) {
                   return future;
                }
-               log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s", message);
+               log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s hashCode %s", message, message.hashCode());
             }
          } else {
             Address address = fromJGroupsAddress(jgroupsAddress);
             Queue<Message> queue = pendingUcastMessages.get(address);
             if (queue != null) {
-               log.tracef("Member %s is unavailable delaying %s", address, message);
+               log.tracef("Member %s is unavailable delaying %s hashCode %s", address, message, message.hashCode());
                CompletionStage<Void> future = prepareMessage(message);
                // Double check for concurrent leave or availability pulling from queue
                if (pendingUcastMessages.get(address) == queue || !queue.remove(message)) {
                   return future;
                }
-               log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s", message);
+               log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s hashCode %s", message, message.hashCode());
             }
          }
          return null;
@@ -1892,7 +1897,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
          }
          Message messageToSend;
          while ((messageToSend = queue.poll()) != null) {
-            log.tracef("Sending delayed message %s", messageToSend);
+            log.tracef("Sending delayed message %s hashCode %s", messageToSend, messageToSend.hashCode());
             channel.down(messageToSend);
             FutureHeader futureHeader = messageToSend.getHeader(FUTURE_MAGIC_ID);
             if (futureHeader != null) {
@@ -1941,16 +1946,16 @@ public class JGroupsTransport implements Transport, ChannelListener {
       private void processPendingMcastMessage() {
          Message messageToSend;
          while ((messageToSend = pendingMcastMessages.poll()) != null) {
-            // Any node may become unavailable in the middle in which case stop processing
-            if (unavailableMembers.get() > 0) {
-               log.trace("A Member became unavailable for messages while resending mcast messages, stopping send");
-               break;
-            }
-            log.tracef("Sending delayed message %s", messageToSend);
+            log.tracef("Sending delayed message %s hashCode %s", messageToSend, messageToSend.hashCode());
             channel.down(messageToSend);
             FutureHeader futureHeader = messageToSend.getHeader(FUTURE_MAGIC_ID);
             if (futureHeader != null) {
                nonBlockingManager.complete(futureHeader.future, null);
+            }
+            // Any node may become unavailable in the middle in which case stop processing
+            if (unavailableMembers.get() > 0) {
+               log.trace("A Member became unavailable for messages while resending mcast messages, stopping send");
+               break;
             }
          }
       }
