@@ -766,7 +766,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
 
       nettyTP = channel.getProtocolStack().findProtocol(NettyTP.class);
       if (nettyTP != null) {
-         ClassConfigurator.add(FUTURE_MAGIC_ID, FutureHeader.class);
+         ClassConfigurator.addIfAbsent(FUTURE_MAGIC_ID, FutureHeader.class);
          backpressureHandler = new DelayBackpressureHandler();
          EventLoopGroup eventLoopGroup = globalComponentRegistry.getComponent(EventLoopGroup.class);
          if (eventLoopGroup != null) {
@@ -1593,7 +1593,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
             reply = response -> {
                previous.reply(response);
                // Send that we completed an ordered request
-               channel.down(new MessageCompleteEvent(message));
+               nettyTP.down(new MessageCompleteEvent(message));
             };
          }
          if (src instanceof SiteAddress) {
@@ -1843,34 +1843,45 @@ public class JGroupsTransport implements Transport, ChannelListener {
    // TODO: need to throw AvailablilityBasedOnBytes
    class DelayBackpressureHandler implements BackpressureHandler {
       private final AtomicInteger unavailableMembers = new AtomicInteger();
-      private final Queue<Message> pendingMcastMessages = new ConcurrentLinkedQueue<>();
+      private final Queue<Message> pendingMcastMessages = new ConcurrentLinkedQueue<>();/*new MpscUnboundedArrayQueue<>(1024);*/
       private final ConcurrentMap<Address, Queue<Message>> pendingUcastMessages = new ConcurrentHashMap<>();
 
       @Override
       public CompletionStage<Void> handle(Message message) {
+         // Check for trace as message.hashCode may require computation and also we create an Integer object
+         boolean isTrace = log.isTraceEnabled();
          org.jgroups.Address jgroupsAddress = message.getDest();
          if (jgroupsAddress == null) {
             if (unavailableMembers.get() > 0) {
-               log.tracef("A Member is unavailable delaying %s hashCode %s", message, message.hashCode());
+               if (isTrace) {
+                  log.tracef("A Member is unavailable delaying %s hashCode %s", message, message.hashCode());
+               }
                CompletionStage<Void> future = prepareMessage(message);
                pendingMcastMessages.add(message);
                // Double check for concurrent leave or availability pulling from queue
                if (unavailableMembers.get() > 0 || !pendingMcastMessages.remove(message)) {
                   return future;
                }
-               log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s hashCode %s", message, message.hashCode());
+               if (isTrace) {
+                  log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s hashCode %s", message, message.hashCode());
+               }
             }
          } else {
             Address address = fromJGroupsAddress(jgroupsAddress);
             Queue<Message> queue = pendingUcastMessages.get(address);
             if (queue != null) {
-               log.tracef("Member %s is unavailable delaying %s hashCode %s", address, message, message.hashCode());
+               if (isTrace) {
+                  log.tracef("Member %s is unavailable delaying %s hashCode %s", address, message, message.hashCode());
+               }
                CompletionStage<Void> future = prepareMessage(message);
+               queue.add(message);
                // Double check for concurrent leave or availability pulling from queue
                if (pendingUcastMessages.get(address) == queue || !queue.remove(message)) {
                   return future;
                }
-               log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s hashCode %s", message, message.hashCode());
+               if (isTrace) {
+                  log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s hashCode %s", message, message.hashCode());
+               }
             }
          }
          return null;
@@ -1945,6 +1956,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
 
       private void processPendingMcastMessage() {
          Message messageToSend;
+         // TODO: send as a message batch??
          while ((messageToSend = pendingMcastMessages.poll()) != null) {
             log.tracef("Sending delayed message %s hashCode %s", messageToSend, messageToSend.hashCode());
             channel.down(messageToSend);
