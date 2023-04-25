@@ -7,6 +7,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
+import java.util.concurrent.TimeUnit;
 
 import org.infinispan.commands.module.TestGlobalConfigurationBuilder;
 import org.infinispan.commons.configuration.io.ConfigurationResourceResolver;
@@ -435,7 +436,12 @@ public class TestCacheManagerFactory {
       @Override
       public void close() {
          TestCacheManagerFactory.log.debugf("Stopping shared event loop group %s", ref);
-         ref.shutdownGracefully();
+         try {
+            ref.shutdownGracefully()
+                  .await(10, TimeUnit.SECONDS);
+         } catch (InterruptedException e) {
+            throw new AssertionError(e);
+         }
       }
    }
 
