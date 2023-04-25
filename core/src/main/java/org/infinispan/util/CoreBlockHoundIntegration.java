@@ -23,6 +23,7 @@ import org.infinispan.topology.LocalTopologyManagerImpl;
 import org.infinispan.transaction.impl.TransactionTable;
 import org.infinispan.transaction.xa.recovery.RecoveryManagerImpl;
 import org.jgroups.protocols.pbcast.GMS;
+import org.jgroups.protocols.pbcast.ViewHandler;
 import org.jgroups.util.Util;
 import org.kohsuke.MetaInfServices;
 
@@ -104,6 +105,8 @@ public class CoreBlockHoundIntegration implements BlockHoundIntegration {
 //      builder.allowBlockingCallsInside(TimeScheduler3.class.getName(), "add");
 //      builder.allowBlockingCallsInside(GMS.class.getName(), "process");
 //      builder.allowBlockingCallsInside(UNICAST3.class.getName(), "triggerXmit");
+      // This method very briefly holds lock to send message
+      builder.allowBlockingCallsInside(ViewHandler.class.getName(), "_add");
    }
 
    /**
