@@ -41,9 +41,9 @@ import org.infinispan.transaction.TransactionMode;
 import org.infinispan.util.NoShutdownEventLoopGroup;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
+import org.infinispan.util.netty.NativeTransport;
 
 import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
 
 /**
  * CacheManagers in unit tests should be created with this factory, in order to avoid resource clashes. See
@@ -417,7 +417,7 @@ public class TestCacheManagerFactory {
          builder.transport().addProperty(JGroupsTransport.CONFIGURATION_STRING, jgroupsConfig);
          if (jgroupsConfig.contains("NettyTP")) {
             if (workerEventLoop == null) {
-               EventLoopGroup elg = new NioEventLoopGroup(4, new NonBlockingThreadFactory("cached-group",
+               EventLoopGroup elg = NativeTransport.createEventLoopGroup(4, new NonBlockingThreadFactory("cached-group",
                      Thread.NORM_PRIORITY, DefaultThreadFactory.DEFAULT_PATTERN, "local", KnownComponentNames.shortened(KnownComponentNames.NON_BLOCKING_EXECUTOR)));
                workerEventLoop = new NoShutdownEventLoopGroup(elg);
                TestResourceTracker.addSuiteResource(new EventLoopGroupCleaner(elg));
