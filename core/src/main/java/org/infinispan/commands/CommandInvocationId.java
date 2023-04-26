@@ -33,7 +33,7 @@ public final class CommandInvocationId {
    private final Address address;
    private final long id;
 
-   private CommandInvocationId(Address address, long id) {
+   public CommandInvocationId(Address address, long id) {
       this.address = address;
       this.id = id;
    }

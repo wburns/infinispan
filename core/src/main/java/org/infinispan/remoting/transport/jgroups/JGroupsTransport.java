@@ -44,6 +44,8 @@ import java.util.stream.Collectors;
 import javax.management.ObjectName;
 
 import org.infinispan.commands.ReplicableCommand;
+import org.infinispan.commands.remote.SingleRpcCommand;
+import org.infinispan.commands.write.AbstractDataWriteCommand;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.CacheException;
 import org.infinispan.commons.IllegalLifecycleStateException;
@@ -477,6 +479,8 @@ public class JGroupsTransport implements Transport, ChannelListener {
    public void start() {
       if (running)
          throw new IllegalStateException("Two or more cache managers are using the same JGroupsTransport instance");
+
+      ClassConfigurator.addIfAbsent(CommandIdTrackingHeader.MAGIC_ID, CommandIdTrackingHeader.class);
 
       probeHandler.updateThreadPool(nonBlockingExecutor);
       props = TypedProperties.toTypedProperties(configuration.transport().properties());
@@ -1241,6 +1245,13 @@ public class JGroupsTransport implements Transport, ChannelListener {
       try {
          ByteBuffer bytes = marshaller.objectToBuffer(command);
          message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
+         if (command instanceof SingleRpcCommand) {
+            ReplicableCommand replicableCommand = ((SingleRpcCommand) command).getCommand();
+            if (replicableCommand instanceof AbstractDataWriteCommand) {
+               message.putHeader(CommandIdTrackingHeader.MAGIC_ID, new CommandIdTrackingHeader(
+                     ((AbstractDataWriteCommand) replicableCommand).getCommandInvocationId()));
+            }
+         }
          addRequestHeader(message, requestId);
       } catch (RuntimeException e) {
          throw e;
@@ -1264,22 +1275,26 @@ public class JGroupsTransport implements Transport, ChannelListener {
       if (nettyTP != null) {
          message.setFlag(Message.Flag.NO_RELIABILITY);
       }
-      // Back pressure is handling this message, don't send it
-      CompletionStage<Void> stage = backpressureHandler.handle(message);
-      if (stage != null) {
-         return stage;
-      }
-      try {
-         JChannel channel = this.channel;
-         if (channel != null) {
-            channel.send(message);
+      // TOOD: just testing to see if this helps...
+      synchronized (this) {
+         // Back pressure is handling this message, don't send it
+         CompletionStage<Void> stage = backpressureHandler.handle(message);
+         if (stage != null) {
+            return stage;
          }
-         return CompletableFutures.completedNull();
-      } catch (Exception e) {
-         if (running) {
-            throw new CacheException(e);
-         } else {
-            throw CONTAINER.cacheManagerIsStopping();
+         try {
+            JChannel channel = this.channel;
+            if (channel != null) {
+               channel.send(message);
+            }
+            log.tracef("Sent message %s down through JGroupsChannel", message);
+            return CompletableFutures.completedNull();
+         } catch (Exception e) {
+            if (running) {
+               throw new CacheException(e);
+            } else {
+               throw CONTAINER.cacheManagerIsStopping();
+            }
          }
       }
    }
@@ -1589,9 +1604,11 @@ public class JGroupsTransport implements Transport, ChannelListener {
          }
          if (deliverOrder.preserveOrder() && nettyTP != null) {
             message.putHeader(nettyTP.getId(), new NettyAsyncHeader());
+            log.tracef("Registering command %s from message %s to be completed later", command, message.hashCode());
             Reply previous = reply;
             reply = response -> {
                previous.reply(response);
+               log.tracef("Completing command %s from message %s", command, message.hashCode());
                // Send that we completed an ordered request
                nettyTP.down(new MessageCompleteEvent(message));
             };
@@ -1920,6 +1937,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
             Queue<Message> newQueue = pendingUcastMessages.replace(address, queue);
             if (newQueue != null) {
                log.tracef("Member %s became unavailable during resending messages, merging queues together", address);
+               // TODO: this order is wrong????
                queue.addAll(newQueue);
                break;
             }
@@ -1951,7 +1969,6 @@ public class JGroupsTransport implements Transport, ChannelListener {
                }
             }
          });
-
       }
 
       private void processPendingMcastMessage() {

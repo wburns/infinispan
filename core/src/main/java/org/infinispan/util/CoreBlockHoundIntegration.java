@@ -22,6 +22,7 @@ import org.infinispan.topology.ClusterTopologyManagerImpl;
 import org.infinispan.topology.LocalTopologyManagerImpl;
 import org.infinispan.transaction.impl.TransactionTable;
 import org.infinispan.transaction.xa.recovery.RecoveryManagerImpl;
+import org.jgroups.protocols.TP;
 import org.jgroups.protocols.pbcast.GMS;
 import org.jgroups.protocols.pbcast.ViewHandler;
 import org.jgroups.util.Util;
@@ -93,6 +94,7 @@ public class CoreBlockHoundIntegration implements BlockHoundIntegration {
 
       // Jgroups Version opens a property in clinit, but Blockhound doesn't support <clinit> method exclusion
       builder.allowBlockingCallsInside(Util.class.getName(), "writeMessage");
+      builder.allowBlockingCallsInside(TP.class.getName(), "versionMatch");
       // This could be mitigated by making a new GMS, but here temporarily. The view_ack_collection_timeout has to be 1 ms or else lots of delays on startup and shutdown
       builder.allowBlockingCallsInside(GMS.class.getName(), "castViewChangeAndSendJoinRsps");
 //      builder.allowBlockingCallsInside(JChannel.class.getName(), "send");
