@@ -116,7 +116,7 @@ public interface RpcManager {
     * @param command      the {@link ReplicableCommand} to send.
     * @param deliverOrder the {@link DeliverOrder} to use.
     */
-   CompletionStage<Void> sendTo(Address destination, ReplicableCommand command, DeliverOrder deliverOrder);
+   void sendTo(Address destination, ReplicableCommand command, DeliverOrder deliverOrder);
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the set of destination using the specified {@link
@@ -127,40 +127,14 @@ public interface RpcManager {
     * @param command      the {@link ReplicableCommand} to send.
     * @param deliverOrder the {@link DeliverOrder} to use.
     */
-   default CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder) {
-      return sendToMany(destinations, command, deliverOrder, false);
-   }
-
-   /**
-    * Same as {@link #sendToMany(Collection, ReplicableCommand, DeliverOrder)}  except has relaxed back pressure since
-    * response messages may hold locks and other resources that should be relaesed sooner and ordering guarantees are
-    * fine as we already processed the ordered update for this command
-    * @param command
-    * @param deliverOrder
-    * @param ignoreBackpressure
-    * @return
-    */
-   CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder, boolean ignoreBackpressure);
+   void sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder);
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the entire cluster.
     *
     * @since 9.2
     */
-   default CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder) {
-      return sendToAll(command, deliverOrder, false);
-   }
-
-   /**
-    * Same as {@link #sendToAll(ReplicableCommand, DeliverOrder)} except has relaxed back pressure since response messages
-    * may hold locks and other resources that should be relaesed sooner and ordering guarantees are fine as we already
-    * processed the ordered update for this command
-    * @param command
-    * @param deliverOrder
-    * @param ignoreBackpressure
-    * @return
-    */
-   CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder, boolean ignoreBackpressure);
+   void sendToAll(ReplicableCommand command, DeliverOrder deliverOrder);
 
    /**
     * Sends the {@link XSiteReplicateCommand} to a remote site.

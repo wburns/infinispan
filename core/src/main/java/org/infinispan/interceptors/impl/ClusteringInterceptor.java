@@ -12,7 +12,6 @@ import java.util.function.Consumer;
 import org.infinispan.commands.CommandsFactory;
 import org.infinispan.commands.read.SizeCommand;
 import org.infinispan.commons.CacheException;
-import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.container.impl.EntryFactory;
 import org.infinispan.container.impl.InternalDataContainer;
 import org.infinispan.context.InvocationContext;
@@ -162,9 +161,11 @@ public abstract class ClusteringInterceptor extends BaseRpcInterceptor {
       List<Address> owners = isScattered ? cacheTopology.getActualMembers() : info.readOwners();
 
       if (touchMode == TouchMode.ASYNC) {
-         // Send to all the owners
-         CompletionStage<Void> stage = ctx.isOriginLocal() ?  rpcManager.sendToMany(owners, command, DeliverOrder.NONE): CompletableFutures.completedNull();
-         return asyncInvokeNext(ctx, command, stage);
+         if (ctx.isOriginLocal()) {
+            // Send to all the owners
+            rpcManager.sendToMany(owners, command, DeliverOrder.NONE);
+         }
+         return invokeNext(ctx, command);
       }
 
       if (info.isPrimary()) {

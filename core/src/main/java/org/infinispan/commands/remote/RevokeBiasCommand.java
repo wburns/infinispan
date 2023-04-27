@@ -55,7 +55,7 @@ public class RevokeBiasCommand extends BaseRpcCommand {
       // ackTarget null means that this message is sent synchronously by primary owner == originator
       if (ackTarget != null) {
          RpcManager rpcManager = componentRegistry.getRpcManager().running();
-         return rpcManager.sendTo(ackTarget, new BackupAckCommand(cacheName, id, topologyId), DeliverOrder.NONE);
+         rpcManager.sendTo(ackTarget, new BackupAckCommand(cacheName, id, topologyId), DeliverOrder.NONE);
       }
       return CompletableFutures.completedNull();
    }

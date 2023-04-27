@@ -61,8 +61,7 @@ public class TopologyManagementHelper {
       // invoke remotely
       try {
          DeliverOrder deliverOrder = DeliverOrder.NONE;
-         // Ignoring backpressure as this method should be ran very infrequently
-         transport.sendToAll(command, deliverOrder, false);
+         transport.sendToAll(command, deliverOrder);
       } catch (Exception e) {
          throw Util.rewrapAsCacheException(e);
       }
@@ -117,7 +116,6 @@ public class TopologyManagementHelper {
       } else {
          Address coordinator = transport.getCoordinator();
          // ignore the response
-         // Ignoring back pressure as this should happen infrequently
          transport.sendTo(coordinator, command, DeliverOrder.NONE);
       }
    }

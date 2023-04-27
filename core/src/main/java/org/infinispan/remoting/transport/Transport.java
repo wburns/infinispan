@@ -7,7 +7,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
@@ -17,8 +16,6 @@ import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.api.Lifecycle;
 import org.infinispan.commons.util.Experimental;
 import org.infinispan.commons.util.Util;
-import org.infinispan.commons.util.concurrent.CompletableFutures;
-import org.infinispan.commons.util.logging.TraceException;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.remoting.inboundhandler.DeliverOrder;
@@ -42,41 +39,6 @@ import org.infinispan.xsite.XSiteReplicateCommand;
  */
 @Scope(Scopes.GLOBAL)
 public interface Transport extends Lifecycle {
-   /**
-    * Invokes an RPC call on other caches in the cluster.
-    *
-    * @param recipients     a list of Addresses to invoke the call on.  If this is null, the call is broadcast to the
-    *                       entire cluster.
-    * @param rpcCommand     the cache command to invoke
-    * @param mode           the response mode to use
-    * @param timeout        a timeout after which to throw a replication exception. implementations.
-    * @param responseFilter a response filter with which to filter out failed/unwanted/invalid responses.
-    * @param deliverOrder   the {@link org.infinispan.remoting.inboundhandler.DeliverOrder}.
-    * @param anycast        used when {@param totalOrder} is {@code true}, it means that it must use TOA instead of
-    *                       TOB.
-    * @return a map of responses from each member contacted.
-    * @throws Exception in the event of problems.
-    * @deprecated Since 9.2, please use {@link #invokeCommand(Collection, ReplicableCommand, ResponseCollector, DeliverOrder, long, TimeUnit)} instead.
-    */
-   @Deprecated
-   default Map<Address, Response> invokeRemotely(Collection<Address> recipients, ReplicableCommand rpcCommand,
-                                                 ResponseMode mode, long timeout,
-                                                 ResponseFilter responseFilter, DeliverOrder deliverOrder,
-                                                 boolean anycast) throws Exception {
-      CompletableFuture<Map<Address, Response>> future = invokeRemotelyAsync(recipients, rpcCommand, mode,
-                                                                             timeout, responseFilter, deliverOrder,
-                                                                             anycast);
-      try {
-         //no need to set a timeout for the future. The rpc invocation is guaranteed to complete within the timeout
-         // milliseconds
-         return CompletableFutures.await(future);
-      } catch (ExecutionException e) {
-         Throwable cause = e.getCause();
-         cause.addSuppressed(new TraceException());
-         throw Util.rewrapAsCacheException(cause);
-      }
-   }
-
    CompletableFuture<Map<Address, Response>> invokeRemotelyAsync(Collection<Address> recipients,
                                                                  ReplicableCommand rpcCommand,
                                                                  ResponseMode mode, long timeout,
@@ -94,7 +56,7 @@ public interface Transport extends Lifecycle {
     * @param deliverOrder the {@link DeliverOrder} to use.
     * @throws Exception if there was problem sending the request.
     */
-   CompletionStage<Void> sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception;
+   void sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception;
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the set of destination using the specified {@link
@@ -108,18 +70,15 @@ public interface Transport extends Lifecycle {
     * @param deliverOrder the {@link DeliverOrder} to use.
     * @throws Exception if there was problem sending the request.
     */
-   CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean ignoreBackpressure) throws Exception;
+   void sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception;
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the entire cluster.
-    * <p>
-    * The returend {@link CompletionStage} is used for back pressure purposes only and if this a highly invoked code path
-    * it should pay attention to it.
     * @since 9.2
     */
    @Experimental
-   default CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean ignoreBackpressure) throws Exception {
-      return sendToMany(null, rpcCommand, deliverOrder, ignoreBackpressure);
+   default void sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      sendToMany(null, rpcCommand, deliverOrder);
    }
 
    /**

@@ -366,48 +366,42 @@ public class RpcManagerImpl implements RpcManager, JmxStatisticsExposer, CustomM
    }
 
    @Override
-   public CompletionStage<Void> sendTo(Address destination, ReplicableCommand command, DeliverOrder deliverOrder) {
+   public void sendTo(Address destination, ReplicableCommand command, DeliverOrder deliverOrder) {
       // Set the topology id of the command, in case we don't have it yet
       setTopologyId(command);
       CacheRpcCommand cacheRpc = toCacheRpcCommand(command);
 
       try {
-         return t.sendTo(destination, cacheRpc, deliverOrder);
+         t.sendTo(destination, cacheRpc, deliverOrder);
       } catch (Exception e) {
          errorReplicating(e);
       }
-      // TODO: is it okay to ignore the exception?
-      return CompletableFutures.completedNull();
    }
 
    @Override
-   public CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder, boolean ignoreBackpressure) {
+   public void sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder) {
       // Set the topology id of the command, in case we don't have it yet
       setTopologyId(command);
       CacheRpcCommand cacheRpc = toCacheRpcCommand(command);
 
       try {
-         return t.sendToMany(destinations, cacheRpc, deliverOrder, ignoreBackpressure);
+         t.sendToMany(destinations, cacheRpc, deliverOrder);
       } catch (Exception e) {
          errorReplicating(e);
       }
-      // TODO: is it okay to ignore the exception?
-      return CompletableFutures.completedNull();
    }
 
    @Override
-   public CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder, boolean ignoreBackpressure) {
+   public void sendToAll(ReplicableCommand command, DeliverOrder deliverOrder) {
       // Set the topology id of the command, in case we don't have it yet
       setTopologyId(command);
       CacheRpcCommand cacheRpc = toCacheRpcCommand(command);
 
       try {
-         return t.sendToAll(cacheRpc, deliverOrder, ignoreBackpressure);
+         t.sendToAll(cacheRpc, deliverOrder);
       } catch (Exception e) {
          errorReplicating(e);
       }
-      // TODO: is it okay to ignore the exception?
-      return CompletableFutures.completedNull();
    }
 
    @Override

@@ -50,18 +50,18 @@ public abstract class AbstractDelegatingTransport implements Transport {
    }
 
    @Override
-   public CompletionStage<Void> sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
-      return actual.sendTo(destination, rpcCommand, deliverOrder);
+   public void sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      actual.sendTo(destination, rpcCommand, deliverOrder);
    }
 
    @Override
-   public CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean response) throws Exception {
-      return actual.sendToMany(destinations, rpcCommand, deliverOrder, response);
+   public void sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      actual.sendToMany(destinations, rpcCommand, deliverOrder);
    }
 
    @Override
-   public CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean response) throws Exception {
-      return actual.sendToAll(rpcCommand, deliverOrder, response);
+   public void sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      actual.sendToAll(rpcCommand, deliverOrder);
    }
 
    @Override

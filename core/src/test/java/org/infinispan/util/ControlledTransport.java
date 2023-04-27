@@ -203,13 +203,6 @@ public class ControlledTransport extends AbstractDelegatingTransport {
    }
 
    @Override
-   public Map<Address, Response> invokeRemotely(Collection<Address> recipients, ReplicableCommand rpcCommand,
-                                                ResponseMode mode, long timeout, ResponseFilter responseFilter,
-                                                DeliverOrder deliverOrder, boolean anycast) throws Exception {
-      throw new UnsupportedOperationException();
-   }
-
-   @Override
    public CompletableFuture<Map<Address, Response>> invokeRemotelyAsync(Collection<Address> recipients,
                                                                         ReplicableCommand rpcCommand, ResponseMode mode,
                                                                         long timeout, ResponseFilter responseFilter,
@@ -219,36 +212,39 @@ public class ControlledTransport extends AbstractDelegatingTransport {
    }
 
    @Override
-   public CompletionStage<Void> sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
-      return performSend(Collections.singletonList(destination), rpcCommand, c -> {
+   public void sendTo(Address destination, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      performSend(Collections.singletonList(destination), rpcCommand, c -> {
          try {
-            return actual.sendTo(destination, rpcCommand, deliverOrder);
+            actual.sendTo(destination, rpcCommand, deliverOrder);
          } catch (Exception e) {
             return CompletableFuture.failedFuture(e);
          }
+         return null;
       });
    }
 
    @Override
-   public CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean ignoreBackpressure)
+   public void sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder)
          throws Exception {
-      return performSend(destinations, rpcCommand, c -> {
+      performSend(destinations, rpcCommand, c -> {
          try {
-            return actual.sendToMany(destinations, rpcCommand, deliverOrder, ignoreBackpressure);
+            actual.sendToMany(destinations, rpcCommand, deliverOrder);
          } catch (Exception e) {
             return CompletableFuture.failedFuture(e);
          }
+         return null;
       });
    }
 
    @Override
-   public CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean ignoreBackpressure) throws Exception {
-      return performSend(actual.getMembers(), rpcCommand, c -> {
+   public void sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      performSend(actual.getMembers(), rpcCommand, c -> {
          try {
-            return actual.sendToAll(rpcCommand, deliverOrder, ignoreBackpressure);
+            actual.sendToAll(rpcCommand, deliverOrder);
          } catch (Exception e) {
             return CompletableFuture.failedFuture(e);
          }
+         return null;
       });
    }
 
@@ -391,9 +387,9 @@ public class ControlledTransport extends AbstractDelegatingTransport {
       }
    }
 
-   protected <T> CompletionStage<T> performSend(Collection<Address> targets, ReplicableCommand command,
+   protected <T> void performSend(Collection<Address> targets, ReplicableCommand command,
                                   Function<ResponseCollector<T>, CompletionStage<T>> invoker) {
-      return performRequest(targets, command, null, invoker);
+      performRequest(targets, command, null, invoker);
    }
 
    @Override

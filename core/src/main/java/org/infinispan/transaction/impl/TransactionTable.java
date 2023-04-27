@@ -40,7 +40,6 @@ import org.infinispan.commons.CacheException;
 import org.infinispan.commons.time.TimeService;
 import org.infinispan.commons.util.ByRef;
 import org.infinispan.commons.util.Util;
-import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.distribution.LocalizedCacheTopology;
 import org.infinispan.factories.ComponentRegistry;
@@ -901,13 +900,13 @@ public class TransactionTable implements org.infinispan.transaction.TransactionT
          log.tracef("afterCompletion(%s) called for %s.", (Integer) status, localTransaction);
       }
       if (status == Status.STATUS_COMMITTED) {
-         return CompletionStages.handleAndCompose(txCoordinator.commit(localTransaction, false),
-               (isOnePhase, t) -> {
-                  if (t != null) {
-                     throw new CacheException("Could not commit.", t);
-                  }
-                  return releaseLocksForCompletedTransaction(localTransaction, isOnePhase);
-               });
+         return txCoordinator.commit(localTransaction, false).handle((isOnePhase, t) -> {
+            if (t != null) {
+               throw new CacheException("Could not commit.", t);
+            }
+            releaseLocksForCompletedTransaction(localTransaction, isOnePhase);
+            return null;
+         });
       } else if (status == Status.STATUS_ROLLEDBACK) {
          localTransaction.markForRollback(true); //make sure writes no longer succeed
          return txCoordinator.rollback(localTransaction).exceptionally(t -> {
@@ -918,21 +917,19 @@ public class TransactionTable implements org.infinispan.transaction.TransactionT
       }
    }
 
-   protected final CompletionStage<Void> releaseLocksForCompletedTransaction(LocalTransaction localTransaction,
+   protected final void releaseLocksForCompletedTransaction(LocalTransaction localTransaction,
          boolean committedInOnePhase) {
       final GlobalTransaction gtx = localTransaction.getGlobalTransaction();
-      CompletionStage<Void> stage = CompletableFutures.completedNull();
       if ((!committedInOnePhase || !isOptimisticCache()) && isClustered()) {
-         stage = removeTransactionInfoRemotely(localTransaction, gtx);
+         removeTransactionInfoRemotely(localTransaction, gtx);
       }
       // Perform local transaction removal last to prevent exceptions during shutDownGracefully()
       removeLocalTransaction(localTransaction);
       if (log.isTraceEnabled())
          log.tracef("Committed in onePhase? %s isOptimistic? %s", committedInOnePhase, isOptimisticCache());
-      return stage;
    }
 
-   private CompletionStage<Void> removeTransactionInfoRemotely(LocalTransaction localTransaction, GlobalTransaction gtx) {
+   private void removeTransactionInfoRemotely(LocalTransaction localTransaction, GlobalTransaction gtx) {
       if (mayHaveRemoteLocks(localTransaction) && !partitionHandlingManager.isTransactionPartiallyCommitted(gtx)) {
          TxCompletionNotificationCommand command = commandsFactory.buildTxCompletionNotificationCommand(null, gtx);
          LocalizedCacheTopology cacheTopology = clusteringLogic.getCacheTopology();
@@ -942,9 +939,8 @@ public class TransactionTable implements org.infinispan.transaction.TransactionT
          commitNodes = localTransaction.getCommitNodes(commitNodes, cacheTopology);
          if (log.isTraceEnabled())
             log.tracef("About to invoke tx completion notification on commitNodes: %s", commitNodes);
-         return rpcManager.sendToMany(commitNodes, command, DeliverOrder.NONE);
+         rpcManager.sendToMany(commitNodes, command, DeliverOrder.NONE);
       }
-      return CompletableFutures.completedNull();
    }
 
    private boolean mayHaveRemoteLocks(LocalTransaction lt) {

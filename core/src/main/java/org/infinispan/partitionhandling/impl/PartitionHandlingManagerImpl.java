@@ -238,7 +238,6 @@ public class PartitionHandlingManagerImpl implements PartitionHandlingManager {
          // A little bit overkill, but the state transfer can happen during a merge and some nodes can receive the
          // transaction that aren't in the original affected nodes.
          // no side effects.
-         // We ignore back pressure as this only happens on a topology update
          rpcManager.sendToAll(completionCommand, DeliverOrder.NONE);
       });
    }

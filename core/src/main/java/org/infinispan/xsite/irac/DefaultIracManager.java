@@ -31,7 +31,6 @@ import org.infinispan.commands.irac.IracTouchKeyCommand;
 import org.infinispan.commands.remote.CacheRpcCommand;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.Util;
-import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.configuration.cache.BackupConfiguration;
 import org.infinispan.configuration.cache.Configuration;
 import org.infinispan.configuration.cache.XSiteStateTransferConfiguration;
@@ -459,17 +458,15 @@ public class DefaultIracManager implements IracManager, JmxStatisticsExposer {
          }
       }
 
-      CompletionStage<Void> stage = CompletableFutures.completedNull();
       if (!invalidState.isEmpty()) {
          if (trace) {
             log.tracef("[IRAC] Removing %d invalid state(s)", invalidState.size());
          }
          invalidState.forEach(IracManagerKeyState::discard);
-         stage = removeStateFromCluster(invalidState);
+         removeStateFromCluster(invalidState);
       }
 
-      return rspCollector == null ? Completable.complete() : Completable.fromCompletionStage(CompletionStages.allOf(stage,
-            rspCollector.freeze()));
+      return rspCollector == null ? Completable.complete() : Completable.fromCompletionStage(rspCollector.freeze());
    }
 
    private CompletionStage<Void> sendClearUpdate() {
@@ -517,7 +514,6 @@ public class DefaultIracManager implements IracManager, JmxStatisticsExposer {
 
    private void sendStateRequest(Address primary, IntSet segments) {
       CacheRpcCommand cmd = commandsFactory.buildIracRequestStateCommand(segments);
-      // This should be infrequent so not worrying about back pressure
       rpcManager.sendTo(primary, cmd, DeliverOrder.NONE);
    }
 
@@ -527,9 +523,9 @@ public class DefaultIracManager implements IracManager, JmxStatisticsExposer {
       return rsp;
    }
 
-   private CompletionStage<Void> removeStateFromCluster(Collection<? extends IracManagerKeyInfo> stateToCleanup) {
+   private void removeStateFromCluster(Collection<? extends IracManagerKeyInfo> stateToCleanup) {
       if (stateToCleanup.isEmpty()) {
-         return CompletableFutures.completedNull();
+         return;
       }
       if (log.isTraceEnabled()) {
          log.tracef("[IRAC] Removing states from cluster: %s", Util.toStr(stateToCleanup));
@@ -545,8 +541,8 @@ public class DefaultIracManager implements IracManager, JmxStatisticsExposer {
       }
 
       IracCleanupKeysCommand cmd = commandsFactory.buildIracCleanupKeyCommand(stateToCleanup);
+      rpcManager.sendToMany(owners, cmd, DeliverOrder.NONE);
       stateToCleanup.forEach(this::removeStateFromLocal);
-      return rpcManager.sendToMany(owners, cmd, DeliverOrder.NONE);
    }
 
    private void removeStateFromLocal(IracManagerKeyInfo state) {
