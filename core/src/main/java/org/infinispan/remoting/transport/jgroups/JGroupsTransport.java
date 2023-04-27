@@ -1214,11 +1214,18 @@ public class JGroupsTransport implements Transport, ChannelListener {
       if (checkView && !clusterView.contains(target))
          return CompletableFutures.completedNull();
 
+      Message message = messageFromCommand(target, command, requestId, deliverOrder, noRelay);
+
+      return send(message, false);
+   }
+
+   private Message messageFromCommand(Address target, ReplicableCommand command, long requestId,
+                                        DeliverOrder deliverOrder, boolean noRelay) {
       Message message = new BytesMessage(toJGroupsAddress(target));
       marshallRequest(message, command, requestId);
       setMessageFlags(message, deliverOrder, noRelay);
 
-      return send(message, false);
+      return message;
    }
 
    static org.jgroups.Address toJGroupsAddress(Address address) {
@@ -1513,33 +1520,13 @@ public class JGroupsTransport implements Transport, ChannelListener {
    private void sendResponse(org.jgroups.Address target, Response response, long requestId, ReplicableCommand command) {
       if (log.isTraceEnabled())
          log.tracef("%s sending response for request %d to %s: %s", getAddress(), requestId, target, response);
-      ByteBuffer bytes;
       JChannel channel = this.channel;
       if (channel == null) {
          // Avoid NPEs during stop()
          return;
       }
       try {
-         bytes = marshaller.objectToBuffer(response);
-      } catch (Throwable t) {
-         try {
-            // this call should succeed (all exceptions are serializable)
-            Exception e = t instanceof Exception ? ((Exception) t) : new CacheException(t);
-            bytes = marshaller.objectToBuffer(new ExceptionResponse(e));
-         } catch (Throwable tt) {
-            if (channel.isConnected()) {
-               CLUSTER.errorSendingResponse(requestId, target, command);
-            }
-            return;
-         }
-      }
-
-      try {
-         Message message = new BytesMessage(target).setFlag(REPLY_FLAGS, false);
-         message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
-         RequestCorrelator.Header header = new RequestCorrelator.Header(RESPONSE, requestId,
-               CORRELATOR_ID);
-         message.putHeader(HEADER_ID, header);
+         Message message = messageFromResponse(target, response, requestId);
 
          channel.send(message);
       } catch (Throwable t) {
@@ -1547,6 +1534,26 @@ public class JGroupsTransport implements Transport, ChannelListener {
             CLUSTER.errorSendingResponse(requestId, target, command);
          }
       }
+   }
+
+   private Message messageFromResponse(org.jgroups.Address target, Response response, long requestId)
+         throws IOException, InterruptedException {
+      ByteBuffer bytes;
+      try {
+         bytes = marshaller.objectToBuffer(response);
+      } catch (Throwable t) {
+         // this call should succeed (all exceptions are serializable)
+         Exception e = t instanceof Exception ? ((Exception) t) : new CacheException(t);
+         bytes = marshaller.objectToBuffer(new ExceptionResponse(e));
+      }
+
+      Message message = new BytesMessage(target).setFlag(REPLY_FLAGS, false);
+      message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
+      RequestCorrelator.Header header = new RequestCorrelator.Header(RESPONSE, requestId,
+            CORRELATOR_ID);
+      message.putHeader(HEADER_ID, header);
+
+      return message;
    }
 
    private void processRequest(org.jgroups.Address src, Message message, short flags, byte[] buffer, int offset, int length,
