@@ -108,7 +108,7 @@ public interface Transport extends Lifecycle {
     * @param deliverOrder the {@link DeliverOrder} to use.
     * @throws Exception if there was problem sending the request.
     */
-   CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception;
+   CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean ignoreBackpressure) throws Exception;
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the entire cluster.
@@ -118,8 +118,8 @@ public interface Transport extends Lifecycle {
     * @since 9.2
     */
    @Experimental
-   default CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
-      return sendToMany(null, rpcCommand, deliverOrder);
+   default CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean ignoreBackpressure) throws Exception {
+      return sendToMany(null, rpcCommand, deliverOrder, ignoreBackpressure);
    }
 
    /**

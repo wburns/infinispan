@@ -241,7 +241,7 @@ public class ScatteredCrashInSequenceTest extends BasePartitionHandlingTest {
       }
 
       @Override
-      public CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+      public CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean ignoreBackpressure) throws Exception {
          BlockedRequest current = blockedRequest;
          if (current != null && rpcCommand instanceof RebalanceStartCommand) {
             RebalanceStartCommand rebalanceStartCommand = (RebalanceStartCommand) rpcCommand;
@@ -249,14 +249,14 @@ public class ScatteredCrashInSequenceTest extends BasePartitionHandlingTest {
                blockedRequest.commandBlocked.countDown();
                blockedRequest.sendCommand.thenRun(() -> {
                   try {
-                     super.sendToAll(rpcCommand, deliverOrder);
+                     super.sendToAll(rpcCommand, deliverOrder, ignoreBackpressure);
                   } catch (Exception e) {
                      log.error(e);
                   }
                });
             }
          }
-         return super.sendToAll(rpcCommand, deliverOrder);
+         return super.sendToAll(rpcCommand, deliverOrder, ignoreBackpressure);
       }
 
       BlockedRequest block(String cacheName) {

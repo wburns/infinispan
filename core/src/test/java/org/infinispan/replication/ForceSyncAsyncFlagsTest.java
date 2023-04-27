@@ -1,5 +1,6 @@
 package org.infinispan.replication;
 
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.reset;
@@ -59,7 +60,7 @@ public class ForceSyncAsyncFlagsTest extends MultipleCacheManagersTest {
       // verify FORCE_ASYNCHRONOUS flag on SYNC cache
       cache1.withFlags(Flag.FORCE_ASYNCHRONOUS).put("k", "v");
       verify(mockTransport)
-            .sendToAll(any(ReplicableCommand.class), any(DeliverOrder.class));
+            .sendToAll(any(ReplicableCommand.class), any(DeliverOrder.class), anyBoolean());
    }
 
    public void testForceSyncFlagUsage() throws Exception {
@@ -78,7 +79,7 @@ public class ForceSyncAsyncFlagsTest extends MultipleCacheManagersTest {
 
       cache1.put("k", "v");
       verify(mockTransport)
-            .sendToAll(any(ReplicableCommand.class), any(DeliverOrder.class));
+            .sendToAll(any(ReplicableCommand.class), any(DeliverOrder.class), anyBoolean());
       reset(mockTransport);
 
       // verify FORCE_SYNCHRONOUS flag on ASYNC cache

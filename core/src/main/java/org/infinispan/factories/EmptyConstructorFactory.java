@@ -2,6 +2,8 @@ package org.infinispan.factories;
 
 import static org.infinispan.util.logging.Log.CONTAINER;
 
+import org.infinispan.backpressure.BackpressureNotifier;
+import org.infinispan.backpressure.BackpressureNotifierImpl;
 import org.infinispan.commands.RemoteCommandsFactory;
 import org.infinispan.commons.time.TimeService;
 import org.infinispan.container.versioning.RankCalculator;
@@ -42,7 +44,7 @@ import org.infinispan.util.logging.events.impl.EventLoggerNotifierImpl;
       RemoteCommandsFactory.class, TimeService.class, DataOperationOrderer.class,
       GlobalStateManager.class, GlobalConfigurationManager.class,
       SerializationContextRegistry.class, BlockingManager.class, NonBlockingManager.class,
-      RankCalculator.class, EventLoggerNotifier.class,
+      RankCalculator.class, EventLoggerNotifier.class, BackpressureNotifier.class,
 })
 @Scope(Scopes.GLOBAL)
 public class EmptyConstructorFactory extends AbstractComponentFactory implements AutoInstantiableFactory {
@@ -75,6 +77,8 @@ public class EmptyConstructorFactory extends AbstractComponentFactory implements
          return new RankCalculator();
       else if (componentName.equals(EventLoggerNotifier.class.getName()))
          return new EventLoggerNotifierImpl();
+      else if (componentName.equals(BackpressureNotifier.class.getName()))
+         return new BackpressureNotifierImpl();
 
       throw CONTAINER.factoryCannotConstructComponent(componentName);
    }

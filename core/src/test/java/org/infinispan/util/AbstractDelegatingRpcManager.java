@@ -101,18 +101,18 @@ public abstract class AbstractDelegatingRpcManager implements RpcManager {
 
    @Override
    public final CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand command,
-                                DeliverOrder deliverOrder) {
+                                DeliverOrder deliverOrder, boolean ignoreBackpressure) {
       setTopologyId(command);
       Collection<Address> targets = destinations != null ? destinations : getTransport().getMembers();
       return performSend(targets, command,
-                  c -> realOne.sendToMany(destinations, command, deliverOrder));
+                  c -> realOne.sendToMany(destinations, command, deliverOrder, ignoreBackpressure));
    }
 
    @Override
-   public final CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder) {
+   public final CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder, boolean ignoreBackpressure) {
       setTopologyId(command);
       return performSend(getTransport().getMembers(), command,
-                  c -> realOne.sendToAll(command, deliverOrder));
+                  c -> realOne.sendToAll(command, deliverOrder, ignoreBackpressure));
    }
 
    @Override

@@ -162,12 +162,12 @@ public class MockTransport implements Transport {
    }
 
    @Override
-   public CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder) {
+   public CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean ignoreBackpressure) {
       return blockRequest(destinations, rpcCommand, null);
    }
 
    @Override
-   public CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) {
+   public CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean ignoreBackpressure) {
       return blockRequest(members, rpcCommand, null);
    }
 

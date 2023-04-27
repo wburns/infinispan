@@ -127,14 +127,40 @@ public interface RpcManager {
     * @param command      the {@link ReplicableCommand} to send.
     * @param deliverOrder the {@link DeliverOrder} to use.
     */
-   CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder);
+   default CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder) {
+      return sendToMany(destinations, command, deliverOrder, false);
+   }
+
+   /**
+    * Same as {@link #sendToMany(Collection, ReplicableCommand, DeliverOrder)}  except has relaxed back pressure since
+    * response messages may hold locks and other resources that should be relaesed sooner and ordering guarantees are
+    * fine as we already processed the ordered update for this command
+    * @param command
+    * @param deliverOrder
+    * @param ignoreBackpressure
+    * @return
+    */
+   CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand command, DeliverOrder deliverOrder, boolean ignoreBackpressure);
 
    /**
     * Asynchronously sends the {@link ReplicableCommand} to the entire cluster.
     *
     * @since 9.2
     */
-   CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder);
+   default CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder) {
+      return sendToAll(command, deliverOrder, false);
+   }
+
+   /**
+    * Same as {@link #sendToAll(ReplicableCommand, DeliverOrder)} except has relaxed back pressure since response messages
+    * may hold locks and other resources that should be relaesed sooner and ordering guarantees are fine as we already
+    * processed the ordered update for this command
+    * @param command
+    * @param deliverOrder
+    * @param ignoreBackpressure
+    * @return
+    */
+   CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder, boolean ignoreBackpressure);
 
    /**
     * Sends the {@link XSiteReplicateCommand} to a remote site.

@@ -62,7 +62,7 @@ public class TopologyManagementHelper {
       try {
          DeliverOrder deliverOrder = DeliverOrder.NONE;
          // Ignoring backpressure as this method should be ran very infrequently
-         transport.sendToAll(command, deliverOrder);
+         transport.sendToAll(command, deliverOrder, false);
       } catch (Exception e) {
          throw Util.rewrapAsCacheException(e);
       }

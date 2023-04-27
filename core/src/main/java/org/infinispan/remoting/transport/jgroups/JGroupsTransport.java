@@ -43,6 +43,7 @@ import java.util.stream.Collectors;
 
 import javax.management.ObjectName;
 
+import org.infinispan.backpressure.BackpressureNotifier;
 import org.infinispan.commands.ReplicableCommand;
 import org.infinispan.commands.remote.SingleRpcCommand;
 import org.infinispan.commands.write.AbstractDataWriteCommand;
@@ -217,8 +218,9 @@ public class JGroupsTransport implements Transport, ChannelListener {
    protected GlobalXSiteAdminOperations globalXSiteAdminOperations;
    @Inject
    protected GlobalComponentRegistry globalComponentRegistry;
+   @Inject protected ComponentRef<MetricsCollector> metricsCollector;
    @Inject
-   protected ComponentRef<MetricsCollector> metricsCollector;
+   protected BackpressureNotifier backpressureNotifier;
 
    private final Lock viewUpdateLock = new ReentrantLock();
    private final Condition viewUpdateCondition = viewUpdateLock.newCondition();
@@ -330,13 +332,13 @@ public class JGroupsTransport implements Transport, ChannelListener {
    }
 
    @Override
-   public CompletionStage<Void> sendToMany(Collection<Address> targets, ReplicableCommand command, DeliverOrder deliverOrder) {
+   public CompletionStage<Void> sendToMany(Collection<Address> targets, ReplicableCommand command, DeliverOrder deliverOrder, boolean ignoreBackpressure) {
       if (targets == null) {
          logCommand(command, "all");
-         return sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder);
+         return sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder, ignoreBackpressure);
       } else {
          logCommand(command, targets);
-         return sendCommand(targets, command, Request.NO_REQUEST_ID, deliverOrder, true);
+         return sendCommand(targets, command, Request.NO_REQUEST_ID, deliverOrder, true, ignoreBackpressure);
       }
    }
 
@@ -771,7 +773,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       nettyTP = channel.getProtocolStack().findProtocol(NettyTP.class);
       if (nettyTP != null) {
          ClassConfigurator.addIfAbsent(FUTURE_MAGIC_ID, FutureHeader.class);
-         backpressureHandler = new DelayBackpressureHandler();
+//         backpressureHandler = new DelayBackpressureHandler();
          EventLoopGroup eventLoopGroup = globalComponentRegistry.getComponent(EventLoopGroup.class);
          if (eventLoopGroup != null) {
             // We are managing this event loop group, so don't let JGroups shut it down
@@ -1086,7 +1088,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       try {
          addRequest(request);
          boolean checkView = request.onNewView(clusterView.getMembersSet());
-         CompletionStage<Void> stage = sendCommand(targets, command, requestId, deliverOrder, checkView);
+         CompletionStage<Void> stage = sendCommand(targets, command, requestId, deliverOrder, checkView, false);
          assert CompletionStages.isCompletedSuccessfully(stage) : "Command contained a requestId, it should not require a delay stage";
       } catch (Throwable t) {
          request.cancel(true);
@@ -1113,7 +1115,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       try {
          addRequest(request);
          request.onNewView(clusterView.getMembersSet());
-         sendCommandToAll(command, requestId, deliverOrder);
+         sendCommandToAll(command, requestId, deliverOrder, false);
       } catch (Throwable t) {
          request.cancel(true);
          throw t;
@@ -1140,7 +1142,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       try {
          addRequest(request);
          request.onNewView(clusterView.getMembersSet());
-         sendCommandToAll(command, requestId, deliverOrder);
+         sendCommandToAll(command, requestId, deliverOrder, false);
       } catch (Throwable t) {
          request.cancel(true);
          throw t;
@@ -1234,7 +1236,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       marshallRequest(message, command, requestId);
       setMessageFlags(message, deliverOrder, noRelay);
 
-      return send(message);
+      return send(message, false);
    }
 
    static org.jgroups.Address toJGroupsAddress(Address address) {
@@ -1270,15 +1272,15 @@ public class JGroupsTransport implements Transport, ChannelListener {
       message.setFlag(Message.TransientFlag.DONT_LOOPBACK);
    }
 
-   private CompletionStage<Void> send(Message message) {
+   private CompletionStage<Void> send(Message message, boolean ignoreBackpressure) {
       // When using netty TP we don't need reliability on any messages
       if (nettyTP != null) {
          message.setFlag(Message.Flag.NO_RELIABILITY);
       }
-      // TOOD: just testing to see if this helps...
-      synchronized (this) {
+//      // TOOD: just testing to see if this helps...
+//      synchronized (this) {
          // Back pressure is handling this message, don't send it
-         CompletionStage<Void> stage = backpressureHandler.handle(message);
+         CompletionStage<Void> stage = backpressureHandler.handle(message, ignoreBackpressure);
          if (stage != null) {
             return stage;
          }
@@ -1296,7 +1298,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
                throw CONTAINER.cacheManagerIsStopping();
             }
          }
-      }
+//      }
    }
 
    private void addRequestHeader(Message message, long requestId) {
@@ -1352,13 +1354,13 @@ public class JGroupsTransport implements Transport, ChannelListener {
       CompletionStage<Void> stage;
       if (broadcast) {
          logCommand(command, "all");
-         stage = sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder);
+         stage = sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder, false);
       } else if (singleTarget != null) {
          logCommand(command, singleTarget);
          stage = sendCommand(singleTarget, command, Request.NO_REQUEST_ID, deliverOrder, true, true);
       } else {
          logCommand(command, recipients);
-         stage = sendCommand(recipients, command, Request.NO_REQUEST_ID, deliverOrder, true);
+         stage = sendCommand(recipients, command, Request.NO_REQUEST_ID, deliverOrder, true, false);
       }
       return stage.thenCompose(___ -> EMPTY_RESPONSES_FUTURE).toCompletableFuture();
    }
@@ -1395,19 +1397,19 @@ public class JGroupsTransport implements Transport, ChannelListener {
       return request.toCompletableFuture();
    }
 
-   public CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder) {
+   public CompletionStage<Void> sendToAll(ReplicableCommand command, DeliverOrder deliverOrder, boolean response) {
       logCommand(command, "all");
-      return sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder);
+      return sendCommandToAll(command, Request.NO_REQUEST_ID, deliverOrder, response);
    }
 
    /**
     * Send a command to the entire cluster.
     */
-   private CompletionStage<Void> sendCommandToAll(ReplicableCommand command, long requestId, DeliverOrder deliverOrder) {
+   private CompletionStage<Void> sendCommandToAll(ReplicableCommand command, long requestId, DeliverOrder deliverOrder, boolean ignoreBackpressure) {
       Message message = new BytesMessage();
       marshallRequest(message, command, requestId);
       setMessageFlags(message, deliverOrder, true);
-      return send(message);
+      return send(message, ignoreBackpressure);
    }
 
    private void logRequest(long requestId, ReplicableCommand command, Object targets, String type) {
@@ -1468,7 +1470,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
     * Send a command to multiple targets.
     */
    private CompletionStage<Void> sendCommand(Collection<Address> targets, ReplicableCommand command, long requestId,
-                            DeliverOrder deliverOrder, boolean checkView) {
+                            DeliverOrder deliverOrder, boolean checkView, boolean response) {
       Objects.requireNonNull(targets);
       Message message = new BytesMessage();
       marshallRequest(message, command, requestId);
@@ -1486,7 +1488,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
             continue;
 
          copy.dest(toJGroupsAddress(address));
-         aggregateCompletionStage.dependsOn(send(copy));
+         aggregateCompletionStage.dependsOn(send(copy, response));
 
          // Send a different Message instance to each target
          if (it.hasNext()) {
@@ -1750,10 +1752,16 @@ public class JGroupsTransport implements Transport, ChannelListener {
                   boolean available = ((MemberAvailabilityEvent) evt).isAvailable();
                   log.tracef("A member %s availability has changed to %s", addr, available);
                   if (available) {
-                     backpressureHandler.memberAvailable(addr);
+                     backpressureNotifier.memberRelieved(addr);
                   } else {
-                     backpressureHandler.memberNotAvailable(addr);
+                     backpressureNotifier.memberPressured(addr);
                   }
+
+//                  if (available) {
+//                     backpressureHandler.memberAvailable(addr);
+//                  } else {
+//                     backpressureHandler.memberNotAvailable(addr);
+//                  }
                }
          }
          return null;
@@ -1844,9 +1852,10 @@ public class JGroupsTransport implements Transport, ChannelListener {
        * Whether back pressure will handle the message. If <b>false</b> is returned the invoker should
        * directly submit the task to the {@link JChannel}
        * @param message the message to check if it requires back pressure
+       * @param response if the message is a response from a different node
        * @return whether the handler will process the message
        */
-      default CompletionStage<Void> handle(Message message) {
+      default CompletionStage<Void> handle(Message message, boolean response) {
          return null;
       }
 
@@ -1864,12 +1873,16 @@ public class JGroupsTransport implements Transport, ChannelListener {
       private final ConcurrentMap<Address, Queue<Message>> pendingUcastMessages = new ConcurrentHashMap<>();
 
       @Override
-      public CompletionStage<Void> handle(Message message) {
+      public CompletionStage<Void> handle(Message message, boolean ignoreBackpressure) {
          // Check for trace as message.hashCode may require computation and also we create an Integer object
          boolean isTrace = log.isTraceEnabled();
          org.jgroups.Address jgroupsAddress = message.getDest();
          if (jgroupsAddress == null) {
             if (unavailableMembers.get() > 0) {
+               if (ignoreBackpressure) {
+                  log.tracef("A Member is unavailable but message %s hashCode %d is a response returning anyways", message, message.hashCode());
+                  return null;
+               }
                if (isTrace) {
                   log.tracef("A Member is unavailable delaying %s hashCode %s", message, message.hashCode());
                }
@@ -1887,6 +1900,10 @@ public class JGroupsTransport implements Transport, ChannelListener {
             Address address = fromJGroupsAddress(jgroupsAddress);
             Queue<Message> queue = pendingUcastMessages.get(address);
             if (queue != null) {
+               if (ignoreBackpressure) {
+                  log.tracef("Member %s is unavailable but message %s hashCode %d is a response returning anyways", address, message, message.hashCode());
+                  return null;
+               }
                if (isTrace) {
                   log.tracef("Member %s is unavailable delaying %s hashCode %s", address, message, message.hashCode());
                }

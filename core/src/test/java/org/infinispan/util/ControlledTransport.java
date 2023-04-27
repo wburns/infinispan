@@ -230,11 +230,11 @@ public class ControlledTransport extends AbstractDelegatingTransport {
    }
 
    @Override
-   public CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder)
+   public CompletionStage<Void> sendToMany(Collection<Address> destinations, ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean ignoreBackpressure)
          throws Exception {
       return performSend(destinations, rpcCommand, c -> {
          try {
-            return actual.sendToMany(destinations, rpcCommand, deliverOrder);
+            return actual.sendToMany(destinations, rpcCommand, deliverOrder, ignoreBackpressure);
          } catch (Exception e) {
             return CompletableFuture.failedFuture(e);
          }
@@ -242,10 +242,10 @@ public class ControlledTransport extends AbstractDelegatingTransport {
    }
 
    @Override
-   public CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder) throws Exception {
+   public CompletionStage<Void> sendToAll(ReplicableCommand rpcCommand, DeliverOrder deliverOrder, boolean ignoreBackpressure) throws Exception {
       return performSend(actual.getMembers(), rpcCommand, c -> {
          try {
-            return actual.sendToAll(rpcCommand, deliverOrder);
+            return actual.sendToAll(rpcCommand, deliverOrder, ignoreBackpressure);
          } catch (Exception e) {
             return CompletableFuture.failedFuture(e);
          }

@@ -1,5 +1,6 @@
 package org.infinispan.replication;
 
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.any;
 import static org.mockito.Mockito.reset;
@@ -159,7 +160,7 @@ public class SyncReplTest extends MultipleCacheManagersTest {
          reset(mockTransport);
 
          asyncCache1.put("k", "v");
-         verify(mockTransport).sendToAll(any(ReplicableCommand.class), any(DeliverOrder.class));
+         verify(mockTransport).sendToAll(any(ReplicableCommand.class), any(DeliverOrder.class), anyBoolean());
       } finally {
          // replace original transport
          if (rpcManager != null)

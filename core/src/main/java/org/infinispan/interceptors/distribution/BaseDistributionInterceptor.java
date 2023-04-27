@@ -32,6 +32,7 @@ import org.infinispan.commands.write.ValueMatcher;
 import org.infinispan.commands.write.WriteCommand;
 import org.infinispan.commons.time.TimeService;
 import org.infinispan.commons.util.ArrayCollector;
+import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.container.entries.CacheEntry;
 import org.infinispan.container.entries.InternalCacheEntry;
 import org.infinispan.container.entries.InternalCacheValue;
@@ -65,7 +66,6 @@ import org.infinispan.remoting.transport.impl.SingletonMapResponseCollector;
 import org.infinispan.remoting.transport.impl.VoidResponseCollector;
 import org.infinispan.statetransfer.OutdatedTopologyException;
 import org.infinispan.transaction.xa.GlobalTransaction;
-import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.util.CacheTopologyUtil;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
@@ -246,11 +246,15 @@ public abstract class BaseDistributionInterceptor extends ClusteringInterceptor 
       // Ignore the previous value on the backup owners
       command.setValueMatcher(ValueMatcher.MATCH_ALWAYS);
       if (!isSynchronous(command)) {
+         // We have to ignore back pressure on a response when we are primary owner. In this case we own the lock
+         // for the key and may prevent inbound message processing
+         // Note when our origin is local that means we are just delaying the user thread or endpoint response
+         boolean ignoreBackPressure = !ctx.isOriginLocal();
          CompletionStage<Void> stage;
          if (isReplicated) {
-            stage = rpcManager.sendToAll(command, DeliverOrder.PER_SENDER);
+            stage = rpcManager.sendToAll(command, DeliverOrder.PER_SENDER, ignoreBackPressure);
          } else {
-            stage = rpcManager.sendToMany(owners, command, DeliverOrder.PER_SENDER);
+            stage = rpcManager.sendToMany(owners, command, DeliverOrder.PER_SENDER, ignoreBackPressure);
          }
          // Switch to the retry policy, in case the primary owner changes before we commit locally
          command.setValueMatcher(originalMatcher.matcherForRetry());
