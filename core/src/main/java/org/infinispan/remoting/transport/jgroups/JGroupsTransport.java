@@ -6,8 +6,6 @@ import static org.infinispan.util.logging.Log.CONTAINER;
 import static org.infinispan.util.logging.Log.XSITE;
 
 import java.io.ByteArrayInputStream;
-import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
@@ -22,31 +20,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
-import java.util.Queue;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 import javax.management.ObjectName;
 
 import org.infinispan.backpressure.BackpressureNotifier;
 import org.infinispan.commands.ReplicableCommand;
-import org.infinispan.commands.remote.SingleRpcCommand;
-import org.infinispan.commands.write.AbstractDataWriteCommand;
 import org.infinispan.commons.CacheConfigurationException;
 import org.infinispan.commons.CacheException;
 import org.infinispan.commons.IllegalLifecycleStateException;
@@ -247,8 +238,6 @@ public class JGroupsTransport implements Transport, ChannelListener {
    // ------------------------------------------------------------------------------------------------------------------
    private boolean running;
    private NettyTP nettyTP;
-   private BackpressureHandler backpressureHandler = BackpressureHandler.NoOpBackPressureHandler.getInstance();
-
    public static FORK findFork(JChannel channel) {
       return channel.getProtocolStack().findProtocol(FORK.class);
    }
@@ -481,8 +470,6 @@ public class JGroupsTransport implements Transport, ChannelListener {
    public void start() {
       if (running)
          throw new IllegalStateException("Two or more cache managers are using the same JGroupsTransport instance");
-
-      ClassConfigurator.addIfAbsent(CommandIdTrackingHeader.MAGIC_ID, CommandIdTrackingHeader.class);
 
       probeHandler.updateThreadPool(nonBlockingExecutor);
       props = TypedProperties.toTypedProperties(configuration.transport().properties());
@@ -772,8 +759,6 @@ public class JGroupsTransport implements Transport, ChannelListener {
 
       nettyTP = channel.getProtocolStack().findProtocol(NettyTP.class);
       if (nettyTP != null) {
-         ClassConfigurator.addIfAbsent(FUTURE_MAGIC_ID, FutureHeader.class);
-//         backpressureHandler = new DelayBackpressureHandler();
          EventLoopGroup eventLoopGroup = globalComponentRegistry.getComponent(EventLoopGroup.class);
          if (eventLoopGroup != null) {
             // We are managing this event loop group, so don't let JGroups shut it down
@@ -892,10 +877,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
          if (requests != null) {
             requests.forEach(request -> request.onNewView(view));
          }
-         backpressureHandler.viewChange(view);
       });
-
-      backpressureHandler.viewChange(clusterView.getMembersSet());
 
       JGroupsAddressCache.pruneAddressCache();
    }
@@ -1247,13 +1229,6 @@ public class JGroupsTransport implements Transport, ChannelListener {
       try {
          ByteBuffer bytes = marshaller.objectToBuffer(command);
          message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
-         if (command instanceof SingleRpcCommand) {
-            ReplicableCommand replicableCommand = ((SingleRpcCommand) command).getCommand();
-            if (replicableCommand instanceof AbstractDataWriteCommand) {
-               message.putHeader(CommandIdTrackingHeader.MAGIC_ID, new CommandIdTrackingHeader(
-                     ((AbstractDataWriteCommand) replicableCommand).getCommandInvocationId()));
-            }
-         }
          addRequestHeader(message, requestId);
       } catch (RuntimeException e) {
          throw e;
@@ -1277,28 +1252,20 @@ public class JGroupsTransport implements Transport, ChannelListener {
       if (nettyTP != null) {
          message.setFlag(Message.Flag.NO_RELIABILITY);
       }
-//      // TOOD: just testing to see if this helps...
-//      synchronized (this) {
-         // Back pressure is handling this message, don't send it
-         CompletionStage<Void> stage = backpressureHandler.handle(message, ignoreBackpressure);
-         if (stage != null) {
-            return stage;
+      try {
+         JChannel channel = this.channel;
+         if (channel != null) {
+            channel.send(message);
          }
-         try {
-            JChannel channel = this.channel;
-            if (channel != null) {
-               channel.send(message);
-            }
-            log.tracef("Sent message %s down through JGroupsChannel", message);
-            return CompletableFutures.completedNull();
-         } catch (Exception e) {
-            if (running) {
-               throw new CacheException(e);
-            } else {
-               throw CONTAINER.cacheManagerIsStopping();
-            }
+         log.tracef("Sent message %s down through JGroupsChannel", message);
+         return CompletableFutures.completedNull();
+      } catch (Exception e) {
+         if (running) {
+            throw new CacheException(e);
+         } else {
+            throw CONTAINER.cacheManagerIsStopping();
          }
-//      }
+      }
    }
 
    private void addRequestHeader(Message message, long requestId) {
@@ -1791,219 +1758,5 @@ public class JGroupsTransport implements Transport, ChannelListener {
    private enum SiteUnreachableReason {
       SITE_DOWN_EVENT,
       SITE_UNREACHABLE_EVENT
-   }
-
-   private static final short FUTURE_MAGIC_ID = 1321;
-
-   // Has to be public for JGroups reflection
-   public static class FutureHeader extends Header {
-      private final CompletableFuture<Void> future;
-
-      public FutureHeader() {
-         this(null);
-      }
-
-      FutureHeader(CompletableFuture<Void> future) {
-         this.future = future;
-      }
-
-      public CompletableFuture<Void> getFuture() {
-         return future;
-      }
-
-      @Override
-      public short getMagicId() {
-         return FUTURE_MAGIC_ID;
-      }
-
-      @Override
-      public Supplier<? extends Header> create() {
-         return FutureHeader::new;
-      }
-
-      @Override
-      public int serializedSize() {
-         return 0;
-      }
-
-      @Override
-      public void writeTo(DataOutput out) throws IOException {
-         // Do nothing - unfortunately no way to remove a header from a JGroups message...
-      }
-
-      @Override
-      public void readFrom(DataInput in) throws IOException, ClassNotFoundException {
-         // Do nothing - unfortunately no way to remove a header from a JGroups message...
-      }
-   }
-
-   interface BackpressureHandler {
-
-      class NoOpBackPressureHandler implements BackpressureHandler {
-         private NoOpBackPressureHandler() { }
-
-         private final static NoOpBackPressureHandler INSTANCE = new NoOpBackPressureHandler();
-
-         public static NoOpBackPressureHandler getInstance() {
-            return INSTANCE;
-         }
-      }
-      /**
-       * Whether back pressure will handle the message. If <b>false</b> is returned the invoker should
-       * directly submit the task to the {@link JChannel}
-       * @param message the message to check if it requires back pressure
-       * @param response if the message is a response from a different node
-       * @return whether the handler will process the message
-       */
-      default CompletionStage<Void> handle(Message message, boolean response) {
-         return null;
-      }
-
-      default void memberAvailable(Address address) { }
-
-      default void memberNotAvailable(Address address) { }
-
-      default void viewChange(Set<Address> view) { }
-   }
-
-   // TODO: need to throw AvailablilityBasedOnBytes
-   class DelayBackpressureHandler implements BackpressureHandler {
-      private final AtomicInteger unavailableMembers = new AtomicInteger();
-      private final Queue<Message> pendingMcastMessages = new ConcurrentLinkedQueue<>();/*new MpscUnboundedArrayQueue<>(1024);*/
-      private final ConcurrentMap<Address, Queue<Message>> pendingUcastMessages = new ConcurrentHashMap<>();
-
-      @Override
-      public CompletionStage<Void> handle(Message message, boolean ignoreBackpressure) {
-         // Check for trace as message.hashCode may require computation and also we create an Integer object
-         boolean isTrace = log.isTraceEnabled();
-         org.jgroups.Address jgroupsAddress = message.getDest();
-         if (jgroupsAddress == null) {
-            if (unavailableMembers.get() > 0) {
-               if (ignoreBackpressure) {
-                  log.tracef("A Member is unavailable but message %s hashCode %d is a response returning anyways", message, message.hashCode());
-                  return null;
-               }
-               if (isTrace) {
-                  log.tracef("A Member is unavailable delaying %s hashCode %s", message, message.hashCode());
-               }
-               CompletionStage<Void> future = prepareMessage(message);
-               pendingMcastMessages.add(message);
-               // Double check for concurrent leave or availability pulling from queue
-               if (unavailableMembers.get() > 0 || !pendingMcastMessages.remove(message)) {
-                  return future;
-               }
-               if (isTrace) {
-                  log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s hashCode %s", message, message.hashCode());
-               }
-            }
-         } else {
-            Address address = fromJGroupsAddress(jgroupsAddress);
-            Queue<Message> queue = pendingUcastMessages.get(address);
-            if (queue != null) {
-               if (ignoreBackpressure) {
-                  log.tracef("Member %s is unavailable but message %s hashCode %d is a response returning anyways", address, message, message.hashCode());
-                  return null;
-               }
-               if (isTrace) {
-                  log.tracef("Member %s is unavailable delaying %s hashCode %s", address, message, message.hashCode());
-               }
-               CompletionStage<Void> future = prepareMessage(message);
-               queue.add(message);
-               // Double check for concurrent leave or availability pulling from queue
-               if (pendingUcastMessages.get(address) == queue || !queue.remove(message)) {
-                  return future;
-               }
-               if (isTrace) {
-                  log.tracef("Just kidding, there was a concurrent availability or leaver, caller must process %s hashCode %s", message, message.hashCode());
-               }
-            }
-         }
-         return null;
-      }
-
-      private CompletionStage<Void> prepareMessage(Message message) {
-         // A message that has the header id requires a response from the node to complete
-         // so in that case we just send back a completed stage to signal that the message is still delayed
-         CompletableFuture<Void> future = CompletableFutures.completedNull();
-         if (message.getHeader(HEADER_ID) == null) {
-            future = new CompletableFuture<>();
-            message.putHeader(FUTURE_MAGIC_ID, new FutureHeader(future));
-         }
-         return future;
-      }
-
-      @Override
-      public void memberAvailable(Address address) {
-         log.tracef("Member %s is available for messages, sending as many messages as possible", address);
-         Queue<Message> queue = pendingUcastMessages.remove(address);
-         if (queue == null) {
-            log.tracef("Member %s backpressure resolved but no queue was present, maybe concurrent leave?", address);
-            return;
-         }
-         Message messageToSend;
-         while ((messageToSend = queue.poll()) != null) {
-            log.tracef("Sending delayed message %s hashCode %s", messageToSend, messageToSend.hashCode());
-            channel.down(messageToSend);
-            FutureHeader futureHeader = messageToSend.getHeader(FUTURE_MAGIC_ID);
-            if (futureHeader != null) {
-               nonBlockingManager.complete(futureHeader.future, null);
-            }
-            // Sending the message down may cause this node to become unavailable again, if so just requeue the values
-            // NOTE: we use replace here just in case if this node becomes unresponsive again so we add the newQueue
-            // to our queue instead to maintain ordering
-            Queue<Message> newQueue = pendingUcastMessages.replace(address, queue);
-            if (newQueue != null) {
-               log.tracef("Member %s became unavailable during resending messages, merging queues together", address);
-               // TODO: this order is wrong????
-               queue.addAll(newQueue);
-               break;
-            }
-         }
-
-         if (unavailableMembers.decrementAndGet() == 0) {
-            log.trace("All members are available again, sending outstanding mcast messages");
-            processPendingMcastMessage();
-         }
-      }
-
-      @Override
-      public void memberNotAvailable(Address address) {
-         log.tracef("Member %s is no longer available for messages, throttling messages until available again", address);
-         Queue<Message> prevQueue = pendingUcastMessages.put(address, new ConcurrentLinkedQueue<>());
-         assert prevQueue == null;
-         int unavailableCount = unavailableMembers.incrementAndGet();
-         log.tracef("There are %d members currently unavailable", unavailableCount);
-      }
-
-      @Override
-      public void viewChange(Set<Address> view) {
-         view.forEach(addr -> {
-            Queue<Message> queue = pendingUcastMessages.remove(address);
-            if (queue != null) {
-               log.tracef("Member %s is no longer in cluster, removed backpressure queue", address);
-               if (unavailableMembers.decrementAndGet() == 0) {
-                  processPendingMcastMessage();
-               }
-            }
-         });
-      }
-
-      private void processPendingMcastMessage() {
-         Message messageToSend;
-         // TODO: send as a message batch??
-         while ((messageToSend = pendingMcastMessages.poll()) != null) {
-            log.tracef("Sending delayed message %s hashCode %s", messageToSend, messageToSend.hashCode());
-            channel.down(messageToSend);
-            FutureHeader futureHeader = messageToSend.getHeader(FUTURE_MAGIC_ID);
-            if (futureHeader != null) {
-               nonBlockingManager.complete(futureHeader.future, null);
-            }
-            // Any node may become unavailable in the middle in which case stop processing
-            if (unavailableMembers.get() > 0) {
-               log.trace("A Member became unavailable for messages while resending mcast messages, stopping send");
-               break;
-            }
-         }
-      }
    }
 }
