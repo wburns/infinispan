@@ -55,7 +55,46 @@ public class ByteBufObjectOutput implements InMemoryObjectOutput {
 
    @Override
    public void writeUTF(String s) {
-      ByteBufUtil.writeUtf8(buf, s);
+//      ByteBufUtil.writeUtf8(buf, s);
+      int strlen = s.length();
+      ByteBuf buffer = buf; /* avoid getfield opcode */
+      int startPos = buffer.writerIndex();
+      // First optimize for 1 - 127 case
+      buffer.ensureWritable(strlen + 4);
+      // Note this will be overwritten if not all 1 - 127 characters below
+      buffer.writeInt(strlen);
+
+      int c;
+      int i;
+      for (i = 0; i < strlen; i++) {
+         c = s.charAt(i);
+         if (c > 127) break;
+
+         buffer.writeByte((byte) c);
+      }
+
+      // Means we completed with all latin characters
+      if (i == strlen) {
+         return;
+      }
+
+      // Resize the rest assuming worst case of 3 bytes
+      buffer.ensureWritable((strlen - i) * 3);
+
+      for (; i < strlen; i++) {
+         c = s.charAt(i);
+         if ((c >= 0x0001) && (c <= 0x007F)) {
+            buffer.writeByte((byte) c);
+         } else if (c > 0x07FF) {
+            buffer.writeByte((byte) (0xE0 | ((c >> 12) & 0x0F)));
+            buffer.writeByte((byte) (0x80 | ((c >> 6) & 0x3F)));
+            buffer.writeByte((byte) (0x80 | (c & 0x3F)));
+         } else {
+            buffer.writeByte((byte) (0xC0 | ((c >> 6) & 0x1F)));
+            buffer.writeByte((byte) (0x80 | (c & 0x3F)));
+         }
+      }
+      buffer.setInt(startPos, buffer.writerIndex() - 4 - startPos);
    }
 
    @Override

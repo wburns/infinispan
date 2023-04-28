@@ -1225,13 +1225,19 @@ public class JGroupsTransport implements Transport, ChannelListener {
                                         DeliverOrder deliverOrder, boolean noRelay) {
       org.jgroups.Address jgroupsAddress = target != null ? toJGroupsAddress(target) : null;
       Message message;
-      if (nettyTP != null && marshaller instanceof GlobalMarshaller) {
-         ByteBuf buf = ((GlobalMarshaller) marshaller).objectToByteBuf(command);
-         message = new ByteBufMessage(ByteBufAllocator.DEFAULT, buf);
-         message.setDest(jgroupsAddress);
-      } else {
-         message = new BytesMessage(jgroupsAddress);
-         marshallRequest(message, command, requestId);
+      try {
+         if (nettyTP != null && marshaller instanceof GlobalMarshaller) {
+            ByteBuf buf = ((GlobalMarshaller) marshaller).objectToByteBuf(command);
+            message = new ByteBufMessage(ByteBufAllocator.DEFAULT, buf);
+            message.setDest(jgroupsAddress);
+         } else {
+            message = new BytesMessage(jgroupsAddress);
+            marshallRequest(message, command, requestId);
+         }
+      } catch (RuntimeException e) {
+         throw e;
+      } catch (Exception e) {
+         throw new RuntimeException("Failure to marshal argument(s)", e);
       }
       setMessageFlags(message, deliverOrder, noRelay);
 

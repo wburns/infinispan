@@ -309,10 +309,11 @@ public class GlobalMarshaller implements StreamingMarshaller {
       }
    }
 
-   public ByteBuf objectToByteBuf(Object obj) {
+   public ByteBuf objectToByteBuf(Object obj) throws IOException {
       BufferSizePredictor sizePredictor = marshallableTypeHints.getBufferSizePredictor(obj);
       try (ByteBufObjectOutput bboo = new ByteBufObjectOutput(ByteBufAllocator.DEFAULT.buffer(
             sizePredictor.nextSize(obj)), this)) {
+         bboo.writeObject(obj);
          ByteBuf buf = bboo.getBuf();
          sizePredictor.recordSize(buf.readableBytes());
          return buf;
@@ -366,7 +367,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
 
 
    Object readNullableObject(BytesObjectInput in) throws IOException, ClassNotFoundException {
-      int type = in.readUnsignedByte();
+      int type = in. readUnsignedByte();
       return type == ID_NULL ? null : readNonNullableObject(type, in);
    }
 
