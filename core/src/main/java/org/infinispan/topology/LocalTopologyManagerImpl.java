@@ -1,9 +1,9 @@
 package org.infinispan.topology;
 
 import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static org.infinispan.commons.util.concurrent.CompletableFutures.completedNull;
 import static org.infinispan.factories.KnownComponentNames.NON_BLOCKING_EXECUTOR;
 import static org.infinispan.factories.KnownComponentNames.TIMEOUT_SCHEDULE_EXECUTOR;
-import static org.infinispan.commons.util.concurrent.CompletableFutures.completedNull;
 import static org.infinispan.util.concurrent.CompletionStages.handleAndCompose;
 import static org.infinispan.util.logging.Log.CLUSTER;
 import static org.infinispan.util.logging.Log.CONFIG;
@@ -32,9 +32,11 @@ import org.infinispan.commands.topology.CacheShutdownRequestCommand;
 import org.infinispan.commands.topology.RebalancePhaseConfirmCommand;
 import org.infinispan.commands.topology.RebalancePolicyUpdateCommand;
 import org.infinispan.commands.topology.RebalanceStatusRequestCommand;
+import org.infinispan.commons.CacheException;
 import org.infinispan.commons.IllegalLifecycleStateException;
 import org.infinispan.commons.time.TimeService;
 import org.infinispan.commons.util.Version;
+import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.configuration.cache.StoreConfiguration;
 import org.infinispan.distribution.ch.ConsistentHash;
 import org.infinispan.distribution.ch.ConsistentHashFactory;
@@ -64,16 +66,15 @@ import org.infinispan.remoting.transport.impl.VoidResponseCollector;
 import org.infinispan.remoting.transport.jgroups.SuspectException;
 import org.infinispan.util.concurrent.ActionSequencer;
 import org.infinispan.util.concurrent.BlockingManager;
-import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.util.concurrent.CompletionStages;
 import org.infinispan.util.concurrent.TimeoutException;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
-
-import net.jcip.annotations.GuardedBy;
 import org.infinispan.util.logging.events.EventLogCategory;
 import org.infinispan.util.logging.events.EventLogManager;
 import org.infinispan.util.logging.events.EventLogger;
+
+import net.jcip.annotations.GuardedBy;
 
 /**
  * The {@code LocalTopologyManager} implementation.
@@ -213,8 +214,11 @@ public class LocalTopologyManagerImpl implements LocalTopologyManager, GlobalSta
             log.debugf(t, "Join request failed for cache %s", cacheName);
             if (t instanceof TimeoutException) {
                throw (TimeoutException) t;
+            } else if (t instanceof CacheJoinException) {
+               throw (CacheJoinException) t.getCause();
+            } else {
+               throw new CacheException(t);
             }
-            throw (CacheJoinException) t.getCause();
          }
 
          // Can't use a value based on the state transfer timeout because cache org.infinispan.CONFIG
