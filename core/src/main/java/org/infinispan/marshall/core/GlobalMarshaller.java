@@ -43,6 +43,9 @@ import org.infinispan.marshall.persistence.PersistenceMarshaller;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
+
 /**
  * A globally-scoped marshaller. This is needed so that the transport layer
  * can unmarshall requests even before it's known which cache's marshaller can
@@ -306,6 +309,16 @@ public class GlobalMarshaller implements StreamingMarshaller {
       }
    }
 
+   public ByteBuf objectToByteBuf(Object obj) {
+      BufferSizePredictor sizePredictor = marshallableTypeHints.getBufferSizePredictor(obj);
+      try (ByteBufObjectOutput bboo = new ByteBufObjectOutput(ByteBufAllocator.DEFAULT.buffer(
+            sizePredictor.nextSize(obj)), this)) {
+         ByteBuf buf = bboo.getBuf();
+         sizePredictor.recordSize(buf.readableBytes());
+         return buf;
+      }
+   }
+
    @Override
    public byte[] objectToByteBuffer(Object obj, int estimatedSize) throws IOException, InterruptedException {
       try {
@@ -344,7 +357,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       return ext;
    }
 
-   void writeNullableObject(Object obj, BytesObjectOutput out) throws IOException {
+   void writeNullableObject(Object obj, InMemoryObjectOutput out) throws IOException {
       if (obj == null)
          out.writeByte(ID_NULL);
       else
@@ -357,7 +370,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       return type == ID_NULL ? null : readNonNullableObject(type, in);
    }
 
-   private void writeNonNullableObject(Object obj, BytesObjectOutput out) throws IOException {
+   private void writeNonNullableObject(Object obj, InMemoryObjectOutput out) throws IOException {
       Class<?> clazz = obj.getClass();
       int id = Primitives.PRIMITIVES.getOrDefault(clazz, NOT_FOUND);
       if (id != NOT_FOUND) {
@@ -431,7 +444,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       return id2ExternalizerMap.get(i);
    }
 
-   private void writeArray(Class<?> clazz, Object array, BytesObjectOutput out) throws IOException {
+   private void writeArray(Class<?> clazz, Object array, InMemoryObjectOutput out) throws IOException {
       out.writeByte(ID_ARRAY);
       Class<?> componentType = clazz.getComponentType();
 
@@ -569,7 +582,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       }
    }
 
-   private void writeFlagsWithExternalizer(BytesObjectOutput out, Class<?> componentType, boolean componentTypeMatch, AdvancedExternalizer ext, int flags, int externalizerType) throws IOException {
+   private void writeFlagsWithExternalizer(InMemoryObjectOutput out, Class<?> componentType, boolean componentTypeMatch, AdvancedExternalizer ext, int flags, int externalizerType) throws IOException {
       // If the class can be identified by its externalizer, do that.
       // If there's a component type match, write the externalizer here anyway, otherwise we would
       // have to write it as element type later
@@ -613,7 +626,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       LambdaMarshaller.write(out, obj);
    }
 
-   private void writeUnknown(Object obj, BytesObjectOutput out) throws IOException {
+   private void writeUnknown(Object obj, InMemoryObjectOutput out) throws IOException {
       writeUnknown(persistenceMarshaller, obj, out);
    }
 
@@ -643,7 +656,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       }
    }
 
-   private void writeAnnotated(Object obj, BytesObjectOutput out, Externalizer ext) throws IOException {
+   private void writeAnnotated(Object obj, InMemoryObjectOutput out, Externalizer ext) throws IOException {
       out.writeByte(ID_ANNOTATED);
       out.writeObject(ext.getClass());
       ext.writeObject(out, obj);
@@ -677,7 +690,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       }
    }
 
-   private void writePrimitive(Object obj, BytesObjectOutput out, int id) throws IOException {
+   private void writePrimitive(Object obj, InMemoryObjectOutput out, int id) throws IOException {
       out.writeByte(ID_PRIMITIVE);
       Primitives.writePrimitive(obj, out, id);
    }

@@ -68,12 +68,12 @@ final class Primitives {
    private Primitives() {
    }
 
-   static void writePrimitive(Object obj, BytesObjectOutput out, int id) throws IOException {
+   static void writePrimitive(Object obj, InMemoryObjectOutput out, int id) throws IOException {
       out.writeByte(id);
       writeRawPrimitive(obj, out, id);
    }
 
-   static void writeRawPrimitive(Object obj, BytesObjectOutput out, int id) throws IOException {
+   static void writeRawPrimitive(Object obj, InMemoryObjectOutput out, int id) throws IOException {
       switch (id) {
          case ID_BYTE_ARRAY:
             Primitives.writeByteArray((byte[]) obj, out);
@@ -177,7 +177,7 @@ final class Primitives {
       }
    }
 
-   private static void writeByteArray(byte[] obj, BytesObjectOutput out) {
+   private static void writeByteArray(byte[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -196,7 +196,7 @@ final class Primitives {
       }
    }
 
-   private static void writeBooleanArray(boolean[] obj, BytesObjectOutput out) {
+   private static void writeBooleanArray(boolean[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -215,7 +215,7 @@ final class Primitives {
       }
    }
 
-   private static void writeBooleans(boolean[] obj, BytesObjectOutput out) {
+   private static void writeBooleans(boolean[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       final int bc = len & ~7;
       for (int i = 0; i < bc;) {
@@ -241,7 +241,7 @@ final class Primitives {
       }
    }
 
-   private static void writeCharArray(char[] obj, BytesObjectOutput out) {
+   private static void writeCharArray(char[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -260,7 +260,7 @@ final class Primitives {
       }
    }
 
-   private static void writeDoubleArray(double[] obj, BytesObjectOutput out) {
+   private static void writeDoubleArray(double[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -279,7 +279,7 @@ final class Primitives {
       }
    }
 
-   private static void writeFloatArray(float[] obj, BytesObjectOutput out) {
+   private static void writeFloatArray(float[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -298,7 +298,7 @@ final class Primitives {
       }
    }
 
-   private static void writeIntArray(int[] obj, BytesObjectOutput out) {
+   private static void writeIntArray(int[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -317,7 +317,7 @@ final class Primitives {
       }
    }
 
-   private static void writeLongArray(long[] obj, BytesObjectOutput out) {
+   private static void writeLongArray(long[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);
@@ -336,7 +336,7 @@ final class Primitives {
       }
    }
 
-   private static void writeShortArray(short[] obj, BytesObjectOutput out) {
+   private static void writeShortArray(short[] obj, InMemoryObjectOutput out) {
       final int len = obj.length;
       if (len == 0) {
          out.writeByte(ID_ARRAY_EMPTY);

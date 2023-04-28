@@ -65,6 +65,7 @@ import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.jmx.CacheManagerJmxRegistration;
 import org.infinispan.jmx.ObjectNameKeys;
+import org.infinispan.marshall.core.GlobalMarshaller;
 import org.infinispan.metrics.impl.MetricsCollector;
 import org.infinispan.notifications.cachemanagerlistener.CacheManagerNotifier;
 import org.infinispan.remoting.inboundhandler.DeliverOrder;
@@ -106,6 +107,7 @@ import org.infinispan.xsite.XSiteBackup;
 import org.infinispan.xsite.XSiteNamedCache;
 import org.infinispan.xsite.XSiteReplicateCommand;
 import org.infinispan.xsite.commands.XSiteViewNotificationCommand;
+import org.jgroups.ByteBufMessage;
 import org.jgroups.BytesMessage;
 import org.jgroups.ChannelListener;
 import org.jgroups.Event;
@@ -135,6 +137,8 @@ import org.jgroups.util.MessageCompleteEvent;
 import org.jgroups.util.NettyAsyncHeader;
 import org.jgroups.util.SocketFactory;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import io.netty.channel.EventLoopGroup;
 
 /**
@@ -1219,8 +1223,16 @@ public class JGroupsTransport implements Transport, ChannelListener {
 
    private Message messageFromCommand(Address target, ReplicableCommand command, long requestId,
                                         DeliverOrder deliverOrder, boolean noRelay) {
-      Message message = new BytesMessage(toJGroupsAddress(target));
-      marshallRequest(message, command, requestId);
+      org.jgroups.Address jgroupsAddress = target != null ? toJGroupsAddress(target) : null;
+      Message message;
+      if (nettyTP != null && marshaller instanceof GlobalMarshaller) {
+         ByteBuf buf = ((GlobalMarshaller) marshaller).objectToByteBuf(command);
+         message = new ByteBufMessage(ByteBufAllocator.DEFAULT, buf);
+         message.setDest(jgroupsAddress);
+      } else {
+         message = new BytesMessage(jgroupsAddress);
+         marshallRequest(message, command, requestId);
+      }
       setMessageFlags(message, deliverOrder, noRelay);
 
       return message;
@@ -1377,9 +1389,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
     * Send a command to the entire cluster.
     */
    private void sendCommandToAll(ReplicableCommand command, long requestId, DeliverOrder deliverOrder) {
-      Message message = new BytesMessage();
-      marshallRequest(message, command, requestId);
-      setMessageFlags(message, deliverOrder, true);
+      Message message = messageFromCommand(null, command, requestId, deliverOrder, true);
       send(message);
    }
 
@@ -1443,11 +1453,8 @@ public class JGroupsTransport implements Transport, ChannelListener {
    private void sendCommand(Collection<Address> targets, ReplicableCommand command, long requestId,
                             DeliverOrder deliverOrder, boolean checkView) {
       Objects.requireNonNull(targets);
-      Message message = new BytesMessage();
-      marshallRequest(message, command, requestId);
-      setMessageFlags(message, deliverOrder, true);
 
-      Message copy = message;
+      Message copy = messageFromCommand(null, command, requestId, deliverOrder, true);
       for (Iterator<Address> it = targets.iterator(); it.hasNext(); ) {
          Address address = it.next();
 
@@ -1457,13 +1464,15 @@ public class JGroupsTransport implements Transport, ChannelListener {
          if (address.equals(getAddress()))
             continue;
 
-         copy.dest(toJGroupsAddress(address));
-         send(copy);
-
-         // Send a different Message instance to each target
+         Message messageToSend;
          if (it.hasNext()) {
-            copy = copy.copy(true, true);
+            messageToSend = copy.copy(true, true);
+         } else {
+            messageToSend = copy;
          }
+
+         copy.dest(toJGroupsAddress(address));
+         send(messageToSend);
       }
    }
 
@@ -1725,12 +1734,6 @@ public class JGroupsTransport implements Transport, ChannelListener {
                   } else {
                      backpressureNotifier.memberPressured(addr);
                   }
-
-//                  if (available) {
-//                     backpressureHandler.memberAvailable(addr);
-//                  } else {
-//                     backpressureHandler.memberNotAvailable(addr);
-//                  }
                }
          }
          return null;
