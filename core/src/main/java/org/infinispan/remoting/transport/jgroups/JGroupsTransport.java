@@ -1230,6 +1230,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
             ByteBuf buf = ((GlobalMarshaller) marshaller).objectToByteBuf(command);
             message = new ByteBufMessage(ByteBufAllocator.DEFAULT, buf);
             message.setDest(jgroupsAddress);
+            addRequestHeader(message, requestId);
          } else {
             message = new BytesMessage(jgroupsAddress);
             marshallRequest(message, command, requestId);
@@ -1491,6 +1492,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
    }
 
    void processMessage(Message message) {
+//      log.tracef("Received message: " + message);
       org.jgroups.Address src = message.src();
       short flags = message.getFlags();
       byte[] buffer = message.getArray();
@@ -1517,10 +1519,10 @@ public class JGroupsTransport implements Transport, ChannelListener {
       switch (type) {
          case SINGLE_MESSAGE:
          case REQUEST:
-            processRequest(src, message, flags, buffer, offset, length, requestId);
+            processRequest(src, message, flags, requestId);
             break;
          case RESPONSE:
-            processResponse(src, buffer, offset, length, requestId);
+            processResponse(src, message, requestId);
             break;
          default:
             CLUSTER.invalidMessageType(type, src);
@@ -1566,8 +1568,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       return message;
    }
 
-   private void processRequest(org.jgroups.Address src, Message message, short flags, byte[] buffer, int offset, int length,
-                               long requestId) {
+   private void processRequest(org.jgroups.Address src, Message message, short flags, long requestId) {
       try {
          DeliverOrder deliverOrder = decodeDeliverMode(flags);
          if (src.equals(((JGroupsAddress) getAddress()).getJGroupsAddress())) {
@@ -1577,7 +1578,8 @@ public class JGroupsTransport implements Transport, ChannelListener {
             return;
          }
 
-         ReplicableCommand command = (ReplicableCommand) marshaller.objectFromByteBuffer(buffer, offset, length);
+         ReplicableCommand command = (ReplicableCommand) marshaller.objectFromByteBuffer(message.getArray(),
+               message.getOffset(), message.getLength());
          Reply reply;
          if (requestId != Request.NO_REQUEST_ID) {
             if (log.isTraceEnabled())
@@ -1614,14 +1616,15 @@ public class JGroupsTransport implements Transport, ChannelListener {
       }
    }
 
-   private void processResponse(org.jgroups.Address src, byte[] buffer, int offset, int length, long requestId) {
+   private void processResponse(org.jgroups.Address src, Message message, long requestId) {
       try {
          Response response;
+         int length = message.getLength();
          if (length == 0) {
             // Empty buffer signals the ForkChannel with this name is not running on the remote node
             response = CacheNotFoundResponse.INSTANCE;
          } else {
-            response = (Response) marshaller.objectFromByteBuffer(buffer, offset, length);
+            response = (Response) marshaller.objectFromByteBuffer(message.getArray(), message.getOffset(), length);
             if (response == null) {
                response = SuccessfulResponse.SUCCESSFUL_EMPTY_RESPONSE;
             }

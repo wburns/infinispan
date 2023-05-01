@@ -54,13 +54,13 @@ public interface InMemoryObjectOutput extends ObjectOutput {
    }
 
    @Override
-   default void writeBytes(String s) {
-      writeString(s);
+   default void writeChars(String s) {
+      throw new UnsupportedOperationException("Use writeUTF instead!");
    }
 
    @Override
-   default void writeChars(String s) {
-      writeString(s);
+   default void writeBytes(String s) {
+      throw new UnsupportedOperationException("Use writeUTF instead!");
    }
 
    @Override
