@@ -1495,9 +1495,6 @@ public class JGroupsTransport implements Transport, ChannelListener {
 //      log.tracef("Received message: " + message);
       org.jgroups.Address src = message.src();
       short flags = message.getFlags();
-      byte[] buffer = message.getArray();
-      int offset = message.getOffset();
-      int length = message.getLength();
       RequestCorrelator.Header header = message.getHeader(HEADER_ID);
       byte type;
       long requestId;
@@ -1578,8 +1575,18 @@ public class JGroupsTransport implements Transport, ChannelListener {
             return;
          }
 
-         ReplicableCommand command = (ReplicableCommand) marshaller.objectFromByteBuffer(message.getArray(),
-               message.getOffset(), message.getLength());
+         ReplicableCommand command;
+         if (message instanceof ByteBufMessage) {
+            ByteBuf byteBuf = ((ByteBufMessage) message).getBuf();
+            int readerIndex = byteBuf.readerIndex();
+            int length = message.getLength();
+            command = (ReplicableCommand) ((GlobalMarshaller) marshaller).objectFromByteBuf(byteBuf);
+
+            assert byteBuf.readerIndex() == readerIndex + length;
+         } else {
+            command = (ReplicableCommand) marshaller.objectFromByteBuffer(message.getArray(),
+                  message.getOffset(), message.getLength());
+         }
          Reply reply;
          if (requestId != Request.NO_REQUEST_ID) {
             if (log.isTraceEnabled())
@@ -1624,7 +1631,15 @@ public class JGroupsTransport implements Transport, ChannelListener {
             // Empty buffer signals the ForkChannel with this name is not running on the remote node
             response = CacheNotFoundResponse.INSTANCE;
          } else {
-            response = (Response) marshaller.objectFromByteBuffer(message.getArray(), message.getOffset(), length);
+            if (message instanceof ByteBufMessage) {
+               ByteBuf byteBuf = ((ByteBufMessage) message).getBuf();
+               int readerIndex = byteBuf.readerIndex();
+               response = (Response) ((GlobalMarshaller) marshaller).objectFromByteBuf(byteBuf);
+
+               assert byteBuf.readerIndex() == readerIndex + length;
+            } else {
+               response = (Response) marshaller.objectFromByteBuffer(message.getArray(), message.getOffset(), length);
+            }
             if (response == null) {
                response = SuccessfulResponse.SUCCESSFUL_EMPTY_RESPONSE;
             }

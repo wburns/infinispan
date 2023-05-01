@@ -105,7 +105,7 @@ final class Primitives {
       return new byte[len];
    }
 
-   private static byte[] readFully(byte[] arr, BytesObjectInput in) throws EOFException {
+   private static byte[] readFully(byte[] arr, BytesObjectInput in) throws IOException {
       in.readFully(arr);
       return arr;
    }

@@ -190,7 +190,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       return objectFromObjectInput(in);
    }
 
-   private Object objectFromObjectInput(BytesObjectInput in) throws IOException, ClassNotFoundException {
+   private Object objectFromObjectInput(InMemoryObjectInput in) throws IOException, ClassNotFoundException {
       return readNullableObject(in);
    }
 
@@ -212,6 +212,11 @@ public class GlobalMarshaller implements StreamingMarshaller {
       } catch (IOException e) {
          // ignored
       }
+   }
+
+   public Object objectFromByteBuf(ByteBuf buf) throws IOException, ClassNotFoundException {
+      ByteBufObjectInput bboi = new ByteBufObjectInput(buf, this);
+      return objectFromObjectInput(bboi);
    }
 
    @Override
@@ -366,7 +371,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
    }
 
 
-   Object readNullableObject(BytesObjectInput in) throws IOException, ClassNotFoundException {
+   Object readNullableObject(InMemoryObjectInput in) throws IOException, ClassNotFoundException {
       int type = in. readUnsignedByte();
       return type == ID_NULL ? null : readNonNullableObject(type, in);
    }
@@ -714,7 +719,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       }
    }
 
-   private Object readNonNullableObject(int type, BytesObjectInput in) throws IOException, ClassNotFoundException {
+   private Object readNonNullableObject(int type, InMemoryObjectInput in) throws IOException, ClassNotFoundException {
       switch (type) {
          case ID_PRIMITIVE:
             return Primitives.readPrimitive(in);
@@ -735,13 +740,13 @@ public class GlobalMarshaller implements StreamingMarshaller {
       }
    }
 
-   private Object readWithExternalizer(int id, IdToExternalizerMap reverseMap, BytesObjectInput in)
+   private Object readWithExternalizer(int id, IdToExternalizerMap reverseMap, InMemoryObjectInput in)
          throws IOException, ClassNotFoundException {
       AdvancedExternalizer ext = getExternalizer(reverseMap, id);
       return ext.readObject(in);
    }
 
-   private Object readAnnotated(BytesObjectInput in) throws IOException, ClassNotFoundException {
+   private Object readAnnotated(InMemoryObjectInput in) throws IOException, ClassNotFoundException {
       Class<? extends Externalizer> clazz =
             (Class<? extends Externalizer>) in.readObject();
       try {
@@ -752,7 +757,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       }
    }
 
-   private Object readArray(BytesObjectInput in) throws IOException, ClassNotFoundException {
+   private Object readArray(InMemoryObjectInput in) throws IOException, ClassNotFoundException {
       int flags = in.readByte();
       int type = flags & TYPE_MASK;
       AdvancedExternalizer<?> componentExt = null;
@@ -870,7 +875,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       }
    }
 
-   private Externalizer<?> readExternalizer(BytesObjectInput in, int type) throws ClassNotFoundException, IOException {
+   private Externalizer<?> readExternalizer(InMemoryObjectInput in, int type) throws ClassNotFoundException, IOException {
       Class<?> extClazz;
       switch (type) {
          case ID_INTERNAL:
@@ -892,7 +897,7 @@ public class GlobalMarshaller implements StreamingMarshaller {
       }
    }
 
-   private Class<?> getOrReadClass(BytesObjectInput in, AdvancedExternalizer<?> componentExt) throws ClassNotFoundException, IOException {
+   private Class<?> getOrReadClass(InMemoryObjectInput in, AdvancedExternalizer<?> componentExt) throws ClassNotFoundException, IOException {
       if (componentExt.getTypeClasses().size() == 1) {
          return componentExt.getTypeClasses().iterator().next();
       } else {
