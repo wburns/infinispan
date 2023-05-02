@@ -1547,17 +1547,26 @@ public class JGroupsTransport implements Transport, ChannelListener {
 
    private Message messageFromResponse(org.jgroups.Address target, Response response, long requestId)
          throws IOException, InterruptedException {
-      ByteBuffer bytes;
+      Message message;
       try {
-         bytes = marshaller.objectToBuffer(response);
+         if (nettyTP != null && marshaller instanceof GlobalMarshaller) {
+            ByteBuf buf = ((GlobalMarshaller) marshaller).objectToByteBuf(response);
+            message = new ByteBufMessage(ByteBufAllocator.DEFAULT, buf);
+            message.setDest(target);
+         } else {
+            ByteBuffer bytes = marshaller.objectToBuffer(response);
+            message = new BytesMessage(target);
+            message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
+         }
+         message.setFlag(REPLY_FLAGS, false);
       } catch (Throwable t) {
          // this call should succeed (all exceptions are serializable)
          Exception e = t instanceof Exception ? ((Exception) t) : new CacheException(t);
-         bytes = marshaller.objectToBuffer(new ExceptionResponse(e));
+         message = new BytesMessage(target);
+         ByteBuffer bytes = marshaller.objectToBuffer(new ExceptionResponse(e));
+         message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
       }
 
-      Message message = new BytesMessage(target).setFlag(REPLY_FLAGS, false);
-      message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
       RequestCorrelator.Header header = new RequestCorrelator.Header(RESPONSE, requestId,
             CORRELATOR_ID);
       message.putHeader(HEADER_ID, header);
