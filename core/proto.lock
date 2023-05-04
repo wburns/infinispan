@@ -313,6 +313,21 @@
             ]
           },
           {
+            "name": "RemoteMetadata",
+            "fields": [
+              {
+                "id": 1,
+                "name": "address",
+                "type": "JGroupsAddress"
+              },
+              {
+                "id": 2,
+                "name": "version",
+                "type": "SimpleClusteredVersion"
+              }
+            ]
+          },
+          {
             "name": "TopologyIracVersion",
             "fields": [
               {

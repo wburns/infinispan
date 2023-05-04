@@ -1,5 +1,6 @@
 package org.infinispan.marshall.persistence.impl;
 
+import org.infinispan.container.entries.RemoteMetadata;
 import org.infinispan.container.versioning.NumericVersion;
 import org.infinispan.container.versioning.SimpleClusteredVersion;
 import org.infinispan.container.versioning.irac.IracEntryVersion;
@@ -41,6 +42,7 @@ import org.infinispan.util.logging.events.EventLogLevel;
             MarshalledValueImpl.class,
             MetaParamsInternalMetadata.class,
             NumericVersion.class,
+            RemoteMetadata.class,
             SimpleClusteredVersion.class,
             MarshallableUserObject.class,
             PrivateMetadata.class,

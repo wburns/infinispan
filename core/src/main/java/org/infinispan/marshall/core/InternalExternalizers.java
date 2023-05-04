@@ -22,6 +22,7 @@ import org.infinispan.container.entries.ImmortalCacheEntry;
 import org.infinispan.container.entries.ImmortalCacheValue;
 import org.infinispan.container.entries.MortalCacheEntry;
 import org.infinispan.container.entries.MortalCacheValue;
+import org.infinispan.container.entries.RemoteMetadata;
 import org.infinispan.container.entries.TransientCacheEntry;
 import org.infinispan.container.entries.TransientCacheValue;
 import org.infinispan.container.entries.TransientMortalCacheEntry;
@@ -198,6 +199,7 @@ final class InternalExternalizers {
       addInternalExternalizer(new NumericVersion.Externalizer(), exts);
       addInternalExternalizer(new OptionalExternalizer(), exts);
       addInternalExternalizer(new PersistentUUID.Externalizer(), exts);
+      addInternalExternalizer(new RemoteMetadata.Externalizer(), exts);
       addInternalExternalizer(new ReplicatedConsistentHash.Externalizer(), exts);
       addInternalExternalizer(new ReplicatedConsistentHashFactory.Externalizer(), exts); // TODO: Untested in core
       addInternalExternalizer(new SimpleClusteredVersion.Externalizer(), exts);
