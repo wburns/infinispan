@@ -3,6 +3,7 @@ package org.infinispan.server.core.transport;
 import java.util.function.Supplier;
 
 import org.infinispan.server.core.ProtocolServer;
+import org.infinispan.server.core.RunnableHandler;
 import org.infinispan.server.core.configuration.ProtocolServerConfiguration;
 import org.infinispan.server.core.configuration.SslConfiguration;
 import org.infinispan.server.core.utils.SslUtils;
@@ -64,6 +65,7 @@ public class NettyChannelInitializer<A extends ProtocolServerConfiguration> impl
       ChannelInboundHandler decoder = decoderSupplier != null ? decoderSupplier.get() : null;
       if (decoder != null) {
          pipeline.addLast("decoder", decoder);
+         pipeline.addLast("handler", RunnableHandler.INSTANCE);
       }
       if (encoder != null) {
          pipeline.addLast("encoder", encoder);

@@ -16,15 +16,15 @@ import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.security.actions.SecurityActions;
 import org.infinispan.server.core.ServerConstants;
 import org.infinispan.server.core.telemetry.TelemetryService;
-import org.infinispan.server.core.transport.BaseBackpressureHandler;
 import org.infinispan.server.hotrod.logging.Log;
 import org.infinispan.server.hotrod.tracing.HotRodTelemetryService;
 
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.ByteToMessageDecoder;
 import io.netty.handler.codec.DecoderException;
 
-abstract class BaseDecoder extends BaseBackpressureHandler {
+abstract class BaseDecoder extends ByteToMessageDecoder {
    protected final static Log log = LogFactory.getLog(BaseDecoder.class, Log.class);
 
    protected final EmbeddedCacheManager cacheManager;
@@ -38,8 +38,6 @@ abstract class BaseDecoder extends BaseBackpressureHandler {
    protected TaskRequestProcessor taskProcessor;
 
    protected BaseDecoder(EmbeddedCacheManager cacheManager, Executor executor, HotRodServer server) {
-      // TODO: need to allow configuring this
-      super(24, 48);
       this.cacheManager = cacheManager;
       this.executor = executor;
       this.server = server;

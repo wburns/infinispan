@@ -301,7 +301,7 @@ expectValue: long;
 
 parameters switch opCode
 // Cache operations
-   : { PUT_REQUEST }? key expiration value { cacheProcessor.put(getHeader(), auth.getSubject(operation), key, value, expiration) }
+   : { PUT_REQUEST }? key expiration value { out.add(cacheProcessor.put(getHeader(), auth.getSubject(operation), key, value, expiration))  }
    | { GET_REQUEST }? key { cacheProcessor.get(getHeader(), auth.getSubject(operation), key) }
    | { PUT_IF_ABSENT_REQUEST }? key expiration value { cacheProcessor.putIfAbsent(getHeader(), auth.getSubject(operation), key, value, expiration) }
    | { REPLACE_REQUEST }? key expiration value { cacheProcessor.replace(getHeader(), auth.getSubject(operation), key, value, expiration) }

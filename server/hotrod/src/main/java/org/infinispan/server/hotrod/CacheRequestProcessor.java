@@ -217,12 +217,14 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       }
    }
 
-   void put(HotRodHeader header, Subject subject, byte[] key, byte[] value, Metadata.Builder metadata) {
-      Object span = telemetryService.requestStart(HotRodOperation.PUT.name(), header.otherParams);
-      ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
-      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
-      metadata.version(cacheInfo.versionGenerator.generateNew());
-      putInternal(header, cache, key, value, metadata.build(), span);
+   Runnable put(HotRodHeader header, Subject subject, byte[] key, byte[] value, Metadata.Builder metadata) {
+      return () -> {
+         Object span = telemetryService.requestStart(HotRodOperation.PUT.name(), header.otherParams);
+         ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
+         AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+         metadata.version(cacheInfo.versionGenerator.generateNew());
+         putInternal(header, cache, key, value, metadata.build(), span);
+      };
    }
 
    private void putInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, byte[] key, byte[] value,

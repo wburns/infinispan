@@ -78,6 +78,7 @@ public abstract class BaseBackpressureHandler extends ChannelInboundHandlerAdapt
    }
 
    void updateCompletions(Channel ch) {
+      assert ch.eventLoop().inEventLoop();
       int decrements = concurrentCompletions.getAndSet(0);
       pendingOperations -= decrements;
       if (pendingOperations < lowWatermark && reachedHighWatermark) {
