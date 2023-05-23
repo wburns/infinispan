@@ -17,4 +17,9 @@ public class RunnableHandler extends ChannelInboundHandlerAdapter {
       }
       ((Runnable) msg).run();
    }
+
+   @Override
+   public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+      super.exceptionCaught(ctx, cause);
+   }
 }

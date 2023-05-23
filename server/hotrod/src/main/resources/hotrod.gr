@@ -301,48 +301,49 @@ expectValue: long;
 
 parameters switch opCode
 // Cache operations
+//   : { PUT_REQUEST }? key expiration value { out.add(cacheProcessor.put(getHeader(), auth.getSubject(operation), key, value, expiration))  }
    : { PUT_REQUEST }? key expiration value { out.add(cacheProcessor.put(getHeader(), auth.getSubject(operation), key, value, expiration))  }
-   | { GET_REQUEST }? key { cacheProcessor.get(getHeader(), auth.getSubject(operation), key) }
-   | { PUT_IF_ABSENT_REQUEST }? key expiration value { cacheProcessor.putIfAbsent(getHeader(), auth.getSubject(operation), key, value, expiration) }
-   | { REPLACE_REQUEST }? key expiration value { cacheProcessor.replace(getHeader(), auth.getSubject(operation), key, value, expiration) }
-   | { REPLACE_IF_UNMODIFIED_REQUEST }? key expiration entryVersion value { cacheProcessor.replaceIfUnmodified(getHeader(), auth.getSubject(operation), key, entryVersion, value, expiration) }
-   | { REMOVE_REQUEST }? key { cacheProcessor.remove(getHeader(), auth.getSubject(operation), key) }
-   | { REMOVE_IF_UNMODIFIED_REQUEST }? key entryVersion { cacheProcessor.removeIfUnmodified(getHeader(), auth.getSubject(operation), key, entryVersion) }
-   | { CONTAINS_KEY_REQUEST }? key { cacheProcessor.containsKey(getHeader(), auth.getSubject(operation), key) }
-   | { GET_WITH_VERSION }? key { cacheProcessor.get(getHeader(), auth.getSubject(operation), key) }
-   | { CLEAR_REQUEST }? { cacheProcessor.clear(getHeader(), auth.getSubject(operation)) }
-   | { STATS_REQUEST }? { cacheProcessor.stats(getHeader(), auth.getSubject(operation)) }
-   | { PING_REQUEST }? { cacheProcessor.ping(getHeader(), auth.getSubject(operation)); }
-   | { BULK_GET_REQUEST }? numKeys { cacheProcessor.bulkGet(getHeader(), auth.getSubject(operation), numKeys); }
-   | { GET_WITH_METADATA }? key { cacheProcessor.getWithMetadata(getHeader(), auth.getSubject(operation), key, 0) }
-   | { BULK_GET_KEYS_REQUEST }? scope { cacheProcessor.bulkGetKeys(getHeader(), auth.getSubject(operation), scope); }
-   | { QUERY_REQUEST }? queryBytes { cacheProcessor.query(getHeader(), auth.getSubject(operation), queryBytes); }
-   | { AUTH_MECH_LIST_REQUEST }? { auth.authMechList(header); }
-   | { AUTH_REQUEST }? authMech authResponse { auth.auth(header, authMech, authResponse); }
+   | { GET_REQUEST }? key { out.add(cacheProcessor.get(getHeader(), auth.getSubject(operation), key)) }
+   | { PUT_IF_ABSENT_REQUEST }? key expiration value { out.add(cacheProcessor.putIfAbsent(getHeader(), auth.getSubject(operation), key, value, expiration)) }
+   | { REPLACE_REQUEST }? key expiration value { out.add(cacheProcessor.replace(getHeader(), auth.getSubject(operation), key, value, expiration)) }
+   | { REPLACE_IF_UNMODIFIED_REQUEST }? key expiration entryVersion value { out.add(cacheProcessor.replaceIfUnmodified(getHeader(), auth.getSubject(operation), key, entryVersion, value, expiration)) }
+   | { REMOVE_REQUEST }? key { out.add(cacheProcessor.remove(getHeader(), auth.getSubject(operation), key)) }
+   | { REMOVE_IF_UNMODIFIED_REQUEST }? key entryVersion { out.add(cacheProcessor.removeIfUnmodified(getHeader(), auth.getSubject(operation), key, entryVersion)) }
+   | { CONTAINS_KEY_REQUEST }? key { out.add(cacheProcessor.containsKey(getHeader(), auth.getSubject(operation), key)); }
+   | { GET_WITH_VERSION }? key { out.add(cacheProcessor.get(getHeader(), auth.getSubject(operation), key)); }
+   | { CLEAR_REQUEST }? { out.add(cacheProcessor.clear(getHeader(), auth.getSubject(operation))); }
+   | { STATS_REQUEST }? { out.add(cacheProcessor.stats(getHeader(), auth.getSubject(operation))); }
+   | { PING_REQUEST }? { out.add(cacheProcessor.ping(getHeader(), auth.getSubject(operation))); }
+   | { BULK_GET_REQUEST }? numKeys { out.add(cacheProcessor.bulkGet(getHeader(), auth.getSubject(operation), numKeys)); }
+   | { GET_WITH_METADATA }? key { out.add(cacheProcessor.getWithMetadata(getHeader(), auth.getSubject(operation), key, 0)); }
+   | { BULK_GET_KEYS_REQUEST }? scope { out.add(cacheProcessor.bulkGetKeys(getHeader(), auth.getSubject(operation), scope)); }
+   | { QUERY_REQUEST }? queryBytes { out.add(cacheProcessor.query(getHeader(), auth.getSubject(operation), queryBytes)); }
+   | { AUTH_MECH_LIST_REQUEST }? { out.add(auth.authMechList(header)); }
+   | { AUTH_REQUEST }? authMech authResponse { out.add(auth.auth(header, authMech, authResponse)); }
    | { ADD_CLIENT_LISTENER_REQUEST }? listenerId includeCurrentState listenerParams
-      { cacheProcessor.addClientListener(getHeader(), auth.getSubject(operation), listenerId, includeCurrentState, filterFactory, filterParams, converterFactory, converterParams, useRawEvents, listenerInterests, 0); }
+      { out.add(cacheProcessor.addClientListener(getHeader(), auth.getSubject(operation), listenerId, includeCurrentState, filterFactory, filterParams, converterFactory, converterParams, useRawEvents, listenerInterests, 0)); }
    | { ADD_BLOOM_FILTER_NEAR_CACHE_LISTENER_REQUEST }? listenerId bloomBits
-      { cacheProcessor.addClientListener(getHeader(), auth.getSubject(operation), listenerId, false, null, null, null, null, false, 14, bloomBits); }
-   | { REMOVE_CLIENT_LISTENER_REQUEST }? listenerId { cacheProcessor.removeClientListener(getHeader(), auth.getSubject(operation), listenerId); }
-   | { SIZE_REQUEST }? { cacheProcessor.size(getHeader(), auth.getSubject(operation)); }
-   | { EXEC_REQUEST }? taskName taskParams { taskProcessor.exec(getHeader(), auth.getSubject(operation), taskName, taskParams); }
-   | { PUT_ALL_REQUEST }? expiration entryMap { cacheProcessor.putAll(getHeader(), auth.getSubject(operation), entryMap, expiration) }
-   | { GET_ALL_REQUEST }? keys { cacheProcessor.getAll(getHeader(), auth.getSubject(operation), keys) }
+      { out.add(cacheProcessor.addClientListener(getHeader(), auth.getSubject(operation), listenerId, false, null, null, null, null, false, 14, bloomBits)); }
+   | { REMOVE_CLIENT_LISTENER_REQUEST }? listenerId { out.add(cacheProcessor.removeClientListener(getHeader(), auth.getSubject(operation), listenerId)); }
+   | { SIZE_REQUEST }? { out.add(cacheProcessor.size(getHeader(), auth.getSubject(operation))); }
+   | { EXEC_REQUEST }? taskName taskParams { out.add(taskProcessor.exec(getHeader(), auth.getSubject(operation), taskName, taskParams)); }
+   | { PUT_ALL_REQUEST }? expiration entryMap { out.add(cacheProcessor.putAll(getHeader(), auth.getSubject(operation), entryMap, expiration)); }
+   | { GET_ALL_REQUEST }? keys { out.add(cacheProcessor.getAll(getHeader(), auth.getSubject(operation), keys)); }
    | { ITERATION_START_REQUEST }? segmentMask filterConverterFactory filterConverterParams batchSize includeMetadata
-      { cacheProcessor.iterationStart(getHeader(), auth.getSubject(operation), segmentMask, filterConverterFactory, filterConverterParams, batchSize, includeMetadata); }
-   | { ITERATION_NEXT_REQUEST }? iterationId { cacheProcessor.iterationNext(getHeader(), auth.getSubject(operation), iterationId); }
-   | { ITERATION_END_REQUEST }? iterationId { cacheProcessor.iterationEnd(getHeader(), auth.getSubject(operation), iterationId); }
-   | { GET_STREAM_REQUEST }? key offset { cacheProcessor.getWithMetadata(getHeader(), auth.getSubject(operation), key, offset); }
-   | { PUT_STREAM_REQUEST }? key expiration entryVersion chunkedValue { cacheProcessor.putStream(getHeader(), auth.getSubject(operation), key, chunkedValue, entryVersion, expiration) }
-   | { UPDATE_BLOOM_FILTER_REQUEST }? bloomArray { cacheProcessor.updateBloomFilter(getHeader(), auth.getSubject(operation), bloomArray); }
+      { out.add(cacheProcessor.iterationStart(getHeader(), auth.getSubject(operation), segmentMask, filterConverterFactory, filterConverterParams, batchSize, includeMetadata)); }
+   | { ITERATION_NEXT_REQUEST }? iterationId { out.add(cacheProcessor.iterationNext(getHeader(), auth.getSubject(operation), iterationId)); }
+   | { ITERATION_END_REQUEST }? iterationId { out.add(cacheProcessor.iterationEnd(getHeader(), auth.getSubject(operation), iterationId)); }
+   | { GET_STREAM_REQUEST }? key offset { out.add(cacheProcessor.getWithMetadata(getHeader(), auth.getSubject(operation), key, offset)); }
+   | { PUT_STREAM_REQUEST }? key expiration entryVersion chunkedValue { out.add(cacheProcessor.putStream(getHeader(), auth.getSubject(operation), key, chunkedValue, entryVersion, expiration)); }
+   | { UPDATE_BLOOM_FILTER_REQUEST }? bloomArray { out.add(cacheProcessor.updateBloomFilter(getHeader(), auth.getSubject(operation), bloomArray)); }
 
 // Transactions
-   | { PREPARE_TX }? xid onePhaseCommit modifications { cacheProcessor.prepareTransaction(getHeader(), auth.getSubject(operation), xid, onePhaseCommit, modifications, false, 60000); }
-   | { COMMIT_TX }? xid { cacheProcessor.commitTransaction(getHeader(), auth.getSubject(operation), xid); }
-   | { ROLLBACK_TX }? xid { cacheProcessor.rollbackTransaction(getHeader(), auth.getSubject(operation), xid); }
-   | { FORGET_TX }? xid { cacheProcessor.forgetTransaction(getHeader(), auth.getSubject(operation), xid); }
-   | { FETCH_TX_RECOVERY }? { cacheProcessor.getPreparedTransactions(getHeader(), auth.getSubject(operation)); }
-   | { PREPARE_TX_2 }? xid onePhaseCommit recoverable timeout modifications { cacheProcessor.prepareTransaction(getHeader(), auth.getSubject(operation), xid, onePhaseCommit, modifications, recoverable, timeout); }
+   | { PREPARE_TX }? xid onePhaseCommit modifications { out.add(cacheProcessor.prepareTransaction(getHeader(), auth.getSubject(operation), xid, onePhaseCommit, modifications, false, 60000)); }
+   | { COMMIT_TX }? xid { out.add(cacheProcessor.commitTransaction(getHeader(), auth.getSubject(operation), xid)); }
+   | { ROLLBACK_TX }? xid { out.add(cacheProcessor.rollbackTransaction(getHeader(), auth.getSubject(operation), xid)); }
+   | { FORGET_TX }? xid { out.add(cacheProcessor.forgetTransaction(getHeader(), auth.getSubject(operation), xid)); }
+   | { FETCH_TX_RECOVERY }? { out.add(cacheProcessor.getPreparedTransactions(getHeader(), auth.getSubject(operation))); }
+   | { PREPARE_TX_2 }? xid onePhaseCommit recoverable timeout modifications { out.add(cacheProcessor.prepareTransaction(getHeader(), auth.getSubject(operation), xid, onePhaseCommit, modifications, recoverable, timeout)); }
 
 // Counters
    | { COUNTER_CREATE_REQUEST }? counterName counterConfiguration { counterProcessor.createCounter(getHeader(), auth.getSubject(operation), counterName, counterConfiguration.build()); }

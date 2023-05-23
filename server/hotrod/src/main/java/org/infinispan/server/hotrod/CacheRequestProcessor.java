@@ -48,18 +48,22 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       this.telemetryService = telemetryService;
    }
 
-   void ping(HotRodHeader header, Subject subject) {
-      // we need to throw an exception when the cache is inaccessible
-      // but ignore the default cache, because the client always pings the default cache first
-      if (!header.cacheName.isEmpty()) {
-         server.cache(server.getCacheInfo(header), header, subject);
-      }
-      writeResponse(header, header.encoder().pingResponse(header, server, channel, OperationStatus.Success));
+   Runnable ping(HotRodHeader header, Subject subject) {
+      return () -> {
+         // we need to throw an exception when the cache is inaccessible
+         // but ignore the default cache, because the client always pings the default cache first
+         if (!header.cacheName.isEmpty()) {
+            server.cache(server.getCacheInfo(header), header, subject);
+         }
+         writeResponse(header, header.encoder().pingResponse(header, server, channel, OperationStatus.Success));
+      };
    }
 
-   void stats(HotRodHeader header, Subject subject) {
-      AdvancedCache<byte[], byte[]> cache = server.cache(server.getCacheInfo(header), header, subject);
-      executor.execute(() -> blockingStats(header, cache));
+   Runnable stats(HotRodHeader header, Subject subject) {
+      return () -> {
+         AdvancedCache<byte[], byte[]> cache = server.cache(server.getCacheInfo(header), header, subject);
+         executor.execute(() -> blockingStats(header, cache));
+      };
    }
 
    private void blockingStats(HotRodHeader header, AdvancedCache<byte[], byte[]> cache) {
@@ -75,11 +79,13 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       }
    }
 
-   void get(HotRodHeader header, Subject subject, byte[] key) {
-      ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
-      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+   Runnable get(HotRodHeader header, Subject subject, byte[] key) {
+      return () -> {
+         ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
+         AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
 
-      getInternal(header, cache, key);
+         getInternal(header, cache, key);
+      };
    }
 
    void updateBloomFilter(HotRodHeader header, Subject subject, byte[] bloomArray) {
@@ -158,10 +164,12 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       }
    }
 
-   void getWithMetadata(HotRodHeader header, Subject subject, byte[] key, int offset) {
-      ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
-      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
-      getWithMetadataInternal(header, cache, key, offset);
+   Runnable getWithMetadata(HotRodHeader header, Subject subject, byte[] key, int offset) {
+      return () -> {
+         ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
+         AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+         getWithMetadataInternal(header, cache, key, offset);
+      };
    }
 
    private void getWithMetadataInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, byte[] key, int offset) {
@@ -192,10 +200,12 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       }
    }
 
-   void containsKey(HotRodHeader header, Subject subject, byte[] key) {
-      ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
-      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
-      containsKeyInternal(header, cache, key);
+   Runnable containsKey(HotRodHeader header, Subject subject, byte[] key) {
+      return () -> {
+         ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
+         AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+         containsKeyInternal(header, cache, key);
+      };
    }
 
    private void containsKeyInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, byte[] key) {
@@ -242,12 +252,14 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       telemetryService.requestEnd(span);
    }
 
-   void replaceIfUnmodified(HotRodHeader header, Subject subject, byte[] key, long version, byte[] value, Metadata.Builder metadata) {
-      Object span = telemetryService.requestStart(HotRodOperation.REPLACE_IF_UNMODIFIED.name(), header.otherParams);
-      ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
-      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
-      metadata.version(cacheInfo.versionGenerator.generateNew());
-      replaceIfUnmodifiedInternal(header, cache, key, version, value, metadata.build(), span);
+   Runnable replaceIfUnmodified(HotRodHeader header, Subject subject, byte[] key, long version, byte[] value, Metadata.Builder metadata) {
+      return () -> {
+         Object span = telemetryService.requestStart(HotRodOperation.REPLACE_IF_UNMODIFIED.name(), header.otherParams);
+         ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
+         AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+         metadata.version(cacheInfo.versionGenerator.generateNew());
+         replaceIfUnmodifiedInternal(header, cache, key, version, value, metadata.build(), span);
+      };
    }
 
    private void replaceIfUnmodifiedInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, byte[] key,
@@ -288,12 +300,14 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       }
    }
 
-   void replace(HotRodHeader header, Subject subject, byte[] key, byte[] value, Metadata.Builder metadata) {
-      Object span = telemetryService.requestStart(HotRodOperation.REPLACE.name(), header.otherParams);
-      ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
-      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
-      metadata.version(cacheInfo.versionGenerator.generateNew());
-      replaceInternal(header, cache, key, value, metadata.build(), span);
+   Runnable replace(HotRodHeader header, Subject subject, byte[] key, byte[] value, Metadata.Builder metadata) {
+      return () -> {
+         Object span = telemetryService.requestStart(HotRodOperation.REPLACE.name(), header.otherParams);
+         ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
+         AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+         metadata.version(cacheInfo.versionGenerator.generateNew());
+         replaceInternal(header, cache, key, value, metadata.build(), span);
+      };
    }
 
    private void replaceInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, byte[] key, byte[] value,
@@ -332,12 +346,14 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       telemetryService.requestEnd(span);
    }
 
-   void putIfAbsent(HotRodHeader header, Subject subject, byte[] key, byte[] value, Metadata.Builder metadata) {
-      Object span = telemetryService.requestStart(HotRodOperation.PUT_IF_ABSENT.name(), header.otherParams);
-      ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
-      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
-      metadata.version(cacheInfo.versionGenerator.generateNew());
-      putIfAbsentInternal(header, cache, key, value, metadata.build(), span);
+   Runnable putIfAbsent(HotRodHeader header, Subject subject, byte[] key, byte[] value, Metadata.Builder metadata) {
+      return () -> {
+         Object span = telemetryService.requestStart(HotRodOperation.PUT_IF_ABSENT.name(), header.otherParams);
+         ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
+         AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+         metadata.version(cacheInfo.versionGenerator.generateNew());
+         putIfAbsentInternal(header, cache, key, value, metadata.build(), span);
+      };
    }
 
    private void putIfAbsentInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, byte[] key, byte[] value,
@@ -359,11 +375,13 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       telemetryService.requestEnd(span);
    }
 
-   void remove(HotRodHeader header, Subject subject, byte[] key) {
-      Object span = telemetryService.requestStart(HotRodOperation.REMOVE.name(), header.otherParams);
-      ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
-      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
-      removeInternal(header, cache, key, span);
+   Runnable remove(HotRodHeader header, Subject subject, byte[] key) {
+      return () -> {
+         Object span = telemetryService.requestStart(HotRodOperation.REMOVE.name(), header.otherParams);
+         ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
+         AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+         removeInternal(header, cache, key, span);
+      };
    }
 
    private void removeInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, byte[] key,
@@ -382,11 +400,13 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       telemetryService.requestEnd(span);
    }
 
-   void removeIfUnmodified(HotRodHeader header, Subject subject, byte[] key, long version) {
-      Object span = telemetryService.requestStart(HotRodOperation.REMOVE_IF_UNMODIFIED.name(), header.otherParams);
-      ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
-      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
-      removeIfUnmodifiedInternal(header, cache, key, version, span);
+   Runnable removeIfUnmodified(HotRodHeader header, Subject subject, byte[] key, long version) {
+      return () -> {
+         Object span = telemetryService.requestStart(HotRodOperation.REMOVE_IF_UNMODIFIED.name(), header.otherParams);
+         ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
+         AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+         removeIfUnmodifiedInternal(header, cache, key, version, span);
+      };
    }
 
    private void removeIfUnmodifiedInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, byte[] key,
@@ -427,11 +447,13 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       }
    }
 
-   void clear(HotRodHeader header, Subject subject) {
-      Object span = telemetryService.requestStart(HotRodOperation.CLEAR.name(), header.otherParams);
-      ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
-      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
-      clearInternal(header, cache, span);
+   Runnable clear(HotRodHeader header, Subject subject) {
+      return () -> {
+         Object span = telemetryService.requestStart(HotRodOperation.CLEAR.name(), header.otherParams);
+         ExtendedCacheInfo cacheInfo = server.getCacheInfo(header);
+         AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+         clearInternal(header, cache, span);
+      };
    }
 
    private void clearInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, Object span) {
@@ -506,9 +528,11 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       telemetryService.requestEnd(span);
    }
 
-   void bulkGet(HotRodHeader header, Subject subject, int size) {
-      AdvancedCache<byte[], byte[]> cache = server.cache(server.getCacheInfo(header), header, subject);
-      executor.execute(() -> bulkGetInternal(header, cache, size));
+   Runnable bulkGet(HotRodHeader header, Subject subject, int size) {
+      return () -> {
+         AdvancedCache<byte[], byte[]> cache = server.cache(server.getCacheInfo(header), header, subject);
+         executor.execute(() -> bulkGetInternal(header, cache, size));
+      };
    }
 
    private void bulkGetInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, int size) {
@@ -522,9 +546,11 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       }
    }
 
-   void bulkGetKeys(HotRodHeader header, Subject subject, int scope) {
-      AdvancedCache<byte[], byte[]> cache = server.cache(server.getCacheInfo(header), header, subject);
-      executor.execute(() -> bulkGetKeysInternal(header, cache, scope));
+   Runnable bulkGetKeys(HotRodHeader header, Subject subject, int scope) {
+      return () -> {
+         AdvancedCache<byte[], byte[]> cache = server.cache(server.getCacheInfo(header), header, subject);
+         executor.execute(() -> bulkGetKeysInternal(header, cache, scope));
+      };
    }
 
    private void bulkGetKeysInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, int scope) {
@@ -641,16 +667,16 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       });
    }
 
-   void putStream(HotRodHeader header, Subject subject, byte[] key, ByteBuf buf, long version, Metadata.Builder metadata) {
+   Runnable putStream(HotRodHeader header, Subject subject, byte[] key, ByteBuf buf, long version, Metadata.Builder metadata) {
       try {
          byte[] value = new byte[buf.readableBytes()];
          buf.readBytes(value);
          if (version == 0) { // Normal put
-            put(header, subject, key, value, metadata);
+            return put(header, subject, key, value, metadata);
          } else if (version < 0) { // putIfAbsent
-            putIfAbsent(header, subject, key, value, metadata);
+            return putIfAbsent(header, subject, key, value, metadata);
          } else { // versioned replace
-            replaceIfUnmodified(header, subject, key, version, value, metadata);
+            return replaceIfUnmodified(header, subject, key, version, value, metadata);
          }
       } finally {
          buf.release();
