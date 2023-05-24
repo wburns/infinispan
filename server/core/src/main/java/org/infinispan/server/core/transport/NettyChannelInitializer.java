@@ -64,7 +64,8 @@ public class NettyChannelInitializer<A extends ProtocolServerConfiguration> impl
       ChannelInboundHandler decoder = decoderSupplier != null ? decoderSupplier.get() : null;
       if (decoder != null) {
          pipeline.addLast("decoder", decoder);
-         pipeline.addLast("handler", new BackpressureHandler(true, 128, 256));
+//         pipeline.addLast("handler", DoNothingHandler.INSTANCE);
+         pipeline.addLast("handler", new BackpressureHandler(true, 8, 16));
       }
       if (encoder != null) {
          pipeline.addLast("encoder", encoder);

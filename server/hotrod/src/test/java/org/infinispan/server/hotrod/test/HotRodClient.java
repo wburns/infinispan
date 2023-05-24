@@ -176,6 +176,10 @@ public class HotRodClient implements Closeable {
       return execute(0xA0, (byte) 0x01, defaultCacheName, k, lifespan, maxIdle, v, 0, (byte) 1, 0);
    }
 
+   public CompletionStage<TestResponse> putAsync(byte[] k, int lifespan, int maxIdle, byte[] v) {
+      return executeAsync(0xA0, (byte) 0x01, defaultCacheName, k, lifespan, maxIdle, v, 0, (byte) 1, 0);
+   }
+
    public TestResponse put(byte[] k, int lifespan, int maxIdle, byte[] v, byte clientIntelligence, int topologyId) {
       return execute(0xA0, (byte) 0x01, defaultCacheName, k, lifespan, maxIdle, v, 0, clientIntelligence, topologyId);
    }
@@ -284,6 +288,13 @@ public class HotRodClient implements Closeable {
       return execute(op);
    }
 
+   public CompletionStage<TestResponse> executeAsync(int magic, byte code, String name, byte[] k, int lifespan, int maxIdle,
+                               byte[] v, long dataVersion, byte clientIntelligence, int topologyId) {
+      Op op = new Op(magic, protocolVersion, code, name, k, lifespan, maxIdle, v, 0, dataVersion,
+            clientIntelligence, topologyId);
+      return executAsync(op);
+   }
+
    public TestErrorResponse executeExpectBadMagic(int magic, byte code, String name, byte[] k, int lifespan, int maxIdle,
                                                   byte[] v, long version) {
       Op op = new Op(magic, protocolVersion, code, name, k, lifespan, maxIdle, v, 0, version, (byte) 1, 0);
@@ -300,6 +311,13 @@ public class HotRodClient implements Closeable {
                                byte[] v, long dataVersion, int flags) {
       Op op = new Op(magic, protocolVersion, code, name, k, lifespan, maxIdle, v, flags, dataVersion, (byte) 1, 0);
       return execute(op);
+   }
+
+   public CompletionStage<TestResponse> executAsync(Op op) {
+      ClientHandler handler = (ClientHandler) ch.pipeline().last();
+      CompletionStage<TestResponse> responseStage = handler.waitForResponse(op.id);
+      writeOp(op);
+      return responseStage;
    }
 
    private TestResponse execute(Op op, long expectedResponseMessageId) {
