@@ -6,12 +6,20 @@ import org.infinispan.commons.logging.LogFactory;
 import org.infinispan.server.core.logging.Log;
 
 import io.netty.channel.Channel;
+import io.netty.channel.ChannelDuplexHandler;
 import io.netty.channel.ChannelHandlerContext;
-import io.netty.channel.ChannelInboundHandlerAdapter;
 
-public abstract class BaseBackpressureHandler extends ChannelInboundHandlerAdapter {
+/**
+ *
+ */
+public class BackpressureHandler extends ChannelDuplexHandler {
    protected final Log log = LogFactory.getLog(this.getClass(), Log.class);
+
+   protected final boolean treatFlushAsCompleted;
+
    // All the following variables should only be read while on the event loop
+
+   // This may be -1 in the case where an operation flushes before finishing the read call
    protected int pendingOperations = 0;
    protected int lowWatermark;
    protected int highWatermark;
@@ -21,7 +29,8 @@ public abstract class BaseBackpressureHandler extends ChannelInboundHandlerAdapt
    // This variable can be referenced by multiple threads
    protected final AtomicInteger concurrentCompletions = new AtomicInteger();
 
-   protected BaseBackpressureHandler(int lowWatermark, int highWatermark) {
+   protected BackpressureHandler(boolean treatFlushAsCompleted, int lowWatermark, int highWatermark) {
+      this.treatFlushAsCompleted = treatFlushAsCompleted;
       this.lowWatermark = lowWatermark;
       this.highWatermark = highWatermark;
    }
@@ -41,6 +50,14 @@ public abstract class BaseBackpressureHandler extends ChannelInboundHandlerAdapt
    }
 
    @Override
+   public void flush(ChannelHandlerContext ctx) throws Exception {
+      if (treatFlushAsCompleted) {
+         decrementPendingOperations(ctx.channel());
+      }
+      super.flush(ctx);
+   }
+
+   @Override
    public final void channelRead(ChannelHandlerContext ctx, Object msg) throws Exception {
       if (!actualRead(ctx, msg)) {
          if (++pendingOperations == highWatermark && !reachedHighWatermark) {
@@ -51,6 +68,12 @@ public abstract class BaseBackpressureHandler extends ChannelInboundHandlerAdapt
       }
    }
 
+   protected void decrementPendingOperations(Channel ch) {
+      if (pendingOperations-- == lowWatermark && reachedHighWatermark) {
+         lowWatermarkMet(ch);
+      }
+   }
+
    /**
     * This method is to invoked by extensions of this class to notify us that a msg has now completed that wasn't
     * completed when {@link #actualRead(ChannelHandlerContext, Object)} was invoked.
@@ -58,9 +81,7 @@ public abstract class BaseBackpressureHandler extends ChannelInboundHandlerAdapt
     */
    public void completedPriorMessage(Channel ch) {
       if (ch.eventLoop().inEventLoop()) {
-         if (pendingOperations-- == lowWatermark && reachedHighWatermark) {
-            lowWatermarkMet(ch);
-         }
+         decrementPendingOperations(ch);
       } else if (concurrentCompletions.getAndIncrement() == 0) {
          // Submit to event loop
          ch.eventLoop().submit(() -> updateCompletions(ch));
@@ -86,5 +107,22 @@ public abstract class BaseBackpressureHandler extends ChannelInboundHandlerAdapt
       }
    }
 
-   protected abstract boolean actualRead(ChannelHandlerContext ctx, Object msg) throws Exception;
+   /**
+    * This method is here to be extended by implementations to provide some additional processing after a read operation
+    * is done passing the context and message object as a normal {@link io.netty.channel.ChannelInboundHandler#channelRead(ChannelHandlerContext, Object)}
+    * invocation. The method should return if the operation was completed or not. If it wasn't completed then the pending
+    * operation will be incremented and the implementation should eventually invoke {@link BackpressureHandler#decrementPendingOperations(Channel)}
+    * to signal that the operation is complete. Optinally if {@link BackpressureHandler#treatFlushAsCompleted} is <b>TRUE</b>
+    * then flushing a single result will be sufficient to decrement the count.
+    * <p>
+    * By default this method returns the negation of {@link BackpressureHandler#treatFlushAsCompleted} since the
+    * command in that case is completed when the flush is done.
+    * @param ctx The handler context for this handler
+    * @param msg The object message provided from downstream handlers
+    * @return whether the operation was completed
+    * @throws Exception if any error happens in processing the message
+    */
+   protected boolean actualRead(ChannelHandlerContext ctx, Object msg) throws Exception {
+      return !treatFlushAsCompleted;
+   }
 }
