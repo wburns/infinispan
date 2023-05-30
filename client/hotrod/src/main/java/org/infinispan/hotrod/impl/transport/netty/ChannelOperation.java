@@ -2,6 +2,7 @@ package org.infinispan.hotrod.impl.transport.netty;
 
 import java.net.SocketAddress;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 
 /**
@@ -12,6 +13,8 @@ public interface ChannelOperation {
     * Invoked on an active channel ready to be written
     */
    void invoke(Channel channel);
+
+   void writeBytes(ByteBuf buffer);
 
    /**
     * Invoked when the callback cannot be invoked due to timeout or terminated pool.
