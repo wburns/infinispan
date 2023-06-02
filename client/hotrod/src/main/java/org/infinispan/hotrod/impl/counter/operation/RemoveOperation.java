@@ -4,6 +4,7 @@ import org.infinispan.counter.api.CounterManager;
 import org.infinispan.counter.api.StrongCounter;
 import org.infinispan.counter.api.WeakCounter;
 import org.infinispan.hotrod.impl.operations.OperationContext;
+import org.infinispan.hotrod.impl.transport.netty.ByteBufUtil;
 import org.infinispan.hotrod.impl.transport.netty.HeaderDecoder;
 
 import io.netty.buffer.ByteBuf;
@@ -23,6 +24,11 @@ public class RemoveOperation extends BaseCounterOperation<Void> {
    @Override
    protected void executeOperation(Channel channel) {
       sendHeaderAndCounterNameAndRead(channel);
+   }
+
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      writeHeaderAndCounterName(buf);
    }
 
    @Override

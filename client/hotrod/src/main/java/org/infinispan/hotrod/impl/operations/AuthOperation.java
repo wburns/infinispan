@@ -52,6 +52,16 @@ public class AuthOperation extends HotRodOperation<byte[]> {
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      byte[] saslMechBytes = saslMechanism.getBytes(HOTROD_STRING_CHARSET);
+      Codec codec = operationContext.getCodec();
+
+      codec.writeHeader(buf, header);
+      ByteBufUtil.writeArray(buf, saslMechBytes);
+      ByteBufUtil.writeArray(buf, response);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       boolean complete = buf.readUnsignedByte() > 0;
       byte[] challenge = ByteBufUtil.readArray(buf);

@@ -23,6 +23,11 @@ public class GetValueOperation extends BaseCounterOperation<Long> {
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      writeHeaderAndCounterName(buf);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       checkStatus(status);
       assert status == NO_ERROR_STATUS;

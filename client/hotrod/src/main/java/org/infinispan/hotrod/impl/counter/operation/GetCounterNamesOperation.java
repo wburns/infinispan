@@ -1,5 +1,7 @@
 package org.infinispan.hotrod.impl.counter.operation;
 
+import static org.infinispan.counter.util.EncodeUtil.encodeConfiguration;
+
 import java.util.ArrayList;
 import java.util.Collection;
 
@@ -28,6 +30,12 @@ public class GetCounterNamesOperation extends BaseCounterOperation<Collection<St
    protected void executeOperation(Channel channel) {
       scheduleRead(channel);
       sendHeader(channel);
+      setCacheName();
+   }
+
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      operationContext.getCodec().writeHeader(buf, header);
       setCacheName();
    }
 

@@ -24,6 +24,11 @@ public class IsDefinedOperation extends BaseCounterOperation<Boolean> {
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      writeHeaderAndCounterName(buf);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       complete(status == NO_ERROR_STATUS);
    }

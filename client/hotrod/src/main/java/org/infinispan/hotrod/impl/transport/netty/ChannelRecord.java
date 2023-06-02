@@ -24,13 +24,9 @@ public class ChannelRecord extends CompletableFuture<Channel> implements Generic
    static AttributeKey<ChannelRecord> KEY = AttributeKey.newInstance("activation");
 
    private final SocketAddress unresolvedAddress;
-   private final ChannelPool channelPool;
-   private boolean closed = false;
-   private boolean acquired = true;
 
-   ChannelRecord(SocketAddress unresolvedAddress, ChannelPool channelPool) {
+   ChannelRecord(SocketAddress unresolvedAddress) {
       this.unresolvedAddress = unresolvedAddress;
-      this.channelPool = channelPool;
    }
 
    public static ChannelRecord of(Channel channel) {
@@ -58,34 +54,5 @@ public class ChannelRecord extends CompletableFuture<Channel> implements Generic
             log.tracef(future.cause(), "Channel %s is closed, see exception for details", get());
          }
       }
-      channelPool.releaseClosedChannel(future.channel(), this);
-      channelPool.inspectPool();
-   }
-
-   synchronized void setAcquired() {
-      assert !acquired;
-      acquired = true;
-   }
-
-   public synchronized boolean isIdle() {
-      return !acquired;
-   }
-
-   public synchronized boolean setIdleAndIsClosed() {
-      assert acquired;
-      acquired = false;
-
-      return closed;
-   }
-
-   public synchronized boolean closeAndWasIdle() {
-      assert !closed;
-      closed = true;
-
-      return !acquired;
-   }
-
-   public void release(Channel channel) {
-      channelPool.release(channel, this);
    }
 }

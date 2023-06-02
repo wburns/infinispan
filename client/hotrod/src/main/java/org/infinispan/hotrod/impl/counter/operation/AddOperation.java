@@ -38,6 +38,12 @@ public class AddOperation extends BaseCounterOperation<Long> {
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      writeHeaderAndCounterName(buf);
+      buf.writeLong(delta);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       checkStatus(status);
       assertBoundaries(status);

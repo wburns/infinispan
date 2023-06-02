@@ -85,13 +85,6 @@ public interface Codec {
    HotRodCounterEvent readCounterEvent(ByteBuf buf);
 
    /**
-    * @return True if we can send operations after registering a listener on given channel
-    */
-   default boolean allowOperationsAndEvents() {
-      return false;
-   }
-
-   /**
     * Iteration read for projection size
     *
     * @param buf

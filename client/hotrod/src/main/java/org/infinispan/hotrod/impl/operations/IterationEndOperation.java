@@ -30,8 +30,12 @@ public class IterationEndOperation extends HotRodOperation<IterationEndResponse>
       }
       scheduleRead(channel);
       sendArrayOperation(channel, iterationId);
-      releaseChannel(channel);
       return this;
+   }
+
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      writeArrayOperation(buf, iterationId);
    }
 
    @Override

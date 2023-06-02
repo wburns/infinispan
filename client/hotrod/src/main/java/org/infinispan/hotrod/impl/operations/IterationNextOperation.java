@@ -60,6 +60,11 @@ public class IterationNextOperation<K, E> extends HotRodOperation<IterationNextR
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      writeArrayOperation(buf, iterationId);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       if (entriesSize < 0) {
          finishedSegments = ByteBufUtil.readArray(buf);

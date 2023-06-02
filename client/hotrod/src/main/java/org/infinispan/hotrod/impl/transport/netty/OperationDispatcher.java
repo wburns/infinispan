@@ -30,20 +30,14 @@ public class OperationDispatcher implements BiConsumer<Channel, Throwable>,
       this.closedConsumer = closedConsumer;
    }
 
-   public static OperationDispatcher newDispatcher(ChannelInitializer initializer,
+   public static OperationDispatcher newDispatcher(CompletionStage<Channel> channelStage,
                                                    Consumer<HotRodOperation<?>> closedConsumer) {
       OperationDispatcher dispatcher = new OperationDispatcher(closedConsumer);
-      dispatcher.start(initializer);
+      channelStage.whenComplete(dispatcher);
       return dispatcher;
    }
 
-   private CompletionStage<Channel> start(ChannelInitializer initializer) {
-      CompletionStage<Channel> stage = initializer.createChannel();
-      stage.whenComplete(this);
-      return stage;
-   }
-
-   public <E, T extends HotRodOperation<E> & ChannelOperation> T dispatchOperation(T channelOperation) {
+   public void dispatchOperation(ChannelOperation channelOperation) {
       queue.offer(channelOperation);
       if (channel != null) {
          if (channel.eventLoop().inEventLoop()) {
@@ -52,7 +46,6 @@ public class OperationDispatcher implements BiConsumer<Channel, Throwable>,
             channel.eventLoop().submit(this::sendOperations);
          }
       }
-      return channelOperation;
    }
 
    private void sendOperations() {
@@ -72,6 +65,7 @@ public class OperationDispatcher implements BiConsumer<Channel, Throwable>,
    public void accept(Channel channel, Throwable throwable) {
       if (throwable != null) {
          // TODO: need to reject all queued operations
+         return;
       }
       this.channel = channel;
       channel.closeFuture().addListener(this);

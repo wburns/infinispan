@@ -45,6 +45,13 @@ public class AddListenerOperation extends BaseCounterOperation<Boolean> {
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      writeHeaderAndCounterName(buf);
+
+      ByteBufUtil.writeArray(buf, listenerId);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       checkStatus(status);
       if (status != NO_ERROR_STATUS) {

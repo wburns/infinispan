@@ -31,21 +31,31 @@ import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 import io.netty.handler.timeout.IdleStateEvent;
 import io.netty.util.Signal;
+import io.netty.util.internal.shaded.org.jctools.queues.MessagePassingQueue;
+import io.netty.util.internal.shaded.org.jctools.queues.MpscUnboundedArrayQueue;
 
-public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
+public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> implements MessagePassingQueue.Consumer<HotRodOperation<?>> {
    private static final Log log = LogFactory.getLog(HeaderDecoder.class);
    // used for HeaderOrEventDecoder, too, as the function is similar
    public static final String NAME = "header-decoder";
 
    private final OperationContext operationContext;
    // operations may be registered in any thread, and are removed in event loop thread
+   private final MessagePassingQueue<HotRodOperation<?>> queue = new MpscUnboundedArrayQueue<>(128);
    private final ConcurrentMap<Long, HotRodOperation<?>> incomplete = new ConcurrentHashMap<>();
    private final List<byte[]> listeners = new ArrayList<>();
    private volatile boolean closing;
 
+   // All remaining variables are only accessed in the event loop
+   private Channel channel;
+
+   // Inbound Variables
    HotRodOperation<?> operation;
    private short status;
    private short receivedOpCode;
+
+   // Outbound variables
+   ByteBuf buffer;
 
    public HeaderDecoder(OperationContext operationContext) {
       super(State.READ_MESSAGE_ID);
@@ -57,7 +67,42 @@ public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
       return false;
    }
 
-   public void registerOperation(Channel channel, HotRodOperation<?> operation) {
+   @Override
+   public void channelRegistered(ChannelHandlerContext ctx) throws Exception {
+      super.channelRegistered(ctx);
+      this.channel = ctx.channel();
+      if (!queue.isEmpty()) {
+         sendOperations();
+      }
+   }
+
+   public void close() {
+
+   }
+
+   public void dispatchOperation(HotRodOperation<?> channelOperation) {
+      queue.offer(channelOperation);
+      if (channel != null) {
+         if (channel.eventLoop().inEventLoop()) {
+            sendOperations();
+         } else {
+            channel.eventLoop().submit(this::sendOperations);
+         }
+      }
+   }
+
+   private void sendOperations() {
+      if (queue.isEmpty()) {
+         return;
+      }
+      // TODO: can we get an estimate?
+      buffer = channel.alloc().buffer();
+      queue.drain(this);
+      channel.writeAndFlush(buffer);
+   }
+
+   @Override
+   public void accept(HotRodOperation<?> operation) {
       if (log.isTraceEnabled()) {
          log.tracef("Registering operation %s(%08X) with id %d on %s",
                operation, System.identityHashCode(operation), operation.header().messageId(), channel);
@@ -68,6 +113,8 @@ public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
       HotRodOperation<?> prev = incomplete.put(operation.header().messageId(), operation);
       assert prev == null : "Already registered: " + prev + ", new: " + operation;
       operation.scheduleTimeout(channel);
+
+      operation.writeBytes(buffer);
    }
 
    public void tryCompleteExceptionally(long messageId, Throwable t) {
@@ -89,12 +136,7 @@ public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
                   case CACHE_ENTRY_MODIFIED_EVENT_RESPONSE:
                   case CACHE_ENTRY_REMOVED_EVENT_RESPONSE:
                   case CACHE_ENTRY_EXPIRED_EVENT_RESPONSE:
-                     if (codec.allowOperationsAndEvents()) {
-                        operation = messageId == 0 ? null : incomplete.get(messageId);
-                     } else {
-                        operation = null;
-                        messageId = 0;
-                     }
+                     operation = messageId == 0 ? null : incomplete.get(messageId);
                      // The operation may be null even if the messageId was set: the server does not really wait
                      // until all events are sent, only until these are queued. In such case the operation may
                      // complete earlier.
@@ -214,13 +256,22 @@ public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
 
    @Override
    public void channelInactive(ChannelHandlerContext ctx) {
+      closing = true;
+      // TODO: need to remove from ChannelFactory ??
       for (HotRodOperation<?> op : incomplete.values()) {
          try {
-            op.channelInactive(ctx.channel());
+            op.channelInactive(ChannelRecord.of(ctx.channel()).getUnresolvedAddress());
          } catch (Throwable t) {
             HOTROD.errorf(t, "Failed to complete %s", op);
          }
       }
+      queue.drain(op -> {
+         try {
+            op.channelInactive(ChannelRecord.of(ctx.channel()).getUnresolvedAddress());
+         } catch (Throwable t) {
+            HOTROD.errorf(t, "Failed to complete %s", op);
+         }
+      });
       failoverClientListeners();
    }
 
@@ -279,12 +330,7 @@ public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
 
    @Override
    public void userEventTriggered(ChannelHandlerContext ctx, Object evt) {
-      if (evt instanceof ChannelPoolCloseEvent) {
-         closing = true;
-         allCompleteFuture().whenComplete((nil, throwable) -> {
-            ctx.channel().close();
-         });
-      } else if (evt instanceof IdleStateEvent) {
+      if (evt instanceof IdleStateEvent) {
          // If we have incomplete operations this channel is not idle!
          if (!incomplete.isEmpty()) {
             return;

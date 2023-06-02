@@ -94,12 +94,7 @@ public abstract class HotRodOperation<T> extends CompletableFuture<T> implements
       channel.pipeline().get(HotRodClientDecoder.class).registerOperation(channel, this);
    }
 
-   public void releaseChannel(Channel channel) {
-      operationContext.getChannelFactory().releaseChannel(channel);
-   }
-
-   public void channelInactive(Channel channel) {
-      SocketAddress address = channel.remoteAddress();
+   public void channelInactive(SocketAddress address) {
       completeExceptionally(log.connectionClosed(address, address));
    }
 
@@ -125,6 +120,11 @@ public abstract class HotRodOperation<T> extends CompletableFuture<T> implements
       operationContext.getCodec().writeHeader(buf, header);
       ByteBufUtil.writeArray(buf, array);
       channel.writeAndFlush(buf);
+   }
+
+   protected void writeArrayOperation(ByteBuf buf, byte[] array) {
+      operationContext.getCodec().writeHeader(buf, header);
+      ByteBufUtil.writeArray(buf, array);
    }
 
    public abstract void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder);
@@ -186,4 +186,6 @@ public abstract class HotRodOperation<T> extends CompletableFuture<T> implements
    protected final byte[] cacheName() {
       return header.cacheName();
    }
+
+   public abstract void writeBytes(ByteBuf buf);
 }

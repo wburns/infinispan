@@ -1,6 +1,7 @@
 package org.infinispan.hotrod.impl.counter.operation;
 
 import static org.infinispan.counter.util.EncodeUtil.decodeConfiguration;
+import static org.infinispan.counter.util.EncodeUtil.encodeConfiguration;
 
 import org.infinispan.counter.api.CounterConfiguration;
 import org.infinispan.counter.api.CounterManager;
@@ -25,6 +26,11 @@ public class GetConfigurationOperation extends BaseCounterOperation<CounterConfi
    @Override
    protected void executeOperation(Channel channel) {
       sendHeaderAndCounterNameAndRead(channel);
+   }
+
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      writeHeaderAndCounterName(buf);
    }
 
    @Override

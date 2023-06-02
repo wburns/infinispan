@@ -58,6 +58,13 @@ abstract class BaseCounterOperation<T> extends RetryOnFailureOperation<T> {
       return buf;
    }
 
+   void writeHeaderAndCounterName(ByteBuf buf) {
+      operationContext.getCodec().writeHeader(buf, header);
+      ByteBufUtil.writeString(buf, counterName);
+
+      setCacheName();
+   }
+
    /**
     * If the status is {@link #KEY_DOES_NOT_EXIST_STATUS}, the counter is undefined and a {@link CounterException} is
     * thrown.

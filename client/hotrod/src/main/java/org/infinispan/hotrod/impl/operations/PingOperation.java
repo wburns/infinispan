@@ -22,23 +22,22 @@ import io.netty.handler.codec.DecoderException;
 public class PingOperation extends HotRodOperation<PingResponse> implements ChannelOperation {
    private static final Log log = LogFactory.getLog(PingOperation.class);
 
-   private final boolean releaseChannel;
-
    public PingOperation(OperationContext operationContext, boolean releaseChannel) {
       this(operationContext, PING_REQUEST, PING_RESPONSE, releaseChannel);
    }
 
    protected PingOperation(OperationContext operationContext, short requestCode, short responseCode, boolean releaseChannel) {
       super(operationContext, requestCode, responseCode, CacheOptions.DEFAULT);
-      this.releaseChannel = releaseChannel;
    }
 
    @Override
    public void invoke(Channel channel) {
       sendHeaderAndRead(channel);
-      if (releaseChannel) {
-         releaseChannel(channel);
-      }
+   }
+
+   @Override
+   public void writeBytes(ByteBuf buffer) {
+      operationContext.getCodec().writeHeader(buffer, header);
    }
 
    @Override

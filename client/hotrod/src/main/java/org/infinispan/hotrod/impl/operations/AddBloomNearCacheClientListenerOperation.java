@@ -56,4 +56,11 @@ public class AddBloomNearCacheClientListenerOperation extends ClientListenerOper
       codec.writeBloomFilter(buf, bloomFilterBits);
       channel.writeAndFlush(buf);
    }
+
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      operationContext.getCodec().writeHeader(buf, header);
+      ByteBufUtil.writeArray(buf, listenerId);
+      operationContext.getCodec().writeBloomFilter(buf, bloomFilterBits);
+   }
 }

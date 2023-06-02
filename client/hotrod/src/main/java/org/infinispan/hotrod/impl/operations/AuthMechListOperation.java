@@ -39,6 +39,11 @@ public class AuthMechListOperation extends HotRodOperation<List<String>> {
    }
 
    @Override
+   public void writeBytes(ByteBuf buffer) {
+      operationContext.getCodec().writeHeader(buffer, header);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       if (mechCount < 0) {
          mechCount = ByteBufUtil.readVInt(buf);

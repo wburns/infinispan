@@ -39,7 +39,11 @@ public class RemoveClientListenerOperation extends HotRodOperation<Void> impleme
    public void invoke(Channel channel) {
       scheduleRead(channel);
       sendArrayOperation(channel, listenerId);
-      releaseChannel(channel);
+   }
+
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      writeArrayOperation(buf, listenerId);
    }
 
    @Override

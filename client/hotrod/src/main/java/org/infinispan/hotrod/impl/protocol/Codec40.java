@@ -533,11 +533,6 @@ public class Codec40 implements Codec, HotRodConstants {
    }
 
    @Override
-   public boolean allowOperationsAndEvents() {
-      return true;
-   }
-
-   @Override
    public MediaType readKeyType(ByteBuf buf) {
       return CodecUtils.readMediaType(buf);
    }

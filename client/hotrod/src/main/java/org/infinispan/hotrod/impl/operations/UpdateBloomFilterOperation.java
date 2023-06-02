@@ -40,11 +40,15 @@ public class UpdateBloomFilterOperation extends HotRodOperation<Void> implements
    public void invoke(Channel channel) {
       scheduleRead(channel);
       sendArrayOperation(channel, bloomBits);
-      releaseChannel(channel);
    }
 
    @Override
    public void cancel(SocketAddress address, Throwable cause) {
       completeExceptionally(cause);
+   }
+
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      writeArrayOperation(buf, bloomBits);
    }
 }

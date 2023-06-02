@@ -26,7 +26,6 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Function;
 
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.marshall.WrappedByteArray;
@@ -50,14 +49,13 @@ import org.infinispan.hotrod.impl.consistenthash.SegmentConsistentHash;
 import org.infinispan.hotrod.impl.logging.Log;
 import org.infinispan.hotrod.impl.logging.LogFactory;
 import org.infinispan.hotrod.impl.operations.CacheOperationsFactory;
+import org.infinispan.hotrod.impl.operations.HotRodOperation;
 import org.infinispan.hotrod.impl.protocol.Codec;
 import org.infinispan.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.hotrod.impl.topology.CacheInfo;
 import org.infinispan.hotrod.impl.topology.ClusterInfo;
-import org.infinispan.hotrod.impl.transport.netty.ChannelPool.ChannelEventType;
 
 import io.netty.bootstrap.Bootstrap;
-import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
 import io.netty.channel.EventLoopGroup;
 import io.netty.resolver.AddressResolverGroup;
@@ -78,8 +76,7 @@ public class ChannelFactory {
    private static final Log log = LogFactory.getLog(ChannelFactory.class, Log.class);
 
    private final ReadWriteLock lock = new ReentrantReadWriteLock();
-   private final ConcurrentMap<SocketAddress, ChannelPool> channelPoolMap = new ConcurrentHashMap<>();
-   private final Function<SocketAddress, ChannelPool> newPool = this::newPool;
+   private final ConcurrentMap<SocketAddress, HeaderDecoder> channelPoolMap = new ConcurrentHashMap<>();
    private EventLoopGroup eventLoopGroup;
    private ExecutorService executorService;
    private CacheOperationsFactory cacheOperationsFactory;
@@ -100,6 +97,8 @@ public class ChannelFactory {
    // Servers for which the last connection attempt failed and which have no established connections
    @GuardedBy("lock")
    private final Set<SocketAddress> failedServers = new HashSet<>();
+
+   private boolean running = false;
 
    public void start(Codec codec, HotRodConfiguration configuration, Marshaller marshaller, ExecutorService executorService,
                      ClientListenerNotifier listenerNotifier, MarshallerRegistry marshallerRegistry) {
@@ -153,6 +152,8 @@ public class ChannelFactory {
 
          WrappedByteArray defaultCacheName = wrapBytes(HotRodConstants.DEFAULT_CACHE_NAME_BYTES);
          topologyInfo.getOrCreateCacheInfo(defaultCacheName);
+
+         running = true;
       } finally {
          lock.writeLock().unlock();
       }
@@ -172,7 +173,7 @@ public class ChannelFactory {
       return marshallerRegistry;
    }
 
-   private ChannelPool newPool(SocketAddress address) {
+   private ChannelInitializer newInitializer(SocketAddress address, HeaderDecoder decoder) {
       log.debugf("Creating new channel pool for %s", address);
 
       DnsNameResolverBuilder builder = new DnsNameResolverBuilder()
@@ -190,22 +191,14 @@ public class ChannelFactory {
             .option(ChannelOption.SO_KEEPALIVE, configuration.tcpKeepAlive())
             .option(ChannelOption.TCP_NODELAY, configuration.tcpNoDelay())
             .option(ChannelOption.SO_RCVBUF, 1024576);
-      int maxConnections = configuration.connectionPool().maxActive();
-      if (maxConnections < 0) {
-         maxConnections = Integer.MAX_VALUE;
-      }
-      ChannelInitializer channelInitializer = createChannelInitializer(address, bootstrap);
+      ChannelInitializer channelInitializer = createChannelInitializer(address, bootstrap, decoder);
       bootstrap.handler(channelInitializer);
-      ChannelPool pool = new ChannelPool(bootstrap.config().group().next(), address, channelInitializer,
-            configuration.connectionPool().exhaustedAction(), this::onConnectionEvent,
-            configuration.connectionPool().maxWait(), maxConnections,
-            configuration.connectionPool().maxPendingRequests());
-      channelInitializer.setChannelPool(pool);
-      return pool;
+
+      return channelInitializer;
    }
 
-   protected ChannelInitializer createChannelInitializer(SocketAddress address, Bootstrap bootstrap) {
-      return new ChannelInitializer(bootstrap, address, cacheOperationsFactory, configuration, this);
+   protected ChannelInitializer createChannelInitializer(SocketAddress address, Bootstrap bootstrap, HeaderDecoder headerDecoder) {
+      return new ChannelInitializer(bootstrap, address, cacheOperationsFactory, configuration, this, headerDecoder);
    }
 
    public CacheOperationsFactory getCacheOperationsFactory() {
@@ -232,9 +225,15 @@ public class ChannelFactory {
 
    public void destroy() {
       try {
-         channelPoolMap.values().forEach(ChannelPool::close);
-         eventLoopGroup.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).get();
-         executorService.shutdownNow();
+         lock.writeLock().lock();
+         try {
+            running = false;
+            channelPoolMap.values().forEach(HeaderDecoder::close);
+            eventLoopGroup.shutdownGracefully(0, 0, TimeUnit.MILLISECONDS).get();
+            executorService.shutdownNow();
+         } finally {
+            lock.writeLock().unlock();
+         }
       } catch (Exception e) {
          log.warn("Exception while shutting down the connection pool.", e);
       }
@@ -304,17 +303,25 @@ public class ChannelFactory {
    }
 
    public <T extends ChannelOperation> T fetchChannelAndInvoke(SocketAddress server, T operation) {
-      ChannelPool pool = channelPoolMap.computeIfAbsent(server, newPool);
-      pool.acquire(operation);
+      HeaderDecoder decoder = channelPoolMap.computeIfAbsent(server, addr -> {
+         HeaderDecoder headerDecoder = new HeaderDecoder(cacheOperationsFactory.getDefaultContext());
+         ChannelInitializer initializer = newInitializer(addr, headerDecoder);
+         initializer.createChannel()
+               .whenComplete((channel, t) -> {
+                  onConnectionEvent(server, t);
+               });
+         return headerDecoder;
+      });
+      decoder.dispatchOperation((HotRodOperation<?>) operation);
       return operation;
    }
 
    private void closeChannelPools(Set<? extends SocketAddress> servers) {
       for (SocketAddress server : servers) {
          HOTROD.removingServer(server);
-         ChannelPool pool = channelPoolMap.remove(server);
-         if (pool != null) {
-            pool.close();
+         HeaderDecoder decoder = channelPoolMap.remove(server);
+         if (decoder != null) {
+            decoder.close();
          }
       }
 
@@ -346,15 +353,6 @@ public class ChannelFactory {
          }
       }
       return fetchChannelAndInvoke(failedServers, cacheName, operation);
-   }
-
-   public void releaseChannel(Channel channel) {
-      // Due to ISPN-7955 we need to keep addresses unresolved. However resolved and unresolved addresses
-      // are not deemed equal, and that breaks the comparison in channelPool - had we used channel.remoteAddress()
-      // we'd create another pool for this resolved address. Therefore we need to find out appropriate pool this
-      // channel belongs using the attribute.
-      ChannelRecord record = ChannelRecord.of(channel);
-      record.release(channel);
    }
 
    public void receiveTopology(byte[] cacheName, int responseTopologyAge, int responseTopologyId,
@@ -425,7 +423,7 @@ public class ChannelFactory {
       // First add new servers. For servers that went down, the returned transport will fail for now
       for (SocketAddress server : addedServers) {
          HOTROD.newServerAdded(server);
-         fetchChannelAndInvoke(server, new ReleaseChannelOperation(quiet));
+         fetchChannelAndInvoke(server, cacheOperationsFactory.newPingOperation(true));
       }
 
       // Then update the server list for new operations
@@ -499,21 +497,21 @@ public class ChannelFactory {
       return topologyInfo.getCacheInfo(wrapBytes(cacheName)).getTopologyId();
    }
 
-   public void onConnectionEvent(ChannelPool pool, ChannelEventType type) {
+   public void onConnectionEvent(SocketAddress address, Throwable t) {
       boolean allInitialServersFailed;
       lock.writeLock().lock();
+      if (!channelPoolMap.containsKey(address)) {
+         log.tracef("Connection attempt aborted, as topology no longer contains %s", address);
+         failedServers.remove(address);
+         return;
+      }
       try {
          // TODO Replace with a simpler "pool healthy/unhealthy" event?
-         if (type == ChannelEventType.CONNECTED) {
-            failedServers.remove(pool.getAddress());
+         if (t == null) {
+            failedServers.remove(address);
             return;
-         } else if (type == ChannelEventType.CONNECT_FAILED) {
-            if (pool.getConnected() == 0) {
-               failedServers.add(pool.getAddress());
-            }
          } else {
-            // Nothing to do
-            return;
+            failedServers.add(address);
          }
 
          if (log.isTraceEnabled())
@@ -765,24 +763,6 @@ public class ChannelFactory {
       return configuration.socketTimeout();
    }
 
-   public int getNumActive(SocketAddress address) {
-      ChannelPool pool = channelPoolMap.get(address);
-      return pool == null ? 0 : pool.getActive();
-   }
-
-   public int getNumIdle(SocketAddress address) {
-      ChannelPool pool = channelPoolMap.get(address);
-      return pool == null ? 0 : pool.getIdle();
-   }
-
-   public int getNumActive() {
-      return channelPoolMap.values().stream().mapToInt(ChannelPool::getActive).sum();
-   }
-
-   public int getNumIdle() {
-      return channelPoolMap.values().stream().mapToInt(ChannelPool::getIdle).sum();
-   }
-
    public HotRodConfiguration getConfiguration() {
       return configuration;
    }
@@ -801,26 +781,6 @@ public class ChannelFactory {
          return topologyInfo.getCluster().getIntelligence();
       } finally {
          lock.readLock().unlock();
-      }
-   }
-
-   private class ReleaseChannelOperation implements ChannelOperation {
-      private final boolean quiet;
-
-      private ReleaseChannelOperation(boolean quiet) {
-         this.quiet = quiet;
-      }
-
-      @Override
-      public void invoke(Channel channel) {
-         releaseChannel(channel);
-      }
-
-      @Override
-      public void cancel(SocketAddress address, Throwable cause) {
-         if (!quiet) {
-            HOTROD.failedAddingNewServer(address, cause);
-         }
       }
    }
 }

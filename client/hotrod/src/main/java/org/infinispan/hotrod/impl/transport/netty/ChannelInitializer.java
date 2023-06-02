@@ -12,6 +12,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiConsumer;
 
@@ -54,7 +55,7 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
    private final CacheOperationsFactory cacheOperationsFactory;
    private final HotRodConfiguration configuration;
    private final ChannelFactory channelFactory;
-   private ChannelPool channelPool;
+   private final HeaderDecoder decoder;
    private volatile boolean isFirstPing = true;
 
    private static final Provider[] SECURITY_PROVIDERS;
@@ -77,19 +78,14 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
       SECURITY_PROVIDERS = providers.toArray(new Provider[0]);
    }
 
-   ChannelInitializer(Bootstrap bootstrap, SocketAddress unresolvedAddress, CacheOperationsFactory cacheOperationsFactory, HotRodConfiguration configuration, ChannelFactory channelFactory) {
+   ChannelInitializer(Bootstrap bootstrap, SocketAddress unresolvedAddress, CacheOperationsFactory cacheOperationsFactory,
+                      HotRodConfiguration configuration, ChannelFactory channelFactory, HeaderDecoder decoder) {
       this.bootstrap = bootstrap;
       this.unresolvedAddress = unresolvedAddress;
       this.cacheOperationsFactory = cacheOperationsFactory;
       this.configuration = configuration;
       this.channelFactory = channelFactory;
-   }
-
-   CompletableFuture<Channel> createChannel() {
-      ChannelFuture connect = bootstrap.clone().connect();
-      ActivationFuture activationFuture = new ActivationFuture();
-      connect.addListener(activationFuture);
-      return activationFuture;
+      this.decoder = decoder;
    }
 
    @Override
@@ -110,7 +106,7 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
          channel.pipeline().addLast("idle-state-handler",
                new IdleStateHandler(0, 0, configuration.connectionPool().minEvictableIdleTime(), TimeUnit.MILLISECONDS));
       }
-      ChannelRecord channelRecord = new ChannelRecord(unresolvedAddress, channelPool);
+      ChannelRecord channelRecord = new ChannelRecord(unresolvedAddress);
       channel.attr(ChannelRecord.KEY).set(channelRecord);
       if (isFirstPing) {
          isFirstPing = false;
@@ -119,12 +115,15 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
          channel.pipeline().addLast(ActivationHandler.NAME, ActivationHandler.INSTANCE);
       }
       HeaderDecoder delegate = new HeaderDecoder(cacheOperationsFactory.getDefaultContext());
-      channel.pipeline().addLast(HeaderDecoder.NAME, new HotRodClientDecoder(delegate, new CacheRequestProcessor(channelFactory, configuration)));
-      if (configuration.connectionPool().minEvictableIdleTime() > 0) {
-         // This handler needs to be the last so that HeaderDecoder has the chance to cancel the idle event
-         channel.pipeline().addLast(IdleStateHandlerProvider.NAME,
-               new IdleStateHandlerProvider(configuration.connectionPool().minIdle(), channelPool));
-      }
+      channel.pipeline().addLast(HeaderDecoder.NAME, new HotRodClientDecoder(delegate, new CacheRequestProcessor(
+            channelFactory, configuration)));
+   }
+
+   CompletionStage<Channel> createChannel() {
+      ChannelFuture connect = bootstrap.clone().connect();
+      ActivationFuture activationFuture = new ActivationFuture();
+      connect.addListener(activationFuture);
+      return activationFuture;
    }
 
    private void initSsl(Channel channel) {
@@ -229,13 +228,9 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
       throw new IllegalStateException("SaslClientFactory implementation not found");
    }
 
-   void setChannelPool(ChannelPool channelPool) {
-      this.channelPool = channelPool;
-   }
-
    private static class ActivationFuture extends CompletableFuture<Channel> implements ChannelFutureListener, BiConsumer<Channel, Throwable> {
       @Override
-      public void operationComplete(ChannelFuture future) throws Exception {
+      public void operationComplete(ChannelFuture future) {
          if (future.isSuccess()) {
             Channel channel = future.channel();
             ChannelRecord.of(channel).whenComplete(this);

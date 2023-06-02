@@ -11,6 +11,8 @@ import java.util.stream.Collectors;
 import org.infinispan.api.common.CacheOptions;
 import org.infinispan.hotrod.impl.DataFormat;
 
+import io.netty.buffer.ByteBuf;
+
 /**
  *
  */
@@ -45,5 +47,10 @@ public class GetAllParallelOperation<K, V> extends ParallelHotRodOperation<Map<K
    @Override
    protected void combine(Map<K, V> collector, Map<K, V> result) {
       collector.putAll(result);
+   }
+
+   @Override
+   public void writeBytes(ByteBuf buffer) {
+      throw new UnsupportedOperationException();
    }
 }

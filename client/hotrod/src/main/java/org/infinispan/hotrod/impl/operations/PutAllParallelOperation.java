@@ -9,6 +9,8 @@ import java.util.stream.Collectors;
 import org.infinispan.api.common.CacheWriteOptions;
 import org.infinispan.hotrod.impl.DataFormat;
 
+import io.netty.buffer.ByteBuf;
+
 /**
  *
  */
@@ -46,4 +48,8 @@ public class PutAllParallelOperation extends ParallelHotRodOperation<Void, PutAl
       // Nothing to do
    }
 
+   @Override
+   public void writeBytes(ByteBuf buffer) {
+      throw new UnsupportedOperationException();
+   }
 }

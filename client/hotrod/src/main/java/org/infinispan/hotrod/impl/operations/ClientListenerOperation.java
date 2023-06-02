@@ -50,7 +50,7 @@ public abstract class ClientListenerOperation extends RetryOnFailureOperation<So
       // wait until all operations complete; the server will deliver responses and we'll just handle them regardless
       // of the order
       if (!channel.isActive()) {
-         channelInactive(channel);
+         channelInactive(ChannelRecord.of(channel).getUnresolvedAddress());
          return;
       }
       this.address = ChannelRecord.of(channel).getUnresolvedAddress();
@@ -61,23 +61,11 @@ public abstract class ClientListenerOperation extends RetryOnFailureOperation<So
 
    protected void cleanup(Channel channel) {
       channel.eventLoop().execute(() -> {
-         if (!operationContext.getCodec().allowOperationsAndEvents()) {
-            if (channel.isOpen()) {
-               operationContext.getChannelFactory().releaseChannel(channel);
-            }
-         }
          HotRodClientDecoder decoder = channel.pipeline().get(HotRodClientDecoder.class);
          if (decoder != null) {
             decoder.removeListener(listenerId);
          }
       });
-   }
-
-   @Override
-   public void releaseChannel(Channel channel) {
-      if (operationContext.getCodec().allowOperationsAndEvents()) {
-         super.releaseChannel(channel);
-      }
    }
 
    @Override

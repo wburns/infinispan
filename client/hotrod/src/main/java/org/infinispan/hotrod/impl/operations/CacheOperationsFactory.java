@@ -239,22 +239,6 @@ public class CacheOperationsFactory implements HotRodConstants {
       return new IterationNextOperation<>(cacheContext, options, iterationId, channel, segmentKeyTracker, dataFormat);
    }
 
-   public <K> GetStreamOperation<K> newGetStreamOperation(K key, byte[] keyBytes, int offset, CacheOptions options) {
-      return new GetStreamOperation<>(cacheContext, key, keyBytes, offset, options);
-   }
-
-   public <K> PutStreamOperation<K> newPutStreamOperation(K key, byte[] keyBytes, long version, CacheWriteOptions options) {
-      return new PutStreamOperation<>(cacheContext, key, keyBytes, options, version);
-   }
-
-   public <K> PutStreamOperation<K> newPutStreamOperation(K key, byte[] keyBytes, CacheWriteOptions options) {
-      return new PutStreamOperation<>(cacheContext, key, keyBytes, options, PutStreamOperation.VERSION_PUT);
-   }
-
-   public <K> PutStreamOperation<K> newPutIfAbsentStreamOperation(K key, byte[] keyBytes, CacheWriteOptions options) {
-      return new PutStreamOperation<>(cacheContext, key, keyBytes, options, PutStreamOperation.VERSION_PUT_IF_ABSENT);
-   }
-
    public AuthMechListOperation newAuthMechListOperation(Channel channel) {
       return new AuthMechListOperation(cacheContext, channel);
    }
