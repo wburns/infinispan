@@ -42,6 +42,14 @@ public abstract class AbstractKeyValueOperation<K, T> extends AbstractKeyOperati
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      CacheEntryExpiration.Impl expiration = (CacheEntryExpiration.Impl) ((CacheWriteOptions) options).expiration();
+      writeArrayOperation(buf, keyBytes);
+      operationContext.getCodec().writeExpirationParams(buf, expiration);
+      ByteBufUtil.writeArray(buf, value);
+   }
+
+   @Override
    protected void addParams(StringBuilder sb) {
       super.addParams(sb);
       sb.append(", value=").append(printArray(value));

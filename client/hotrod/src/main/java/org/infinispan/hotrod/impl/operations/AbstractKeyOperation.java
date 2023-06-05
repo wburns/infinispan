@@ -114,4 +114,9 @@ public abstract class AbstractKeyOperation<K, T> extends StatsAffectingRetryingO
       V value = dataFormat.valueToObj(ByteBufUtil.readArray(buf), allowList);
       return new CacheEntryImpl<>(key, value, new CacheEntryMetadataImpl(creation, lastUsed, expiration, version));
    }
+
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      writeArrayOperation(buf, keyBytes);
+   }
 }

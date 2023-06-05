@@ -34,6 +34,11 @@ public class SizeMultimapOperation extends RetryOnFailureOperation<Long> {
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      operationContext.getCodec().writeHeader(buf, header);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       complete(ByteBufUtil.readVLong(buf));
    }

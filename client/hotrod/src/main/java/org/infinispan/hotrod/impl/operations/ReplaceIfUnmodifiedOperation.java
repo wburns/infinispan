@@ -47,6 +47,15 @@ public class ReplaceIfUnmodifiedOperation<K, V> extends AbstractKeyValueOperatio
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      CacheEntryExpiration.Impl expiration = (CacheEntryExpiration.Impl) ((CacheWriteOptions) options).expiration();
+      writeArrayOperation(buf, keyBytes);
+      operationContext.getCodec().writeExpirationParams(buf, expiration);
+      buf.writeLong(version);
+      ByteBufUtil.writeArray(buf, value);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       if (HotRodConstants.isSuccess(status)) {
          statsDataStore();

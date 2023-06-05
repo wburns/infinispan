@@ -43,6 +43,13 @@ public final class QueryOperation extends RetryOnFailureOperation<Object> {
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      // marshall and write the request
+      byte[] requestBytes = querySerializer.serializeQueryRequest(remoteQuery, null);
+      writeArrayOperation(buf, requestBytes);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       byte[] responseBytes = ByteBufUtil.readArray(buf);
       //FIXME

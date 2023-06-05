@@ -125,7 +125,8 @@ abstract class ClientBaseDecoder extends ByteToMessageDecoder {
    }
 
    public void registerOperation(Channel channel, HotRodOperation<?> op) {
-      delegate.registerOperation(channel, op);
+      // TODO: do we do anything here?
+//      delegate.registerOperation(channel, op);
    }
 
    public int registeredOperations() {

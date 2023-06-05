@@ -307,9 +307,7 @@ public class ChannelFactory {
          HeaderDecoder headerDecoder = new HeaderDecoder(cacheOperationsFactory.getDefaultContext());
          ChannelInitializer initializer = newInitializer(addr, headerDecoder);
          initializer.createChannel()
-               .whenComplete((channel, t) -> {
-                  onConnectionEvent(server, t);
-               });
+               .whenComplete((channel, t) -> onConnectionEvent(server, t));
          return headerDecoder;
       });
       decoder.dispatchOperation((HotRodOperation<?>) operation);

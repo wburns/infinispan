@@ -40,6 +40,12 @@ public class BulkGetKeysOperation<K> extends StatsAffectingRetryingOperation<Set
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      operationContext.getCodec().writeHeader(buf, header);
+      ByteBufUtil.writeVInt(buf, scope);
+   }
+
+   @Override
    protected void reset() {
       super.reset();
       result.clear();

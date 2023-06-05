@@ -58,6 +58,20 @@ public class PutAllOperation extends StatsAffectingRetryingOperation<Void> {
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      Codec codec = operationContext.getCodec();
+      CacheEntryExpiration.Impl expiration = (CacheEntryExpiration.Impl) ((CacheWriteOptions) options).expiration();
+
+      codec.writeHeader(buf, header);
+      codec.writeExpirationParams(buf, expiration);
+      ByteBufUtil.writeVInt(buf, map.size());
+      for (Entry<byte[], byte[]> entry : map.entrySet()) {
+         ByteBufUtil.writeArray(buf, entry.getKey());
+         ByteBufUtil.writeArray(buf, entry.getValue());
+      }
+   }
+
+   @Override
    protected void fetchChannelAndInvoke(int retryCount, Set<SocketAddress> failedServers) {
       operationContext.getChannelFactory().fetchChannelAndInvoke(map.keySet().iterator().next(), failedServers, operationContext.getCacheNameBytes(), this);
    }

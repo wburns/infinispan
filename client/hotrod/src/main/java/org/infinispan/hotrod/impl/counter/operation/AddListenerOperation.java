@@ -71,24 +71,11 @@ public class AddListenerOperation extends BaseCounterOperation<Boolean> {
       }
    }
 
-   @Override
-   public void releaseChannel(Channel channel) {
-      if (operationContext.getCodec().allowOperationsAndEvents()) {
-         //we aren't using this channel. we can release it
-         super.releaseChannel(channel);
-      }
-   }
-
    public void cleanup() {
       // To prevent releasing concurrently from the channel and closing it
       channel.eventLoop().execute(() -> {
          if (log.isTraceEnabled()) {
             log.tracef("Cleanup for %s on %s", this, channel);
-         }
-         if (!operationContext.getCodec().allowOperationsAndEvents()) {
-            if (channel.isOpen()) {
-               super.releaseChannel(channel);
-            }
          }
          HotRodClientDecoder decoder = channel.pipeline().get(HotRodClientDecoder.class);
          if (decoder != null) {

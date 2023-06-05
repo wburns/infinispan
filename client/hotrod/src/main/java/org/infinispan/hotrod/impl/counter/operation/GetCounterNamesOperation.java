@@ -1,7 +1,5 @@
 package org.infinispan.hotrod.impl.counter.operation;
 
-import static org.infinispan.counter.util.EncodeUtil.encodeConfiguration;
-
 import java.util.ArrayList;
 import java.util.Collection;
 

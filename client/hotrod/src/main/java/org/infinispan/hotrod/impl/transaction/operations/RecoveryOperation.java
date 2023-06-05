@@ -62,6 +62,11 @@ public class RecoveryOperation extends RetryOnFailureOperation<Collection<Xid>> 
       channel.writeAndFlush(buf);
    }
 
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      operationContext.getCodec().writeHeader(buf, header);
+   }
+
    private int estimateSize() {
       return operationContext.getCodec().estimateHeaderSize(header);
    }

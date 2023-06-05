@@ -59,4 +59,15 @@ public class AddClientListenerOperation extends ClientListenerOperation {
       codec.writeClientListenerInterests(buf, EnumSet.noneOf(CacheEntryEventType.class)); //FIXME
       channel.writeAndFlush(buf);
    }
+
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      ClientListener clientListener = null; // FIXME
+
+      Codec codec = operationContext.getCodec();
+      codec.writeHeader(buf, header);
+      ByteBufUtil.writeArray(buf, listenerId);
+      codec.writeClientListenerParams(buf, clientListener, filterFactoryParams, converterFactoryParams);
+      codec.writeClientListenerInterests(buf, EnumSet.noneOf(CacheEntryEventType.class)); //FIXME
+   }
 }

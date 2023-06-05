@@ -3,7 +3,6 @@ package org.infinispan.hotrod.impl.counter.operation;
 import org.infinispan.counter.api.StrongCounter;
 import org.infinispan.counter.api.WeakCounter;
 import org.infinispan.hotrod.impl.operations.OperationContext;
-import org.infinispan.hotrod.impl.transport.netty.ByteBufUtil;
 import org.infinispan.hotrod.impl.transport.netty.HeaderDecoder;
 
 import io.netty.buffer.ByteBuf;

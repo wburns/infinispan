@@ -37,6 +37,12 @@ public class CompleteTransactionOperation extends RetryOnFailureOperation<Intege
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      operationContext.getCodec().writeHeader(buf, header);
+      ByteBufUtil.writeXid(buf, xid);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       if (status == NO_ERROR_STATUS) {
          complete(buf.readInt());

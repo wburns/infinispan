@@ -26,6 +26,11 @@ public class FaultTolerantPingOperation extends RetryOnFailureOperation<PingResp
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      operationContext.getCodec().writeHeader(buf, header);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       throw new IllegalStateException("Fault tolerant ping not called manually.");
    }

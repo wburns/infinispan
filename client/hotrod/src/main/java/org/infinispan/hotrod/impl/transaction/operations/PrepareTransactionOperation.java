@@ -81,6 +81,20 @@ public class PrepareTransactionOperation extends RetryOnFailureOperation<Integer
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      Codec codec = operationContext.getCodec();
+      codec.writeHeader(buf, header);
+      writeXid(buf, xid);
+      buf.writeBoolean(onePhaseCommit);
+      buf.writeBoolean(recoverable);
+      buf.writeLong(timeoutMs);
+      writeVInt(buf, modifications.size());
+      for (Modification m : modifications) {
+         m.writeTo(buf, codec);
+      }
+   }
+
+   @Override
    protected void fetchChannelAndInvoke(int retryCount, Set<SocketAddress> failedServers) {
       if (modifications.isEmpty()) {
          super.fetchChannelAndInvoke(retryCount, failedServers);
