@@ -4,6 +4,7 @@ import org.infinispan.hotrod.impl.operations.PingOperation;
 import org.infinispan.hotrod.impl.logging.Log;
 import org.infinispan.hotrod.impl.logging.LogFactory;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelHandlerContext;
 
@@ -25,16 +26,15 @@ public class InitialPingHandler extends ActivationHandler {
          log.tracef("Activating channel %s", channel);
       }
       ChannelRecord channelRecord = ChannelRecord.of(channel);
-      ping.invoke(channel);
+      ByteBuf buf = ctx.alloc().buffer();
+      ping.writeBytes(buf);
+      ctx.writeAndFlush(buf);
+      
       ping.whenComplete((result, throwable) -> {
          if (log.isTraceEnabled()) {
             log.tracef("Initial ping completed with result %s/%s", result, throwable);
          }
-         if (throwable != null) {
-            channelRecord.completeExceptionally(throwable);
-         } else {
-            channelRecord.complete(channel);
-         }
+         // TODO: need to signal that the connection is bad somehow...
       });
       ctx.pipeline().remove(this);
    }

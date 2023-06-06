@@ -233,7 +233,7 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
       public void operationComplete(ChannelFuture future) {
          if (future.isSuccess()) {
             Channel channel = future.channel();
-            ChannelRecord.of(channel).whenComplete(this);
+            accept(channel, null);
          } else {
             completeExceptionally(future.cause());
          }
