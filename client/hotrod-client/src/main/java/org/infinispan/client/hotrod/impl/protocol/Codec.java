@@ -12,6 +12,7 @@ import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.counter.impl.HotRodCounterEvent;
 import org.infinispan.client.hotrod.event.impl.AbstractClientEvent;
+import org.infinispan.client.hotrod.impl.operations.HotRodOperation;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingResponse;
 import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
@@ -171,4 +172,6 @@ public interface Codec {
    default boolean isUnsafeForTheHandshake() {
       return false;
    }
+
+   void executeCommand(HotRodOperation<?> operation, );
 }
