@@ -1,5 +1,6 @@
 package org.infinispan.client.hotrod.impl.transport.netty;
 
+import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingOperation;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
@@ -12,19 +13,21 @@ public class InitialPingHandler extends ActivationHandler {
 
    static final String NAME = "initial-ping-handler";
 
-   private final PingOperation ping;
+   private final OperationsFactory factory;
 
-   public InitialPingHandler(PingOperation ping) {
-      this.ping = ping;
+   public InitialPingHandler(OperationsFactory factory) {
+      this.factory = factory;
    }
 
    @Override
-   public void channelActive(ChannelHandlerContext ctx) throws Exception {
+   public void channelActive(ChannelHandlerContext ctx) {
       Channel channel = ctx.channel();
       if (log.isTraceEnabled()) {
          log.tracef("Activating channel %s", channel);
       }
       ChannelRecord channelRecord = ChannelRecord.of(channel);
+      // TODO: need to rework this later
+      PingOperation ping = factory.newPingOperation(false);
       ping.invoke(channel);
       ping.whenComplete((result, throwable) -> {
          if (log.isTraceEnabled()) {

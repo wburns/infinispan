@@ -22,6 +22,7 @@ import org.infinispan.client.hotrod.event.impl.ClientListenerNotifier;
 import org.infinispan.client.hotrod.impl.ClientStatistics;
 import org.infinispan.client.hotrod.impl.ClientTopology;
 import org.infinispan.client.hotrod.impl.InternalRemoteCache;
+import org.infinispan.client.hotrod.impl.VersionedOperationResponse;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.iteration.KeyTracker;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
@@ -135,18 +136,18 @@ public class OperationsFactory implements HotRodConstants {
             clientStatistics, telemetryService).execute();
    }
 
-   public <V> RemoveIfUnmodifiedOperation<V> newRemoveIfUnmodifiedOperation(Object key, byte[] keyBytes, long version, DataFormat dataFormat) {
-      return new RemoveIfUnmodifiedOperation<>(
+   public <V> CompletableFuture<VersionedOperationResponse<V>> newRemoveIfUnmodifiedOperation(Object key, byte[] keyBytes, long version, DataFormat dataFormat) {
+      return new RemoveIfUnmodifiedOperation<V>(
             getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, version, dataFormat,
-            clientStatistics, telemetryService);
+            clientStatistics, telemetryService).execute();
    }
 
-   public ReplaceIfUnmodifiedOperation newReplaceIfUnmodifiedOperation(Object key, byte[] keyBytes,
-                                                                       byte[] value, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit, long version, DataFormat dataFormat) {
-      return new ReplaceIfUnmodifiedOperation(
+   public <V> CompletableFuture<VersionedOperationResponse<V>> newReplaceIfUnmodifiedOperation(Object key, byte[] keyBytes,
+                                                                                        byte[] value, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit, long version, DataFormat dataFormat) {
+      return new ReplaceIfUnmodifiedOperation<V>(
             getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdle),
             cfg, value, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, version, dataFormat, clientStatistics,
-            telemetryService);
+            telemetryService).execute();
    }
 
    public <V> CompletableFuture<MetadataValue<V>> newGetWithMetadataOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
@@ -176,11 +177,12 @@ public class OperationsFactory implements HotRodConstants {
             telemetryService).execute();
    }
 
-   public PutAllParallelOperation newPutAllOperation(Map<byte[], byte[]> map,
+   public CompletableFuture<Void> newPutAllOperation(Map<byte[], byte[]> map,
                                                      long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit, DataFormat dataFormat) {
       return new PutAllParallelOperation(
             getCodec(), channelFactory, map, cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdle), cfg,
-            lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, dataFormat, clientStatistics, telemetryService);
+            lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, dataFormat, clientStatistics, telemetryService)
+            .execute();
    }
 
    public <V> CompletableFuture<V> newPutIfAbsentOperation(Object key, byte[] keyBytes, byte[] value,
@@ -205,9 +207,9 @@ public class OperationsFactory implements HotRodConstants {
             flags(), cfg, dataFormat, clientStatistics).execute();
    }
 
-   public ClearOperation newClearOperation() {
+   public CompletableFuture<Void> newClearOperation() {
       return new ClearOperation(
-            getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, telemetryService);
+            getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, telemetryService).execute();
    }
 
    public <K> BulkGetKeysOperation<K> newBulkGetKeysOperation(int scope, DataFormat dataFormat) {
@@ -215,10 +217,11 @@ public class OperationsFactory implements HotRodConstants {
             getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, scope, dataFormat, clientStatistics);
    }
 
-   public AddClientListenerOperation newAddClientListenerOperation(Object listener, DataFormat dataFormat) {
+   public CompletionStage<SocketAddress> newAddClientListenerOperation(Object listener, DataFormat dataFormat) {
       return new AddClientListenerOperation(getCodec(), channelFactory,
             cacheName, clientTopologyRef, flags(), cfg, listenerNotifier,
-            listener, null, null, dataFormat, null, telemetryService);
+            listener, null, null, dataFormat, null, telemetryService)
+            .execute();
    }
 
    public CompletionStage<SocketAddress> newAddClientListenerOperation(
@@ -233,15 +236,15 @@ public class OperationsFactory implements HotRodConstants {
             cacheNameBytes, clientTopologyRef, flags(), cfg, listenerNotifier, listener).execute();
    }
 
-   public AddBloomNearCacheClientListenerOperation newAddNearCacheListenerOperation(Object listener, DataFormat dataFormat,
-         int bloomFilterBits, InternalRemoteCache<?, ?> remoteCache) {
+   public CompletionStage<SocketAddress> newAddNearCacheListenerOperation(Object listener, DataFormat dataFormat,
+                                                                          int bloomFilterBits, InternalRemoteCache<?, ?> remoteCache) {
       return new AddBloomNearCacheClientListenerOperation(getCodec(), channelFactory, cacheName, clientTopologyRef, flags(), cfg, listenerNotifier,
-            listener, dataFormat, bloomFilterBits, remoteCache);
+            listener, dataFormat, bloomFilterBits, remoteCache).execute();
    }
 
-   public UpdateBloomFilterOperation newUpdateBloomFilterOperation(SocketAddress address, byte[] bloomBytes) {
+   public CompletionStage<Void> newUpdateBloomFilterOperation(SocketAddress address, byte[] bloomBytes) {
       return new UpdateBloomFilterOperation(getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, address,
-            bloomBytes);
+            bloomBytes).execute();
    }
 
    /**
@@ -261,9 +264,9 @@ public class OperationsFactory implements HotRodConstants {
     *
     * @return a ping operation for the cluster
     */
-   public FaultTolerantPingOperation newFaultTolerantPingOperation() {
+   public CompletionStage<PingResponse> newFaultTolerantPingOperation() {
       return new FaultTolerantPingOperation(
-            getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg);
+            getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg).execute();
    }
 
    public QueryOperation newQueryOperation(RemoteQuery<?> remoteQuery, DataFormat dataFormat) {
@@ -271,13 +274,14 @@ public class OperationsFactory implements HotRodConstants {
             getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, remoteQuery, dataFormat);
    }
 
-   public SizeOperation newSizeOperation() {
-      return new SizeOperation(getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, telemetryService);
+   public CompletableFuture<Integer> newSizeOperation() {
+      return new SizeOperation(getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, telemetryService)
+            .execute();
    }
 
-   public <T> ExecuteOperation<T> newExecuteOperation(String taskName, Map<String, byte[]> marshalledParams, Object key, DataFormat dataFormat) {
-      return new ExecuteOperation<>(getCodec(), channelFactory, cacheNameBytes,
-            clientTopologyRef, flags(), cfg, taskName, marshalledParams, key, dataFormat);
+   public <T> CompletionStage<T> newExecuteOperation(String taskName, Map<String, byte[]> marshalledParams, Object key, DataFormat dataFormat) {
+      return new ExecuteOperation<T>(getCodec(), channelFactory, cacheNameBytes,
+            clientTopologyRef, flags(), cfg, taskName, marshalledParams, key, dataFormat).execute();
    }
 
    public AdminOperation newAdminOperation(String taskName, Map<String, byte[]> marshalledParams) {

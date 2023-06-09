@@ -25,7 +25,7 @@ import io.netty.channel.Channel;
  * @author Mircea.Markus@jboss.com
  * @since 4.1
  */
-public class ReplaceIfUnmodifiedOperation extends AbstractKeyValueOperation<VersionedOperationResponse> {
+public class ReplaceIfUnmodifiedOperation<V> extends AbstractKeyValueOperation<VersionedOperationResponse<V>> {
    private final long version;
 
    public ReplaceIfUnmodifiedOperation(Codec codec, ChannelFactory channelFactory, Object key, byte[] keyBytes, byte[] cacheName,

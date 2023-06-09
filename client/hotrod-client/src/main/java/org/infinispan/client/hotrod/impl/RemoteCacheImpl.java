@@ -35,17 +35,9 @@ import org.infinispan.client.hotrod.event.impl.ClientListenerNotifier;
 import org.infinispan.client.hotrod.exceptions.RemoteCacheManagerNotStartedException;
 import org.infinispan.client.hotrod.filter.Filters;
 import org.infinispan.client.hotrod.impl.iteration.RemotePublisher;
-import org.infinispan.client.hotrod.impl.operations.AddClientListenerOperation;
-import org.infinispan.client.hotrod.impl.operations.ClearOperation;
-import org.infinispan.client.hotrod.impl.operations.ExecuteOperation;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingResponse;
-import org.infinispan.client.hotrod.impl.operations.PutAllParallelOperation;
-import org.infinispan.client.hotrod.impl.operations.RemoveClientListenerOperation;
-import org.infinispan.client.hotrod.impl.operations.RemoveIfUnmodifiedOperation;
-import org.infinispan.client.hotrod.impl.operations.ReplaceIfUnmodifiedOperation;
 import org.infinispan.client.hotrod.impl.operations.RetryAwareCompletionStage;
-import org.infinispan.client.hotrod.impl.operations.SizeOperation;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.client.hotrod.near.NearCacheService;
@@ -165,9 +157,8 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    @Override
    public CompletableFuture<Boolean> removeWithVersionAsync(final K key, final long version) {
       assertRemoteCacheManagerIsStarted();
-      RemoveIfUnmodifiedOperation<V> op = operationsFactory.newRemoveIfUnmodifiedOperation(
-            keyAsObjectIfNeeded(key), keyToBytes(key), version, dataFormat);
-      return op.execute().thenApply(response -> response.getCode().isUpdated());
+      return operationsFactory.newRemoveIfUnmodifiedOperation(keyAsObjectIfNeeded(key), keyToBytes(key), version, dataFormat)
+            .thenApply(response -> response.getCode().isUpdated());
    }
 
    @Override
@@ -177,9 +168,9 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
 
    public CompletableFuture<Boolean> replaceWithVersionAsync(K key, V newValue, long version, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit) {
       assertRemoteCacheManagerIsStarted();
-      ReplaceIfUnmodifiedOperation op = operationsFactory.newReplaceIfUnmodifiedOperation(
-            keyAsObjectIfNeeded(key), keyToBytes(key), valueToBytes(newValue), lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, version, dataFormat);
-      return op.execute().thenApply(response -> response.getCode().isUpdated());
+      return operationsFactory.newReplaceIfUnmodifiedOperation(keyAsObjectIfNeeded(key), keyToBytes(key),
+            valueToBytes(newValue), lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, version, dataFormat)
+            .thenApply(response -> response.getCode().isUpdated());
    }
 
    @Override
@@ -250,15 +241,13 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
       for (Entry<? extends K, ? extends V> entry : map.entrySet()) {
          byteMap.put(keyToBytes(entry.getKey()), valueToBytes(entry.getValue()));
       }
-      PutAllParallelOperation op = operationsFactory.newPutAllOperation(byteMap, lifespan, lifespanUnit, maxIdleTime, maxIdleTimeUnit, dataFormat);
-      return op.execute();
+      return operationsFactory.newPutAllOperation(byteMap, lifespan, lifespanUnit, maxIdleTime, maxIdleTimeUnit, dataFormat);
    }
 
    @Override
    public CompletableFuture<Long> sizeAsync() {
       assertRemoteCacheManagerIsStarted();
-      SizeOperation op = operationsFactory.newSizeOperation();
-      return op.execute().thenApply(Integer::longValue);
+      return operationsFactory.newSizeOperation().thenApply(Integer::longValue);
    }
 
    @Override
@@ -300,8 +289,7 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    @Override
    public CompletableFuture<Void> clearAsync() {
       assertRemoteCacheManagerIsStarted();
-      ClearOperation op = operationsFactory.newClearOperation();
-      return op.execute();
+      return operationsFactory.newClearOperation();
    }
 
    @Override
@@ -512,9 +500,8 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    @Override
    public void addClientListener(Object listener) {
       assertRemoteCacheManagerIsStarted();
-      AddClientListenerOperation op = operationsFactory.newAddClientListenerOperation(listener, dataFormat);
       // no timeout, see below
-      await(op.execute());
+      await(operationsFactory.newAddClientListenerOperation(listener, dataFormat));
    }
 
    @Override
@@ -578,7 +565,7 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    }
 
    public CompletionStage<PingResponse> ping() {
-      return operationsFactory.newFaultTolerantPingOperation().execute();
+      return operationsFactory.newFaultTolerantPingOperation();
    }
 
    @Override
@@ -641,8 +628,7 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
       if (key != null) {
          keyHint = isObjectStorage ? key : keyToBytes(key);
       }
-      ExecuteOperation<T> op = operationsFactory.newExecuteOperation(taskName, marshalledParams, keyHint, dataFormat);
-      return await(op.execute());
+      return await(operationsFactory.newExecuteOperation(taskName, marshalledParams, keyHint, dataFormat));
    }
 
    @Override

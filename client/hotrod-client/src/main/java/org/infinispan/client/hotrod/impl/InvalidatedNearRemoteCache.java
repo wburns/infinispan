@@ -12,10 +12,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.MetadataValue;
-import org.infinispan.client.hotrod.impl.operations.ClientListenerOperation;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.RetryAwareCompletionStage;
-import org.infinispan.client.hotrod.impl.operations.UpdateBloomFilterOperation;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.client.hotrod.near.NearCacheService;
@@ -235,8 +233,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
                org.infinispan.commons.util.Util.printArray(nearcache.getListenerId()));
       }
       OperationsFactory operationsFactory = getOperationsFactory();
-      UpdateBloomFilterOperation bloopOp = operationsFactory.newUpdateBloomFilterOperation(listenerAddress, bloomFilterBits);
-      return incrementBloomVersionUponCompletion(bloopOp.execute());
+      return incrementBloomVersionUponCompletion(operationsFactory.newUpdateBloomFilterOperation(listenerAddress, bloomFilterBits));
    }
 
    public SocketAddress getBloomListenerAddress() {
@@ -249,9 +246,8 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
 
    @Override
    public SocketAddress addNearCacheListener(Object listener, int bloomBits) {
-      ClientListenerOperation op = getOperationsFactory().newAddNearCacheListenerOperation(listener, getDataFormat(),
-            bloomBits, this);
       // no timeout, see below
-      return await(op.execute());
+      return await(getOperationsFactory().newAddNearCacheListenerOperation(listener, getDataFormat(),
+            bloomBits, this));
    }
 }

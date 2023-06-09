@@ -113,7 +113,7 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
       channel.attr(ChannelRecord.KEY).set(channelRecord);
       if (isFirstPing) {
          isFirstPing = false;
-         channel.pipeline().addLast(InitialPingHandler.NAME, new InitialPingHandler(operationsFactory.newPingOperation(false)));
+         channel.pipeline().addLast(InitialPingHandler.NAME, new InitialPingHandler(operationsFactory));
       } else {
          channel.pipeline().addLast(ActivationHandler.NAME, ActivationHandler.INSTANCE);
       }

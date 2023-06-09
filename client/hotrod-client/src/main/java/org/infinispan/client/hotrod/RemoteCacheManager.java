@@ -506,7 +506,7 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
       PingResponse pingResponse;
       if (started) {
          // Verify if the cache exists on the server first
-         pingResponse = await(operationsFactory.newFaultTolerantPingOperation().execute());
+         pingResponse = await(operationsFactory.newFaultTolerantPingOperation());
 
          // If ping not successful assume that the cache does not exist
          if (pingResponse.isCacheNotFound()) {
@@ -523,7 +523,8 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
             }
             // Create and re-ping
             OperationsFactory adminOperationsFactory = new OperationsFactory(channelFactory, listenerNotifier, configuration);
-            pingResponse = await(adminOperationsFactory.newAdminOperation("@@cache@getorcreate", params).execute().thenCompose(s -> operationsFactory.newFaultTolerantPingOperation().execute()));
+            pingResponse = await(adminOperationsFactory.newAdminOperation("@@cache@getorcreate", params).execute()
+                  .thenCompose(s -> operationsFactory.newFaultTolerantPingOperation()));
          }
       } else {
          pingResponse = PingResponse.EMPTY;
