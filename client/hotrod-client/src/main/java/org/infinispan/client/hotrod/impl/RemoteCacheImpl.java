@@ -37,20 +37,13 @@ import org.infinispan.client.hotrod.filter.Filters;
 import org.infinispan.client.hotrod.impl.iteration.RemotePublisher;
 import org.infinispan.client.hotrod.impl.operations.AddClientListenerOperation;
 import org.infinispan.client.hotrod.impl.operations.ClearOperation;
-import org.infinispan.client.hotrod.impl.operations.ContainsKeyOperation;
 import org.infinispan.client.hotrod.impl.operations.ExecuteOperation;
-import org.infinispan.client.hotrod.impl.operations.GetAllParallelOperation;
-import org.infinispan.client.hotrod.impl.operations.GetOperation;
-import org.infinispan.client.hotrod.impl.operations.GetWithMetadataOperation;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingResponse;
 import org.infinispan.client.hotrod.impl.operations.PutAllParallelOperation;
-import org.infinispan.client.hotrod.impl.operations.PutIfAbsentOperation;
 import org.infinispan.client.hotrod.impl.operations.RemoveClientListenerOperation;
 import org.infinispan.client.hotrod.impl.operations.RemoveIfUnmodifiedOperation;
-import org.infinispan.client.hotrod.impl.operations.RemoveOperation;
 import org.infinispan.client.hotrod.impl.operations.ReplaceIfUnmodifiedOperation;
-import org.infinispan.client.hotrod.impl.operations.ReplaceOperation;
 import org.infinispan.client.hotrod.impl.operations.RetryAwareCompletionStage;
 import org.infinispan.client.hotrod.impl.operations.SizeOperation;
 import org.infinispan.client.hotrod.logging.Log;
@@ -243,9 +236,8 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    @Override
    public RetryAwareCompletionStage<MetadataValue<V>> getWithMetadataAsync(K key, SocketAddress preferredAddres) {
       assertRemoteCacheManagerIsStarted();
-      GetWithMetadataOperation<V> op = operationsFactory.newGetWithMetadataOperation(
+      return operationsFactory.newGetWithMetadataOperation(
             keyAsObjectIfNeeded(key), keyToBytes(key), dataFormat, preferredAddres);
-      return op.internalExecute();
    }
 
    @Override
@@ -402,9 +394,8 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    @Override
    public CompletableFuture<V> putIfAbsentAsync(K key, V value, long lifespan, TimeUnit lifespanUnit, long maxIdleTime, TimeUnit maxIdleTimeUnit) {
       assertRemoteCacheManagerIsStarted();
-      PutIfAbsentOperation<V> op = operationsFactory.newPutIfAbsentOperation(keyAsObjectIfNeeded(key),
+      return operationsFactory.newPutIfAbsentOperation(keyAsObjectIfNeeded(key),
             keyToBytes(key), valueToBytes(value), lifespan, lifespanUnit, maxIdleTime, maxIdleTimeUnit, dataFormat);
-      return op.execute();
    }
 
    @Override
@@ -433,10 +424,9 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    @Override
    public CompletableFuture<V> removeAsync(Object key) {
       assertRemoteCacheManagerIsStarted();
-      RemoveOperation<V> removeOperation = operationsFactory.newRemoveOperation(keyAsObjectIfNeeded(key), keyToBytes(key), dataFormat);
       // TODO: It sucks that you need the prev value to see if it works...
       // We need to find a better API for RemoteCache...
-      return removeOperation.execute();
+      return operationsFactory.newRemoveOperation(keyAsObjectIfNeeded(key), keyToBytes(key), dataFormat);
    }
 
    @Override
@@ -461,17 +451,15 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    @Override
    public CompletableFuture<V> replaceAsync(K key, V value, long lifespan, TimeUnit lifespanUnit, long maxIdleTime, TimeUnit maxIdleTimeUnit) {
       assertRemoteCacheManagerIsStarted();
-      ReplaceOperation<V> op = operationsFactory.newReplaceOperation(keyAsObjectIfNeeded(key),
+      return operationsFactory.<V>newReplaceOperation(keyAsObjectIfNeeded(key),
             keyToBytes(key), valueToBytes(value), lifespan, lifespanUnit, maxIdleTime, maxIdleTimeUnit, dataFormat);
-      return op.execute();
    }
 
    @Override
    public CompletableFuture<Boolean> containsKeyAsync(K key) {
       assertRemoteCacheManagerIsStarted();
-      ContainsKeyOperation op = operationsFactory.newContainsKeyOperation(
+      return operationsFactory.newContainsKeyOperation(
             keyAsObjectIfNeeded(key), keyToBytes(key), dataFormat);
-      return op.execute();
    }
 
    @Override
@@ -490,8 +478,8 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
       for (Object key : keys) {
          byteKeys.add(keyToBytes(key));
       }
-      GetAllParallelOperation<K, V> op = operationsFactory.newGetAllOperation(byteKeys, dataFormat);
-      return op.execute().thenApply(Collections::unmodifiableMap);
+      return operationsFactory.<K, V>newGetAllOperation(byteKeys, dataFormat)
+            .thenApply(Collections::unmodifiableMap);
    }
 
    @Override
@@ -534,10 +522,10 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
       assertRemoteCacheManagerIsStarted();
       byte[][] marshalledFilterParams = marshallParams(filterFactoryParams);
       byte[][] marshalledConverterParams = marshallParams(converterFactoryParams);
-      AddClientListenerOperation op = operationsFactory.newAddClientListenerOperation(
+      CompletionStage<SocketAddress> op = operationsFactory.newAddClientListenerOperation(
             listener, marshalledFilterParams, marshalledConverterParams, dataFormat);
       // No timeout: transferring initial state can take a while, socket timeout setting is not applicable here
-      await(op.execute());
+      await(op);
    }
 
    @Override
@@ -561,8 +549,7 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    @Override
    public void removeClientListener(Object listener) {
       assertRemoteCacheManagerIsStarted();
-      RemoveClientListenerOperation op = operationsFactory.newRemoveClientListenerOperation(listener);
-      await(op.execute());
+      await(operationsFactory.newRemoveClientListenerOperation(listener));
    }
 
    @Deprecated
@@ -582,8 +569,7 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    public CompletableFuture<V> getAsync(Object key) {
       assertRemoteCacheManagerIsStarted();
       byte[] keyBytes = keyToBytes(key);
-      GetOperation<V> gco = operationsFactory.newGetKeyOperation(keyAsObjectIfNeeded(key), keyBytes, dataFormat);
-      CompletableFuture<V> result = gco.execute();
+      CompletableFuture<V> result = operationsFactory.newGetKeyOperation(keyAsObjectIfNeeded(key), keyBytes, dataFormat);
       if (log.isTraceEnabled()) {
          result.thenAccept(value -> log.tracef("For key(%s) returning %s", key, value));
       }

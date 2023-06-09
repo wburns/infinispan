@@ -118,20 +118,21 @@ public class OperationsFactory implements HotRodConstants {
       return channelFactory.getNegotiatedCodec();
    }
 
-   public <V> GetOperation<V> newGetKeyOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
-      return new GetOperation<>(
-            getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, dataFormat, clientStatistics);
+   public <V> CompletableFuture<V> newGetKeyOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
+      return new GetOperation<V>(getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(),
+            cfg, dataFormat, clientStatistics)
+            .execute();
    }
 
-   public <K, V> GetAllParallelOperation<K, V> newGetAllOperation(Set<byte[]> keys, DataFormat dataFormat) {
-      return new GetAllParallelOperation<>(getCodec(), channelFactory, keys, cacheNameBytes, clientTopologyRef, flags(),
-            cfg, dataFormat, clientStatistics);
+   public <K, V> CompletableFuture<Map<K, V>> newGetAllOperation(Set<byte[]> keys, DataFormat dataFormat) {
+      return new GetAllParallelOperation<K, V>(getCodec(), channelFactory, keys, cacheNameBytes, clientTopologyRef, flags(),
+            cfg, dataFormat, clientStatistics).execute();
    }
 
-   public <V> RemoveOperation<V> newRemoveOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
-      return new RemoveOperation<>(
+   public <V> CompletableFuture<V> newRemoveOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
+      return new RemoveOperation<V>(
             getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, dataFormat,
-            clientStatistics, telemetryService);
+            clientStatistics, telemetryService).execute();
    }
 
    public <V> RemoveIfUnmodifiedOperation<V> newRemoveIfUnmodifiedOperation(Object key, byte[] keyBytes, long version, DataFormat dataFormat) {
@@ -149,14 +150,16 @@ public class OperationsFactory implements HotRodConstants {
    }
 
    public <V> CompletableFuture<MetadataValue<V>> newGetWithMetadataOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
-      return newGetWithMetadataOperation(key, keyBytes, dataFormat, null).execute();
+      return this.<V>newGetWithMetadataOperation(key, keyBytes, dataFormat, null).toCompletableFuture();
    }
 
-   public <V> GetWithMetadataOperation<V> newGetWithMetadataOperation(Object key, byte[] keyBytes, DataFormat dataFormat,
+   public <V> RetryAwareCompletionStage<MetadataValue<V>> newGetWithMetadataOperation(Object key, byte[] keyBytes, DataFormat dataFormat,
                                                                       SocketAddress listenerServer) {
-      return new GetWithMetadataOperation<>(
+      var op = new GetWithMetadataOperation<V>(
             getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, dataFormat, clientStatistics,
             listenerServer);
+      op.execute();
+      return op;
    }
 
    public CompletionStage<ServerStatistics> newStatsOperation() {
@@ -180,26 +183,26 @@ public class OperationsFactory implements HotRodConstants {
             lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, dataFormat, clientStatistics, telemetryService);
    }
 
-   public <V> PutIfAbsentOperation<V> newPutIfAbsentOperation(Object key, byte[] keyBytes, byte[] value,
+   public <V> CompletableFuture<V> newPutIfAbsentOperation(Object key, byte[] keyBytes, byte[] value,
                                                               long lifespan, TimeUnit lifespanUnit, long maxIdleTime,
                                                               TimeUnit maxIdleTimeUnit, DataFormat dataFormat) {
-      return new PutIfAbsentOperation<>(
+      return new PutIfAbsentOperation<V>(
             getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdleTime),
             cfg, value, lifespan, lifespanUnit, maxIdleTime, maxIdleTimeUnit, dataFormat, clientStatistics,
-            telemetryService);
+            telemetryService).execute();
    }
 
-   public <V> ReplaceOperation<V> newReplaceOperation(Object key, byte[] keyBytes, byte[] values,
+   public <V> CompletableFuture<V> newReplaceOperation(Object key, byte[] keyBytes, byte[] values,
                                                       long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit, DataFormat dataFormat) {
-      return new ReplaceOperation<>(
+      return new ReplaceOperation<V>(
             getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdle),
             cfg, values, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, dataFormat, clientStatistics,
-            telemetryService);
+            telemetryService).execute();
    }
 
-   public ContainsKeyOperation newContainsKeyOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
-      return new ContainsKeyOperation(
-            getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, dataFormat, clientStatistics);
+   public CompletableFuture<Boolean> newContainsKeyOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
+      return new ContainsKeyOperation(getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef,
+            flags(), cfg, dataFormat, clientStatistics).execute();
    }
 
    public ClearOperation newClearOperation() {
@@ -218,16 +221,16 @@ public class OperationsFactory implements HotRodConstants {
             listener, null, null, dataFormat, null, telemetryService);
    }
 
-   public AddClientListenerOperation newAddClientListenerOperation(
+   public CompletionStage<SocketAddress> newAddClientListenerOperation(
          Object listener, byte[][] filterFactoryParams, byte[][] converterFactoryParams, DataFormat dataFormat) {
       return new AddClientListenerOperation(getCodec(), channelFactory,
             cacheName, clientTopologyRef, flags(), cfg, listenerNotifier,
-            listener, filterFactoryParams, converterFactoryParams, dataFormat, null, telemetryService);
+            listener, filterFactoryParams, converterFactoryParams, dataFormat, null, telemetryService).execute();
    }
 
-   public RemoveClientListenerOperation newRemoveClientListenerOperation(Object listener) {
+   public CompletionStage<Void> newRemoveClientListenerOperation(Object listener) {
       return new RemoveClientListenerOperation(getCodec(), channelFactory,
-            cacheNameBytes, clientTopologyRef, flags(), cfg, listenerNotifier, listener);
+            cacheNameBytes, clientTopologyRef, flags(), cfg, listenerNotifier, listener).execute();
    }
 
    public AddBloomNearCacheClientListenerOperation newAddNearCacheListenerOperation(Object listener, DataFormat dataFormat,
