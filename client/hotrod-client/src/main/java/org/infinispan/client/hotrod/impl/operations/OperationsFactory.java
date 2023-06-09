@@ -120,23 +120,26 @@ public class OperationsFactory implements HotRodConstants {
    }
 
    public <V> CompletableFuture<V> newGetKeyOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
-      return new GetOperation<V>(getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(),
-            cfg, dataFormat, clientStatistics)
-            .execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new GetOperation<V>(codec, channelFactory, key, keyBytes, cacheNameBytes,
+            clientTopologyRef, flags(), cfg, dataFormat, clientStatistics), channelFactory).toCompletableFuture();
    }
 
    public <K, V> CompletableFuture<Map<K, V>> newGetAllOperation(Set<byte[]> keys, DataFormat dataFormat) {
-      return new GetAllParallelOperation<K, V>(getCodec(), channelFactory, keys, cacheNameBytes, clientTopologyRef, flags(),
-            cfg, dataFormat, clientStatistics).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new GetAllParallelOperation<K, V>(codec, channelFactory, keys, cacheNameBytes,
+            clientTopologyRef, flags(), cfg, dataFormat, clientStatistics), channelFactory).toCompletableFuture();
    }
 
    public <V> CompletableFuture<V> newRemoveOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
+      Codec codec = getCodec();
       return new RemoveOperation<V>(
             getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, dataFormat,
             clientStatistics, telemetryService).execute();
    }
 
    public <V> CompletableFuture<VersionedOperationResponse<V>> newRemoveIfUnmodifiedOperation(Object key, byte[] keyBytes, long version, DataFormat dataFormat) {
+      Codec codec = getCodec();
       return new RemoveIfUnmodifiedOperation<V>(
             getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, version, dataFormat,
             clientStatistics, telemetryService).execute();
@@ -144,6 +147,7 @@ public class OperationsFactory implements HotRodConstants {
 
    public <V> CompletableFuture<VersionedOperationResponse<V>> newReplaceIfUnmodifiedOperation(Object key, byte[] keyBytes,
                                                                                         byte[] value, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit, long version, DataFormat dataFormat) {
+      Codec codec = getCodec();
       return new ReplaceIfUnmodifiedOperation<V>(
             getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdle),
             cfg, value, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, version, dataFormat, clientStatistics,
