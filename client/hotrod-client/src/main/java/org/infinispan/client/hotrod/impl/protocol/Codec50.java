@@ -1,18 +1,17 @@
 package org.infinispan.client.hotrod.impl.protocol;
 
-import java.util.Map;
+import java.util.concurrent.CompletionStage;
 
-import org.infinispan.client.hotrod.DataFormat;
-import org.infinispan.client.hotrod.MetadataValue;
-import org.infinispan.client.hotrod.impl.operations.GetWithMetadataOperation;
-import org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil;
-import org.infinispan.commons.configuration.ClassAllowList;
-import org.infinispan.commons.marshall.Marshaller;
-
-import io.netty.buffer.ByteBuf;
+import org.infinispan.client.hotrod.impl.operations.HotRodOperation;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 
 /**
  * @since 14.0
  */
 public class Codec50 extends Codec40 {
+   @Override
+   public <V> CompletionStage<V> executeCommand(HotRodOperation<V> operation, ChannelFactory factory) {
+      // TODO: call into channel factory
+      return super.executeCommand(operation, factory);
+   }
 }

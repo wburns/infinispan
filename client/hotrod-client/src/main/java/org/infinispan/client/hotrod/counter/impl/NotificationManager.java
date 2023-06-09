@@ -115,10 +115,10 @@ public class NotificationManager {
       }
       CompletableFuture<Void> cf = new CompletableFuture<>();
       String firstCounterName = iterator.next();
-      AddListenerOperation op = factory.newAddListenerOperation(firstCounterName, listenerId, null);
       log.debugf("Lock %s", lock);
       lock.lock();
       if (dispatcher == null) {
+         AddListenerOperation op = factory.newAddListenerOperation(firstCounterName, listenerId, null);
          op.execute().whenComplete((useChannel, throwable) -> {
             if (throwable != null) {
                lock.unlock();

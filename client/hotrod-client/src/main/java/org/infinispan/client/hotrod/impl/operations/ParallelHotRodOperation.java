@@ -31,6 +31,7 @@ public abstract class ParallelHotRodOperation<T, SUBOP extends HotRodOperation<T
 
    @Override
    public CompletableFuture<T> execute() {
+      // TODO: this is an issue as well - should be fine though as we will handle the parallel processing
       List<SUBOP> operations = mapOperations();
 
       if (operations.isEmpty()) {

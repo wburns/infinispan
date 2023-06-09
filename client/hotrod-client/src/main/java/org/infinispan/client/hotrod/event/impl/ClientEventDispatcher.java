@@ -130,6 +130,7 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
 
    @Override
    public CompletableFuture<Void> executeFailover() {
+      // TODO: this one uses a copy
       CompletableFuture<SocketAddress> future = op.copy().execute();
       if (remoteCache instanceof InvalidatedNearRemoteCache) {
          future = future.thenApply(socketAddress -> {

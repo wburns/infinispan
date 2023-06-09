@@ -46,7 +46,6 @@ import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingResponse;
 import org.infinispan.client.hotrod.impl.operations.PutAllParallelOperation;
 import org.infinispan.client.hotrod.impl.operations.PutIfAbsentOperation;
-import org.infinispan.client.hotrod.impl.operations.PutOperation;
 import org.infinispan.client.hotrod.impl.operations.RemoveClientListenerOperation;
 import org.infinispan.client.hotrod.impl.operations.RemoveIfUnmodifiedOperation;
 import org.infinispan.client.hotrod.impl.operations.RemoveOperation;
@@ -54,7 +53,6 @@ import org.infinispan.client.hotrod.impl.operations.ReplaceIfUnmodifiedOperation
 import org.infinispan.client.hotrod.impl.operations.ReplaceOperation;
 import org.infinispan.client.hotrod.impl.operations.RetryAwareCompletionStage;
 import org.infinispan.client.hotrod.impl.operations.SizeOperation;
-import org.infinispan.client.hotrod.impl.operations.StatsOperation;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.client.hotrod.near.NearCacheService;
@@ -238,9 +236,8 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    @Override
    public CompletableFuture<MetadataValue<V>> getWithMetadataAsync(K key) {
       assertRemoteCacheManagerIsStarted();
-      GetWithMetadataOperation<V> op = operationsFactory.newGetWithMetadataOperation(
+      return operationsFactory.newGetWithMetadataOperation(
             keyAsObjectIfNeeded(key), keyToBytes(key), dataFormat);
-      return op.execute();
    }
 
    @Override
@@ -290,8 +287,7 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    @Override
    public CompletionStage<ServerStatistics> serverStatisticsAsync() {
       assertRemoteCacheManagerIsStarted();
-      StatsOperation op = operationsFactory.newStatsOperation();
-      return op.execute();
+      return operationsFactory.newStatsOperation();
    }
 
    @Override
@@ -305,9 +301,8 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
       if (log.isTraceEnabled()) {
          log.tracef("About to add (K,V): (%s, %s) lifespan:%d, maxIdle:%d", key, value, lifespan, maxIdleTime);
       }
-      PutOperation<V> op = operationsFactory.newPutKeyValueOperation(keyAsObjectIfNeeded(key),
+      return operationsFactory.newPutKeyValueOperation(keyAsObjectIfNeeded(key),
             keyToBytes(key), valueToBytes(value), lifespan, lifespanUnit, maxIdleTime, maxIdleTimeUnit, dataFormat);
-      return op.execute();
    }
 
    @Override

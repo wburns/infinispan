@@ -8,6 +8,7 @@ import java.lang.annotation.Annotation;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
@@ -27,6 +28,7 @@ import org.infinispan.client.hotrod.exceptions.RemoteIllegalLifecycleStateExcept
 import org.infinispan.client.hotrod.exceptions.RemoteNodeSuspectException;
 import org.infinispan.client.hotrod.impl.ClientTopology;
 import org.infinispan.client.hotrod.impl.operations.BulkGetKeysOperation;
+import org.infinispan.client.hotrod.impl.operations.HotRodOperation;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingResponse;
 import org.infinispan.client.hotrod.impl.transport.netty.ByteBufUtil;
@@ -414,5 +416,10 @@ public class Codec20 implements Codec, HotRodConstants {
          addresses[i] = InetSocketAddress.createUnresolved(host, port);
       }
       return addresses;
+   }
+
+   @Override
+   public <V> CompletionStage<V> executeCommand(HotRodOperation<V> operation, ChannelFactory factory) {
+      return operation.execute();
    }
 }

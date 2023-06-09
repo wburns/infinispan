@@ -4,6 +4,8 @@ import java.net.SocketAddress;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -12,7 +14,9 @@ import javax.transaction.xa.Xid;
 import org.infinispan.client.hotrod.CacheTopologyInfo;
 import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.Flag;
+import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.RemoteCacheManager;
+import org.infinispan.client.hotrod.ServerStatistics;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.event.impl.ClientListenerNotifier;
 import org.infinispan.client.hotrod.impl.ClientStatistics;
@@ -144,8 +148,8 @@ public class OperationsFactory implements HotRodConstants {
             telemetryService);
    }
 
-   public <V> GetWithMetadataOperation<V> newGetWithMetadataOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
-      return newGetWithMetadataOperation(key, keyBytes, dataFormat, null);
+   public <V> CompletableFuture<MetadataValue<V>> newGetWithMetadataOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
+      return newGetWithMetadataOperation(key, keyBytes, dataFormat, null).execute();
    }
 
    public <V> GetWithMetadataOperation<V> newGetWithMetadataOperation(Object key, byte[] keyBytes, DataFormat dataFormat,
@@ -155,18 +159,18 @@ public class OperationsFactory implements HotRodConstants {
             listenerServer);
    }
 
-   public StatsOperation newStatsOperation() {
+   public CompletionStage<ServerStatistics> newStatsOperation() {
       return new StatsOperation(
-            getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg);
+            getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg).execute();
    }
 
-   public <V> PutOperation<V> newPutKeyValueOperation(Object key, byte[] keyBytes, byte[] value,
-                                                      long lifespan, TimeUnit lifespanTimeUnit, long maxIdle,
-                                                      TimeUnit maxIdleTimeUnit, DataFormat dataFormat) {
-      return new PutOperation<>(
+   public <V> CompletableFuture<V> newPutKeyValueOperation(Object key, byte[] keyBytes, byte[] value,
+                                                           long lifespan, TimeUnit lifespanTimeUnit, long maxIdle,
+                                                           TimeUnit maxIdleTimeUnit, DataFormat dataFormat) {
+      return new PutOperation<V>(
             getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdle),
             cfg, value, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, dataFormat, clientStatistics,
-            telemetryService);
+            telemetryService).execute();
    }
 
    public PutAllParallelOperation newPutAllOperation(Map<byte[], byte[]> map,

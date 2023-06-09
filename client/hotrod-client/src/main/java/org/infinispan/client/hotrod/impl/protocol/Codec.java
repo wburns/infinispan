@@ -4,6 +4,7 @@ import java.lang.annotation.Annotation;
 import java.net.SocketAddress;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
@@ -173,5 +174,5 @@ public interface Codec {
       return false;
    }
 
-   void executeCommand(HotRodOperation<?> operation, );
+   <V> CompletionStage<V> executeCommand(HotRodOperation<V> operation, ChannelFactory factory);
 }
