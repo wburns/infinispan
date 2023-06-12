@@ -26,7 +26,6 @@ import java.util.regex.Pattern;
 
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
-import jakarta.transaction.TransactionManager;
 import javax.transaction.xa.XAResource;
 
 import org.infinispan.client.hotrod.configuration.Configuration;
@@ -79,6 +78,8 @@ import org.infinispan.commons.util.Version;
 import org.infinispan.counter.api.CounterManager;
 import org.infinispan.protostream.SerializationContext;
 import org.infinispan.protostream.SerializationContextInitializer;
+
+import jakarta.transaction.TransactionManager;
 
 /**
  * <p>Factory for {@link RemoteCache}s.</p>
@@ -264,7 +265,7 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
    @Override
    public Set<String> getCacheNames() {
       OperationsFactory operationsFactory = new OperationsFactory(channelFactory, listenerNotifier, configuration);
-      String names = await(operationsFactory.newAdminOperation("@@cache@names", Collections.emptyMap()).execute());
+      String names = await(operationsFactory.newAdminOperation("@@cache@names", Collections.emptyMap()));
       Set<String> cacheNames = new HashSet<>();
       // Simple pattern that matches the result which is represented as a JSON string array, e.g. ["cache1","cache2"]
       Pattern pattern = Pattern.compile(JSON_STRING_ARRAY_ELEMENT_REGEX);
@@ -523,7 +524,7 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
             }
             // Create and re-ping
             OperationsFactory adminOperationsFactory = new OperationsFactory(channelFactory, listenerNotifier, configuration);
-            pingResponse = await(adminOperationsFactory.newAdminOperation("@@cache@getorcreate", params).execute()
+            pingResponse = await(adminOperationsFactory.newAdminOperation("@@cache@getorcreate", params)
                   .thenCompose(s -> operationsFactory.newFaultTolerantPingOperation()));
          }
       } else {

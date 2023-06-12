@@ -45,7 +45,7 @@ class AuthHandler extends ActivationHandler {
    @Override
    public void channelActive(ChannelHandlerContext ctx) {
       Channel channel = ctx.channel();
-      operationsFactory.newAuthMechListOperation(channel).execute().thenCompose(serverMechs -> {
+      operationsFactory.newAuthMechListOperation(channel).thenCompose(serverMechs -> {
          if (!serverMechs.contains(authentication.saslMechanism())) {
             throw HOTROD.unsupportedMech(authentication.saslMechanism(), serverMechs);
          }
@@ -63,7 +63,7 @@ class AuthHandler extends ActivationHandler {
             response = EMPTY_BYTES;
          }
 
-         return operationsFactory.newAuthOperation(channel, authentication.saslMechanism(), response).execute();
+         return operationsFactory.newAuthOperation(channel, authentication.saslMechanism(), response);
       }).thenCompose(new ChallengeEvaluator(channel, saslClient)).thenRun(() -> {
          String qop = (String) saslClient.getNegotiatedProperty(Sasl.QOP);
          if (qop != null && (qop.equalsIgnoreCase(AUTH_INT) || qop.equalsIgnoreCase(AUTH_CONF))) {
@@ -126,7 +126,7 @@ class AuthHandler extends ActivationHandler {
             }
             if (response != null) {
                return operationsFactory.newAuthOperation(channel, authentication.saslMechanism(), response)
-                     .execute().thenCompose(this);
+                     .thenCompose(this).toCompletableFuture();
             }
          }
          return CompletableFuture.completedFuture(null);

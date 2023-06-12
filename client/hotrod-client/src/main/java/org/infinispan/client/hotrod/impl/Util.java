@@ -15,7 +15,6 @@ import javax.transaction.xa.Xid;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.exceptions.TransportException;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
-import org.infinispan.client.hotrod.impl.transaction.operations.PrepareTransactionOperation;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.commons.CacheException;
 import org.infinispan.commons.marshall.WrappedByteArray;
@@ -87,9 +86,8 @@ public class Util {
    }
 
    public static CompletionStage<Boolean> checkTransactionSupport(String cacheName, OperationsFactory factory) {
-      PrepareTransactionOperation op = factory.newPrepareTransactionOperation(DUMMY_XID, true, Collections.emptyList(),
-            false, 60000);
-      return op.execute().handle((integer, throwable) -> {
+      return factory.newPrepareTransactionOperation(DUMMY_XID, true, Collections.emptyList(),
+            false, 60000).handle((integer, throwable) -> {
          if (throwable != null) {
             HOTROD.invalidTxServerConfig(cacheName, throwable);
          }
@@ -98,15 +96,14 @@ public class Util {
    }
 
    public static boolean checkTransactionSupport(String cacheName, OperationsFactory factory, Log log) {
-      PrepareTransactionOperation op = factory.newPrepareTransactionOperation(DUMMY_XID, true, Collections.emptyList(),
-            false, 60000);
       try {
-         return op.execute().handle((integer, throwable) -> {
+         return factory.newPrepareTransactionOperation(DUMMY_XID, true, Collections.emptyList(),
+               false, 60000).handle((integer, throwable) -> {
             if (throwable != null) {
                HOTROD.invalidTxServerConfig(cacheName, throwable);
             }
             return throwable == null;
-         }).get();
+         }).toCompletableFuture().get();
       } catch (InterruptedException e) {
          Thread.currentThread().interrupt();
       } catch (ExecutionException e) {

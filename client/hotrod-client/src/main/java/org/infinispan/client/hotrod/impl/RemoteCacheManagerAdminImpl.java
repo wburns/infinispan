@@ -47,7 +47,7 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
       params.put(CACHE_NAME, string(name));
       if (template != null) params.put(CACHE_TEMPLATE, string(template));
       if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
-      await(operationsFactory.newAdminOperation("@@cache@create", params).execute());
+      await(operationsFactory.newAdminOperation("@@cache@create", params));
       return cacheManager.getCache(name);
    }
 
@@ -62,7 +62,7 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
       params.put(CACHE_NAME, string(name));
       if (configuration != null) params.put(CACHE_CONFIGURATION, string(configuration.toStringConfiguration(name)));
       if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
-      await(operationsFactory.newAdminOperation("@@cache@create", params).execute());
+      await(operationsFactory.newAdminOperation("@@cache@create", params));
       return cacheManager.getCache(name);
    }
 
@@ -72,7 +72,7 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
       params.put(CACHE_NAME, string(name));
       if (template != null) params.put(CACHE_TEMPLATE, string(template));
       if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
-      await(operationsFactory.newAdminOperation("@@cache@getorcreate", params).execute());
+      await(operationsFactory.newAdminOperation("@@cache@getorcreate", params));
       return cacheManager.getCache(name);
    }
 
@@ -87,7 +87,7 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
       params.put(CACHE_NAME, string(name));
       if (configuration != null) params.put(CACHE_CONFIGURATION, string(configuration.toStringConfiguration(name)));
       if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
-      await(operationsFactory.newAdminOperation("@@cache@getorcreate", params).execute());
+      await(operationsFactory.newAdminOperation("@@cache@getorcreate", params));
       return cacheManager.getCache(name);
    }
 
@@ -97,7 +97,7 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
       Map<String, byte[]> params = new HashMap<>(2);
       params.put(CACHE_NAME, string(name));
       if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
-      await(operationsFactory.newAdminOperation("@@cache@remove", params).execute());
+      await(operationsFactory.newAdminOperation("@@cache@remove", params));
    }
 
    @Override
@@ -117,12 +117,12 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
 
    @Override
    public void reindexCache(String name) throws HotRodClientException {
-      await(operationsFactory.newAdminOperation("@@cache@reindex", Collections.singletonMap(CACHE_NAME, string(name))).execute());
+      await(operationsFactory.newAdminOperation("@@cache@reindex", Collections.singletonMap(CACHE_NAME, string(name))));
    }
 
    @Override
    public void updateIndexSchema(String name) throws HotRodClientException {
-      await(operationsFactory.newAdminOperation("@@cache@updateindexschema", Collections.singletonMap(CACHE_NAME, string(name))).execute());
+      await(operationsFactory.newAdminOperation("@@cache@updateindexschema", Collections.singletonMap(CACHE_NAME, string(name))));
    }
 
    @Override
@@ -136,7 +136,7 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
          params.put(FLAGS, flags(flags));
       }
 
-      await(operationsFactory.newAdminOperation("@@cache@updateConfigurationAttribute", params).execute());
+      await(operationsFactory.newAdminOperation("@@cache@updateConfigurationAttribute", params));
    }
 
    @Override
@@ -145,7 +145,7 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
       params.put(CACHE_NAME, string(name));
       if (configuration != null) params.put(CACHE_CONFIGURATION, string(configuration.toStringConfiguration(name)));
       if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
-      await(operationsFactory.newAdminOperation("@@template@create", params).execute());
+      await(operationsFactory.newAdminOperation("@@template@create", params));
    }
 
    @Override
@@ -153,7 +153,7 @@ public class RemoteCacheManagerAdminImpl implements RemoteCacheManagerAdmin {
       Map<String, byte[]> params = new HashMap<>(2);
       params.put(CACHE_NAME, string(name));
       if (flags != null && !flags.isEmpty()) params.put(FLAGS, flags(flags));
-      await(operationsFactory.newAdminOperation("@@template@remove", params).execute());
+      await(operationsFactory.newAdminOperation("@@template@remove", params));
    }
 
    private static byte[] flags(EnumSet<AdminFlag> flags) {

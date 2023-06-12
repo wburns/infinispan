@@ -17,6 +17,7 @@ import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 import org.infinispan.client.hotrod.impl.transport.netty.HeaderDecoder;
 import org.infinispan.protostream.EnumMarshaller;
 import org.infinispan.protostream.SerializationContext;
+import org.infinispan.query.remote.client.impl.BaseQueryResponse;
 import org.infinispan.query.remote.client.impl.QueryRequest;
 
 import io.netty.buffer.ByteBuf;
@@ -27,7 +28,7 @@ import io.netty.channel.Channel;
  * @author anistor@redhat.com
  * @since 6.0
  */
-public final class QueryOperation extends RetryOnFailureOperation<Object> {
+public final class QueryOperation extends RetryOnFailureOperation<BaseQueryResponse<?>> {
 
    private final RemoteQuery<?> remoteQuery;
    private final QuerySerializer querySerializer;

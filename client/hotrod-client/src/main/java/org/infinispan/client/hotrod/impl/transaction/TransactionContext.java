@@ -185,7 +185,7 @@ public class TransactionContext<K, V> {
          do {
             operation = operationsFactory
                   .newPrepareTransactionOperation(xid, onePhaseCommit, modifications, recoverable, timeout);
-            xaReturnCode = operation.execute().get();
+            xaReturnCode = operation.get();
          } while (operation.shouldRetry());
          return xaReturnCode;
       } catch (Exception e) {

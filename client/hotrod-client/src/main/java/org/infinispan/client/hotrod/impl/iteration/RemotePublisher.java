@@ -16,9 +16,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.impl.consistenthash.SegmentConsistentHash;
 import org.infinispan.client.hotrod.impl.operations.IterationEndResponse;
-import org.infinispan.client.hotrod.impl.operations.IterationNextOperation;
 import org.infinispan.client.hotrod.impl.operations.IterationNextResponse;
-import org.infinispan.client.hotrod.impl.operations.IterationStartOperation;
 import org.infinispan.client.hotrod.impl.operations.IterationStartResponse;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
@@ -146,7 +144,7 @@ public class RemotePublisher<K, E> implements Publisher<Map.Entry<K, E>> {
    }
 
    CompletionStage<Void> sendCancel(byte[] iterationId, Channel channel) {
-      CompletionStage<IterationEndResponse> endResponseStage = operationsFactory.newIterationEndOperation(iterationId, channel).execute();
+      CompletionStage<IterationEndResponse> endResponseStage = operationsFactory.newIterationEndOperation(iterationId, channel);
       return endResponseStage.handle((endResponse, t) -> {
          if (t != null) {
             HOTROD.ignoringErrorDuringIterationClose(iterationId(iterationId), t);
@@ -176,14 +174,11 @@ public class RemotePublisher<K, E> implements Publisher<Map.Entry<K, E>> {
 
    CompletionStage<IterationStartResponse> newIteratorStartOperation(SocketAddress address, IntSet segments,
          int batchSize) {
-      IterationStartOperation iterationStartOperation = operationsFactory.newIterationStartOperation(filterConverterFactory,
+      return operationsFactory.newIterationStartOperation(filterConverterFactory,
             filterParams, segments, batchSize, metadata, dataFormat, address);
-      return iterationStartOperation.execute();
    }
 
    CompletionStage<IterationNextResponse<K, E>> newIteratorNextOperation(byte[] iterationId, Channel channel) {
-      IterationNextOperation<K, E> iterationNextOperation = operationsFactory.newIterationNextOperation(iterationId,
-            channel, segmentKeyTracker, dataFormat);
-      return iterationNextOperation.execute();
+      return operationsFactory.newIterationNextOperation(iterationId, channel, segmentKeyTracker, dataFormat);
    }
 }

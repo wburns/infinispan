@@ -6,12 +6,12 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import org.infinispan.client.hotrod.RemoteCache;
 import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.impl.InternalRemoteCache;
-import org.infinispan.client.hotrod.impl.operations.QueryOperation;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.commons.util.CloseableIterator;
@@ -99,8 +99,9 @@ public final class RemoteQuery<T> extends BaseQuery<T> {
 
    private BaseQueryResponse<T> executeRemotely() {
       validateNamedParameters();
-      QueryOperation op = cache.getOperationsFactory().newQueryOperation(this, cache.getDataFormat());
-      return (BaseQueryResponse<T>) (timeout != -1 ? await(op.execute(), TimeUnit.NANOSECONDS.toMillis(timeout)) : await(op.execute()));
+      CompletableFuture<BaseQueryResponse<?>> op = cache.getOperationsFactory().newQueryOperation(this, cache.getDataFormat())
+            .toCompletableFuture();
+      return (BaseQueryResponse<T>) (timeout != -1 ? await(op, TimeUnit.NANOSECONDS.toMillis(timeout)) : await(op));
    }
 
    /**

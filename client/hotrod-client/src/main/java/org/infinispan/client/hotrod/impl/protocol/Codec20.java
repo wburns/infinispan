@@ -27,7 +27,6 @@ import org.infinispan.client.hotrod.exceptions.HotRodClientException;
 import org.infinispan.client.hotrod.exceptions.RemoteIllegalLifecycleStateException;
 import org.infinispan.client.hotrod.exceptions.RemoteNodeSuspectException;
 import org.infinispan.client.hotrod.impl.ClientTopology;
-import org.infinispan.client.hotrod.impl.operations.BulkGetKeysOperation;
 import org.infinispan.client.hotrod.impl.operations.HotRodOperation;
 import org.infinispan.client.hotrod.impl.operations.OperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.PingResponse;
@@ -227,8 +226,7 @@ public class Codec20 implements Codec, HotRodConstants {
       if (segments != null) {
          throw new UnsupportedOperationException("This version doesn't support iterating upon keys by segment!");
       }
-      BulkGetKeysOperation<K> op = operationsFactory.newBulkGetKeysOperation(0, remoteCache.getDataFormat());
-      Set<K> keys = await(op.execute());
+      Set<K> keys = await(operationsFactory.newBulkGetKeysOperation(0, remoteCache.getDataFormat()));
       return Closeables.iterator(keys.iterator());
    }
 

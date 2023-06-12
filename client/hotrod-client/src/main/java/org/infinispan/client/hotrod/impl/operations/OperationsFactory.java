@@ -1,5 +1,6 @@
 package org.infinispan.client.hotrod.impl.operations;
 
+import java.io.OutputStream;
 import java.net.SocketAddress;
 import java.util.List;
 import java.util.Map;
@@ -25,6 +26,7 @@ import org.infinispan.client.hotrod.impl.InternalRemoteCache;
 import org.infinispan.client.hotrod.impl.VersionedOperationResponse;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.iteration.KeyTracker;
+import org.infinispan.client.hotrod.impl.protocol.ChannelInputStream;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.query.RemoteQuery;
@@ -35,6 +37,7 @@ import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.client.hotrod.telemetry.impl.TelemetryService;
 import org.infinispan.commons.util.IntSet;
+import org.infinispan.query.remote.client.impl.BaseQueryResponse;
 
 import io.netty.channel.Channel;
 import net.jcip.annotations.Immutable;
@@ -133,25 +136,25 @@ public class OperationsFactory implements HotRodConstants {
 
    public <V> CompletableFuture<V> newRemoveOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
       Codec codec = getCodec();
-      return new RemoveOperation<V>(
-            getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, dataFormat,
-            clientStatistics, telemetryService).execute();
+      return codec.executeCommand(new RemoveOperation<V>(codec, channelFactory, key, keyBytes, cacheNameBytes,
+            clientTopologyRef, flags(), cfg, dataFormat, clientStatistics, telemetryService), channelFactory)
+            .toCompletableFuture();
    }
 
    public <V> CompletableFuture<VersionedOperationResponse<V>> newRemoveIfUnmodifiedOperation(Object key, byte[] keyBytes, long version, DataFormat dataFormat) {
       Codec codec = getCodec();
-      return new RemoveIfUnmodifiedOperation<V>(
-            getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, version, dataFormat,
-            clientStatistics, telemetryService).execute();
+      return codec.executeCommand(new RemoveIfUnmodifiedOperation<V>(codec, channelFactory, key, keyBytes,
+            cacheNameBytes, clientTopologyRef, flags(), cfg, version, dataFormat, clientStatistics, telemetryService),
+            channelFactory).toCompletableFuture();
    }
 
    public <V> CompletableFuture<VersionedOperationResponse<V>> newReplaceIfUnmodifiedOperation(Object key, byte[] keyBytes,
                                                                                         byte[] value, long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit, long version, DataFormat dataFormat) {
       Codec codec = getCodec();
-      return new ReplaceIfUnmodifiedOperation<V>(
-            getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdle),
-            cfg, value, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, version, dataFormat, clientStatistics,
-            telemetryService).execute();
+      return codec.executeCommand(new ReplaceIfUnmodifiedOperation<V>(codec, channelFactory, key, keyBytes,
+            cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdle), cfg, value, lifespan, lifespanTimeUnit,
+            maxIdle, maxIdleTimeUnit, version, dataFormat, clientStatistics, telemetryService), channelFactory)
+            .toCompletableFuture();
    }
 
    public <V> CompletableFuture<MetadataValue<V>> newGetWithMetadataOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
@@ -160,95 +163,111 @@ public class OperationsFactory implements HotRodConstants {
 
    public <V> RetryAwareCompletionStage<MetadataValue<V>> newGetWithMetadataOperation(Object key, byte[] keyBytes, DataFormat dataFormat,
                                                                       SocketAddress listenerServer) {
-      var op = new GetWithMetadataOperation<V>(
-            getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, dataFormat, clientStatistics,
-            listenerServer);
-      op.execute();
+      Codec codec = getCodec();
+      var op = new GetWithMetadataOperation<V>(codec, channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef,
+            flags(), cfg, dataFormat, clientStatistics, listenerServer);
+      // TODO: this relies upon the operation being the stage we complete.. may need to refactor later
+      codec.executeCommand(op, channelFactory);
       return op;
    }
 
    public CompletionStage<ServerStatistics> newStatsOperation() {
-      return new StatsOperation(
-            getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new StatsOperation(codec, channelFactory, cacheNameBytes, clientTopologyRef, flags(),
+            cfg), channelFactory);
    }
 
    public <V> CompletableFuture<V> newPutKeyValueOperation(Object key, byte[] keyBytes, byte[] value,
                                                            long lifespan, TimeUnit lifespanTimeUnit, long maxIdle,
                                                            TimeUnit maxIdleTimeUnit, DataFormat dataFormat) {
-      return new PutOperation<V>(
-            getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdle),
-            cfg, value, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, dataFormat, clientStatistics,
-            telemetryService).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new PutOperation<V>(codec, channelFactory, key, keyBytes, cacheNameBytes,
+            clientTopologyRef, flags(lifespan, maxIdle), cfg, value, lifespan, lifespanTimeUnit, maxIdle,
+            maxIdleTimeUnit, dataFormat, clientStatistics, telemetryService), channelFactory)
+            .toCompletableFuture();
    }
 
    public CompletableFuture<Void> newPutAllOperation(Map<byte[], byte[]> map,
                                                      long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit, DataFormat dataFormat) {
-      return new PutAllParallelOperation(
-            getCodec(), channelFactory, map, cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdle), cfg,
-            lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, dataFormat, clientStatistics, telemetryService)
-            .execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new PutAllParallelOperation(codec, channelFactory, map, cacheNameBytes,
+            clientTopologyRef, flags(lifespan, maxIdle), cfg, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit,
+            dataFormat, clientStatistics, telemetryService), channelFactory)
+            .toCompletableFuture();
    }
 
    public <V> CompletableFuture<V> newPutIfAbsentOperation(Object key, byte[] keyBytes, byte[] value,
                                                               long lifespan, TimeUnit lifespanUnit, long maxIdleTime,
                                                               TimeUnit maxIdleTimeUnit, DataFormat dataFormat) {
-      return new PutIfAbsentOperation<V>(
-            getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdleTime),
-            cfg, value, lifespan, lifespanUnit, maxIdleTime, maxIdleTimeUnit, dataFormat, clientStatistics,
-            telemetryService).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new PutIfAbsentOperation<V>(codec, channelFactory, key, keyBytes, cacheNameBytes,
+            clientTopologyRef, flags(lifespan, maxIdleTime), cfg, value, lifespan, lifespanUnit, maxIdleTime,
+            maxIdleTimeUnit, dataFormat, clientStatistics, telemetryService), channelFactory)
+            .toCompletableFuture();
    }
 
    public <V> CompletableFuture<V> newReplaceOperation(Object key, byte[] keyBytes, byte[] values,
                                                       long lifespan, TimeUnit lifespanTimeUnit, long maxIdle, TimeUnit maxIdleTimeUnit, DataFormat dataFormat) {
-      return new ReplaceOperation<V>(
-            getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(lifespan, maxIdle),
-            cfg, values, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit, dataFormat, clientStatistics,
-            telemetryService).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new ReplaceOperation<V>(codec, channelFactory, key, keyBytes, cacheNameBytes,
+            clientTopologyRef, flags(lifespan, maxIdle), cfg, values, lifespan, lifespanTimeUnit, maxIdle,
+            maxIdleTimeUnit, dataFormat, clientStatistics, telemetryService), channelFactory)
+            .toCompletableFuture();
    }
 
    public CompletableFuture<Boolean> newContainsKeyOperation(Object key, byte[] keyBytes, DataFormat dataFormat) {
-      return new ContainsKeyOperation(getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef,
-            flags(), cfg, dataFormat, clientStatistics).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new ContainsKeyOperation(codec, channelFactory, key, keyBytes, cacheNameBytes,
+            clientTopologyRef, flags(), cfg, dataFormat, clientStatistics), channelFactory)
+            .toCompletableFuture();
    }
 
    public CompletableFuture<Void> newClearOperation() {
-      return new ClearOperation(
-            getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, telemetryService).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new ClearOperation(codec, channelFactory, cacheNameBytes, clientTopologyRef, flags(),
+            cfg, telemetryService), channelFactory)
+            .toCompletableFuture();
    }
 
-   public <K> BulkGetKeysOperation<K> newBulkGetKeysOperation(int scope, DataFormat dataFormat) {
-      return new BulkGetKeysOperation<>(
-            getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, scope, dataFormat, clientStatistics);
+   public <K> CompletionStage<Set<K>> newBulkGetKeysOperation(int scope, DataFormat dataFormat) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new BulkGetKeysOperation<>(codec, channelFactory, cacheNameBytes, clientTopologyRef,
+            flags(), cfg, scope, dataFormat, clientStatistics), channelFactory);
    }
 
    public CompletionStage<SocketAddress> newAddClientListenerOperation(Object listener, DataFormat dataFormat) {
-      return new AddClientListenerOperation(getCodec(), channelFactory,
-            cacheName, clientTopologyRef, flags(), cfg, listenerNotifier,
-            listener, null, null, dataFormat, null, telemetryService)
-            .execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new AddClientListenerOperation(codec, channelFactory, cacheName, clientTopologyRef,
+            flags(), cfg, listenerNotifier, listener, null, null, dataFormat,
+            null, telemetryService), channelFactory);
    }
 
    public CompletionStage<SocketAddress> newAddClientListenerOperation(
          Object listener, byte[][] filterFactoryParams, byte[][] converterFactoryParams, DataFormat dataFormat) {
-      return new AddClientListenerOperation(getCodec(), channelFactory,
-            cacheName, clientTopologyRef, flags(), cfg, listenerNotifier,
-            listener, filterFactoryParams, converterFactoryParams, dataFormat, null, telemetryService).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new AddClientListenerOperation(codec, channelFactory, cacheName, clientTopologyRef,
+            flags(), cfg, listenerNotifier, listener, filterFactoryParams, converterFactoryParams, dataFormat,
+            null, telemetryService), channelFactory);
    }
 
    public CompletionStage<Void> newRemoveClientListenerOperation(Object listener) {
-      return new RemoveClientListenerOperation(getCodec(), channelFactory,
-            cacheNameBytes, clientTopologyRef, flags(), cfg, listenerNotifier, listener).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new RemoveClientListenerOperation(getCodec(), channelFactory, cacheNameBytes,
+            clientTopologyRef, flags(), cfg, listenerNotifier, listener), channelFactory);
    }
 
    public CompletionStage<SocketAddress> newAddNearCacheListenerOperation(Object listener, DataFormat dataFormat,
                                                                           int bloomFilterBits, InternalRemoteCache<?, ?> remoteCache) {
-      return new AddBloomNearCacheClientListenerOperation(getCodec(), channelFactory, cacheName, clientTopologyRef, flags(), cfg, listenerNotifier,
-            listener, dataFormat, bloomFilterBits, remoteCache).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new AddBloomNearCacheClientListenerOperation(codec, channelFactory, cacheName,
+            clientTopologyRef, flags(), cfg, listenerNotifier, listener, dataFormat, bloomFilterBits, remoteCache),
+            channelFactory);
    }
 
    public CompletionStage<Void> newUpdateBloomFilterOperation(SocketAddress address, byte[] bloomBytes) {
-      return new UpdateBloomFilterOperation(getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, address,
-            bloomBytes).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new UpdateBloomFilterOperation(getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, address,
+            bloomBytes), channelFactory);
    }
 
    /**
@@ -269,28 +288,33 @@ public class OperationsFactory implements HotRodConstants {
     * @return a ping operation for the cluster
     */
    public CompletionStage<PingResponse> newFaultTolerantPingOperation() {
-      return new FaultTolerantPingOperation(
-            getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new FaultTolerantPingOperation(codec, channelFactory, cacheNameBytes,
+            clientTopologyRef, flags(), cfg), channelFactory);
    }
 
-   public QueryOperation newQueryOperation(RemoteQuery<?> remoteQuery, DataFormat dataFormat) {
-      return new QueryOperation(
-            getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, remoteQuery, dataFormat);
+   public CompletionStage<BaseQueryResponse<?>> newQueryOperation(RemoteQuery<?> remoteQuery, DataFormat dataFormat) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new QueryOperation(codec, channelFactory, cacheNameBytes, clientTopologyRef, flags(),
+            cfg, remoteQuery, dataFormat), channelFactory);
    }
 
    public CompletableFuture<Integer> newSizeOperation() {
-      return new SizeOperation(getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, flags(), cfg, telemetryService)
-            .execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new SizeOperation(codec, channelFactory, cacheNameBytes, clientTopologyRef, flags(),
+            cfg, telemetryService), channelFactory).toCompletableFuture();
    }
 
    public <T> CompletionStage<T> newExecuteOperation(String taskName, Map<String, byte[]> marshalledParams, Object key, DataFormat dataFormat) {
-      return new ExecuteOperation<T>(getCodec(), channelFactory, cacheNameBytes,
-            clientTopologyRef, flags(), cfg, taskName, marshalledParams, key, dataFormat).execute();
+      Codec codec = getCodec();
+      return codec.executeCommand(new ExecuteOperation<T>(codec, channelFactory, cacheNameBytes, clientTopologyRef,
+            flags(), cfg, taskName, marshalledParams, key, dataFormat), channelFactory);
    }
 
-   public AdminOperation newAdminOperation(String taskName, Map<String, byte[]> marshalledParams) {
-      return new AdminOperation(getCodec(), channelFactory, cacheNameBytes,
-            clientTopologyRef, flags(), cfg, taskName, marshalledParams);
+   public CompletionStage<String> newAdminOperation(String taskName, Map<String, byte[]> marshalledParams) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new AdminOperation(codec, channelFactory, cacheNameBytes, clientTopologyRef, flags(),
+            cfg, taskName, marshalledParams), channelFactory);
    }
 
    private int flags(long lifespan, long maxIdle) {
@@ -354,46 +378,72 @@ public class OperationsFactory implements HotRodConstants {
       return clientTopologyRef.get().getTopologyId();
    }
 
-   public IterationStartOperation newIterationStartOperation(String filterConverterFactory, byte[][] filterParameters, IntSet segments, int batchSize, boolean metadata, DataFormat dataFormat, SocketAddress targetAddress) {
-      return new IterationStartOperation(getCodec(), flags(), cfg, cacheNameBytes, clientTopologyRef, filterConverterFactory, filterParameters, segments, batchSize, channelFactory, metadata, dataFormat, targetAddress);
+   public CompletionStage<IterationStartResponse> newIterationStartOperation(String filterConverterFactory, byte[][] filterParameters, IntSet segments, int batchSize, boolean metadata, DataFormat dataFormat, SocketAddress targetAddress) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new IterationStartOperation(codec, flags(), cfg, cacheNameBytes, clientTopologyRef,
+            filterConverterFactory, filterParameters, segments, batchSize, channelFactory, metadata, dataFormat,
+            targetAddress), channelFactory);
    }
 
-   public IterationEndOperation newIterationEndOperation(byte[] iterationId, Channel channel) {
-      return new IterationEndOperation(getCodec(), flags(), cfg, cacheNameBytes, clientTopologyRef, iterationId, channelFactory, channel);
+   public CompletionStage<IterationEndResponse> newIterationEndOperation(byte[] iterationId, Channel channel) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new IterationEndOperation(codec, flags(), cfg, cacheNameBytes, clientTopologyRef,
+            iterationId, channelFactory, channel), channelFactory);
    }
 
-   public <K, E> IterationNextOperation<K, E> newIterationNextOperation(byte[] iterationId, Channel channel, KeyTracker segmentKeyTracker, DataFormat dataFormat) {
-      return new IterationNextOperation<>(getCodec(), flags(), cfg, cacheNameBytes, clientTopologyRef, iterationId, channel, channelFactory, segmentKeyTracker, dataFormat);
+   public <K, E> CompletionStage<IterationNextResponse<K, E>> newIterationNextOperation(byte[] iterationId, Channel channel, KeyTracker segmentKeyTracker, DataFormat dataFormat) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new IterationNextOperation<>(codec, flags(), cfg, cacheNameBytes, clientTopologyRef,
+            iterationId, channel, channelFactory, segmentKeyTracker, dataFormat), channelFactory);
    }
 
-   public <K> GetStreamOperation newGetStreamOperation(K key, byte[] keyBytes, int offset) {
-      return new GetStreamOperation(getCodec(), channelFactory, key, keyBytes, offset, cacheNameBytes, clientTopologyRef, flags(), cfg, clientStatistics);
+   public <K> CompletionStage<ChannelInputStream> newGetStreamOperation(K key, byte[] keyBytes, int offset) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new GetStreamOperation(codec, channelFactory, key, keyBytes, offset, cacheNameBytes,
+            clientTopologyRef, flags(), cfg, clientStatistics), channelFactory);
    }
 
-   public <K> PutStreamOperation newPutStreamOperation(K key, byte[] keyBytes, long version, long lifespan, TimeUnit lifespanUnit, long maxIdle, TimeUnit maxIdleUnit) {
-      return new PutStreamOperation(getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, version, lifespan, lifespanUnit, maxIdle, maxIdleUnit, clientStatistics, telemetryService);
+   public <K> CompletionStage<OutputStream> newPutStreamOperation(K key, byte[] keyBytes, long version, long lifespan, TimeUnit lifespanUnit, long maxIdle, TimeUnit maxIdleUnit) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new PutStreamOperation(codec, channelFactory, key, keyBytes, cacheNameBytes,
+            clientTopologyRef, flags(), cfg, version, lifespan, lifespanUnit, maxIdle, maxIdleUnit, clientStatistics,
+            telemetryService), channelFactory);
    }
 
-   public <K> PutStreamOperation newPutStreamOperation(K key, byte[] keyBytes, long lifespan, TimeUnit lifespanUnit, long maxIdle, TimeUnit maxIdleUnit) {
-      return new PutStreamOperation(getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, PutStreamOperation.VERSION_PUT, lifespan, lifespanUnit, maxIdle, maxIdleUnit, clientStatistics, telemetryService);
+   public <K> CompletionStage<OutputStream> newPutStreamOperation(K key, byte[] keyBytes, long lifespan, TimeUnit lifespanUnit, long maxIdle, TimeUnit maxIdleUnit) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new PutStreamOperation(codec, channelFactory, key, keyBytes, cacheNameBytes,
+            clientTopologyRef, flags(), cfg, PutStreamOperation.VERSION_PUT, lifespan, lifespanUnit, maxIdle,
+            maxIdleUnit, clientStatistics, telemetryService), channelFactory);
    }
 
-   public <K> PutStreamOperation newPutIfAbsentStreamOperation(K key, byte[] keyBytes, long lifespan, TimeUnit lifespanUnit, long maxIdle, TimeUnit maxIdleUnit) {
-      return new PutStreamOperation(getCodec(), channelFactory, key, keyBytes, cacheNameBytes, clientTopologyRef, flags(), cfg, PutStreamOperation.VERSION_PUT_IF_ABSENT, lifespan, lifespanUnit, maxIdle, maxIdleUnit, clientStatistics, telemetryService);
+   public <K> CompletionStage<OutputStream> newPutIfAbsentStreamOperation(K key, byte[] keyBytes, long lifespan, TimeUnit lifespanUnit, long maxIdle, TimeUnit maxIdleUnit) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new PutStreamOperation(codec, channelFactory, key, keyBytes, cacheNameBytes,
+            clientTopologyRef, flags(), cfg, PutStreamOperation.VERSION_PUT_IF_ABSENT, lifespan, lifespanUnit, maxIdle,
+            maxIdleUnit, clientStatistics, telemetryService), channelFactory);
    }
 
-   public AuthMechListOperation newAuthMechListOperation(Channel channel) {
-      return new AuthMechListOperation(getCodec(), clientTopologyRef, cfg, channel, channelFactory);
+   public CompletionStage<List<String>> newAuthMechListOperation(Channel channel) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new AuthMechListOperation(codec, clientTopologyRef, cfg, channel, channelFactory),
+            channelFactory);
    }
 
-   public AuthOperation newAuthOperation(Channel channel, String saslMechanism, byte[] response) {
-      return new AuthOperation(getCodec(), clientTopologyRef, cfg, channel, channelFactory, saslMechanism, response);
+   public CompletionStage<byte[]> newAuthOperation(Channel channel, String saslMechanism, byte[] response) {
+      Codec codec = getCodec();
+      return codec.executeCommand(new AuthOperation(codec, clientTopologyRef, cfg, channel, channelFactory,
+            saslMechanism, response), channelFactory);
    }
 
    public PrepareTransactionOperation newPrepareTransactionOperation(Xid xid, boolean onePhaseCommit,
-                                                                     List<Modification> modifications,
-                                                                     boolean recoverable, long timeoutMs) {
-      return new PrepareTransactionOperation(getCodec(), channelFactory, cacheNameBytes, clientTopologyRef, cfg, xid,
-            onePhaseCommit, modifications, recoverable, timeoutMs);
+                                                                  List<Modification> modifications,
+                                                                  boolean recoverable, long timeoutMs) {
+      Codec codec = getCodec();
+      var op = new PrepareTransactionOperation(codec, channelFactory, cacheNameBytes,
+            clientTopologyRef, cfg, xid, onePhaseCommit, modifications, recoverable, timeoutMs);
+      codec.executeCommand(op, channelFactory);
+      // TODO: This is relying upon returning op
+      return op;
    }
 }
