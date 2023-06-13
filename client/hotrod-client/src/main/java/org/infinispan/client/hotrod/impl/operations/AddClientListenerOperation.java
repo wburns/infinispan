@@ -75,4 +75,18 @@ public class AddClientListenerOperation extends ClientListenerOperation {
       codec.writeClientListenerInterests(buf, ClientEventDispatcher.findMethods(listener).keySet());
       channel.writeAndFlush(buf);
    }
+
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      ClientListener clientListener = extractClientListener();
+
+      // TODO: look into...
+      listenerNotifier.addDispatcher(ClientEventDispatcher.create(this,
+            address, () -> /* nothing for now.. */{}, remoteCache));
+
+      codec.writeHeader(buf, header);
+      ByteBufUtil.writeArray(buf, listenerId);
+      codec.writeClientListenerParams(buf, clientListener, filterFactoryParams, converterFactoryParams);
+      codec.writeClientListenerInterests(buf, ClientEventDispatcher.findMethods(listener).keySet());
+   }
 }

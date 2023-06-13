@@ -49,6 +49,11 @@ public class UpdateBloomFilterOperation extends HotRodOperation<Void> implements
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      writeArrayOperation(buf, bloomBits);
+   }
+
+   @Override
    public void cancel(SocketAddress address, Throwable cause) {
       completeExceptionally(cause);
    }

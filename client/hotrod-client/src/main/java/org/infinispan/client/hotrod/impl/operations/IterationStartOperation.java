@@ -60,6 +60,12 @@ public class IterationStartOperation extends RetryOnFailureOperation<IterationSt
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      codec.writeHeader(buf, header);
+      codec.writeIteratorStartOperation(buf, segments, filterConverterFactory, batchSize, metadata, filterParameters);
+   }
+
+   @Override
    protected void fetchChannelAndInvoke(int retryCount, Set<SocketAddress> failedServers) {
       if (addressTarget != null) {
          channelFactory.fetchChannelAndInvoke(addressTarget, this);

@@ -146,6 +146,11 @@ public class ChannelPoolTest extends AbstractRetryTest {
       }
 
       @Override
+      public void writeBytes(ByteBuf buf) {
+         throw new UnsupportedOperationException("Should not ever be invoked!");
+      }
+
+      @Override
       public String toString() {
          return "id = " + id;
       }

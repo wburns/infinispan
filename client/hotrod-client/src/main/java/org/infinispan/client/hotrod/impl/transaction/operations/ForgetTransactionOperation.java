@@ -48,6 +48,12 @@ public class ForgetTransactionOperation extends RetryOnFailureOperation<Void> {
       channel.writeAndFlush(buf);
    }
 
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      codec.writeHeader(buf, header);
+      ByteBufUtil.writeXid(buf, xid);
+   }
+
    private int estimateSize() {
       return codec.estimateHeaderSize(header) + ByteBufUtil.estimateXidSize(xid);
    }

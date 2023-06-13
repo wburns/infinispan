@@ -68,6 +68,13 @@ public final class QueryOperation extends RetryOnFailureOperation<BaseQueryRespo
       channel.writeAndFlush(Unpooled.wrappedBuffer(requestBytes));
    }
 
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      // marshall and write the request
+      byte[] requestBytes = querySerializer.serializeQueryRequest(remoteQuery, null);
+      writeArrayOperation(buf, requestBytes);
+   }
+
    private List<QueryRequest.NamedParameter> getNamedParameters() {
       Map<String, Object> namedParameters = remoteQuery.getParameters();
       if (namedParameters == null || namedParameters.isEmpty()) {

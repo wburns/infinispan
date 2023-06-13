@@ -99,6 +99,11 @@ public class RetryOnFailureUnitTest extends AbstractInfinispanTest {
       }
 
       @Override
+      public void writeBytes(ByteBuf buf) {
+         throw new UnsupportedOperationException("TODO!");
+      }
+
+      @Override
       protected void executeOperation(Channel channel) {
          executeInvocationCount.incrementAndGet();
          if (!failOnTransport) {

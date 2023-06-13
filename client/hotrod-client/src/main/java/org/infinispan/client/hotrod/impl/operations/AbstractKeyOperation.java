@@ -48,6 +48,11 @@ public abstract class AbstractKeyOperation<T> extends StatsAffectingRetryingOper
       }
    }
 
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      writeArrayOperation(buf, keyBytes);
+   }
+
    protected T returnPossiblePrevValue(ByteBuf buf, short status) {
       return (T) codec.returnPossiblePrevValue(buf, status, dataFormat(), flags(), cfg.getClassAllowList(), channelFactory.getMarshaller());
    }

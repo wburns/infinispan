@@ -56,4 +56,9 @@ public class SizeMultimapOperation extends RetryOnFailureOperation<Long> {
       codec.writeMultimapSupportDuplicates(buf, supportsDuplicates);
       channel.writeAndFlush(buf);
    }
+
+   @Override
+   public void writeBytes(ByteBuf buf) {
+      codec.writeHeader(buf, header);
+   }
 }

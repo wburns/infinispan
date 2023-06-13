@@ -132,6 +132,11 @@ public class CrashMidOperationTest extends AbstractRetryTest {
       }
 
       @Override
+      public void writeBytes(ByteBuf buf) {
+         throw new UnsupportedOperationException("TODO!");
+      }
+
+      @Override
       public String toString() {
          return "id = " + id;
       }

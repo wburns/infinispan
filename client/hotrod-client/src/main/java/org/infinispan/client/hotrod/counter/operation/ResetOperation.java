@@ -30,6 +30,11 @@ public class ResetOperation extends BaseCounterOperation<Void> {
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      writeHeaderAndCounterName(buf);
+   }
+
+   @Override
    public void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder) {
       checkStatus(status);
       complete(null);

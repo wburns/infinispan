@@ -57,6 +57,11 @@ public class RemoveClientListenerOperation extends HotRodOperation<Void> impleme
    }
 
    @Override
+   public void writeBytes(ByteBuf buf) {
+      writeArrayOperation(buf, listenerId);
+   }
+
+   @Override
    public void cancel(SocketAddress address, Throwable cause) {
       completeExceptionally(cause);
    }

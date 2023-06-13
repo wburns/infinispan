@@ -132,6 +132,11 @@ public abstract class HotRodOperation<T> extends CompletableFuture<T> implements
       channel.writeAndFlush(buf);
    }
 
+   protected void writeArrayOperation(ByteBuf buf, byte[] array) {
+      codec.writeHeader(buf, header);
+      ByteBufUtil.writeArray(buf, array);
+   }
+
    public abstract void acceptResponse(ByteBuf buf, short status, HeaderDecoder decoder);
 
    @Override
@@ -199,4 +204,5 @@ public abstract class HotRodOperation<T> extends CompletableFuture<T> implements
       return codec;
    }
 
+   public abstract void writeBytes(ByteBuf buf);
 }

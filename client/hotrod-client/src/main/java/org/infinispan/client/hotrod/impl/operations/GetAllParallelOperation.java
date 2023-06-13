@@ -16,6 +16,8 @@ import org.infinispan.client.hotrod.impl.ClientTopology;
 import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 
+import io.netty.buffer.ByteBuf;
+
 /**
  * @author Guillaume Darmont / guillaume@dropinocean.com
  */
@@ -52,5 +54,10 @@ public class GetAllParallelOperation<K, V> extends ParallelHotRodOperation<Map<K
    @Override
    protected void combine(Map<K, V> collector, Map<K, V> result) {
       collector.putAll(result);
+   }
+
+   @Override
+   public void writeBytes(ByteBuf buffer) {
+      throw new UnsupportedOperationException("TODO!");
    }
 }
