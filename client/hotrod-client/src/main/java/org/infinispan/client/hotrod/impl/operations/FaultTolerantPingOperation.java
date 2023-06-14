@@ -39,7 +39,7 @@ public class FaultTolerantPingOperation extends RetryOnFailureOperation<PingResp
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       codec.writeHeader(buf, header);
    }
 

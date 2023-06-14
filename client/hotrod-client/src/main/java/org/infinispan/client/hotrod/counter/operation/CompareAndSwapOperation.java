@@ -47,7 +47,7 @@ public class CompareAndSwapOperation extends BaseCounterOperation<Long> {
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       writeHeaderAndCounterName(buf);
       buf.writeLong(expect);
       buf.writeLong(update);

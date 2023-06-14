@@ -84,7 +84,7 @@ public class PrepareTransactionOperation extends RetryOnFailureOperation<Integer
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       codec.writeHeader(buf, header);
       writeXid(buf, xid);
       buf.writeBoolean(onePhaseCommit);

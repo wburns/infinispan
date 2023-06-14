@@ -138,7 +138,7 @@ public class IterationNextOperation<K, E> extends HotRodOperation<IterationNextR
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       writeArrayOperation(buf, iterationId);
    }
 }

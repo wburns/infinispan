@@ -60,7 +60,7 @@ public class IterationStartOperation extends RetryOnFailureOperation<IterationSt
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       codec.writeHeader(buf, header);
       codec.writeIteratorStartOperation(buf, segments, filterConverterFactory, batchSize, metadata, filterParameters);
    }

@@ -34,7 +34,7 @@ public class GetConfigurationOperation extends BaseCounterOperation<CounterConfi
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       writeHeaderAndCounterName(buf);
    }
 

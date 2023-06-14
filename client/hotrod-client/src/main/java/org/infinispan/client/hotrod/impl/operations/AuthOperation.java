@@ -59,7 +59,7 @@ public class AuthOperation extends NeutralVersionHotRodOperation<byte[]> {
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       byte[] saslMechBytes = saslMechanism.getBytes(HOTROD_STRING_CHARSET);
 
       codec.writeHeader(buf, header);

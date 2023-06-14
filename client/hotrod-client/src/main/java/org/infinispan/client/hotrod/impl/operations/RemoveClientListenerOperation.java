@@ -57,7 +57,7 @@ public class RemoveClientListenerOperation extends HotRodOperation<Void> impleme
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       writeArrayOperation(buf, listenerId);
    }
 

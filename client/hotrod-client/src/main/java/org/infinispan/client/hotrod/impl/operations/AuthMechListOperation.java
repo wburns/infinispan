@@ -44,7 +44,7 @@ public class AuthMechListOperation extends NeutralVersionHotRodOperation<List<St
    }
 
    @Override
-   public void writeBytes(ByteBuf buffer) {
+   public void writeBytes(Channel channel, ByteBuf buffer) {
       codec.writeHeader(buffer, header);
    }
 

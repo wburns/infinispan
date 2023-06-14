@@ -128,7 +128,7 @@ public class CloseBeforeEnqueuingTest extends AbstractRetryTest {
       }
 
       @Override
-      public void writeBytes(ByteBuf buf) {
+      public void writeBytes(Channel channel, ByteBuf buf) {
          throw new UnsupportedOperationException("TODO!");
       }
 

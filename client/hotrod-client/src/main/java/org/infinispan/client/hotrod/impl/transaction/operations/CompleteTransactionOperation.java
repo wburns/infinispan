@@ -44,7 +44,7 @@ public class CompleteTransactionOperation extends RetryOnFailureOperation<Intege
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       codec.writeHeader(buf, header);
       ByteBufUtil.writeXid(buf, xid);
    }

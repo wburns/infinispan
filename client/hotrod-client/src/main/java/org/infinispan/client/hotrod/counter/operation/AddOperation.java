@@ -43,7 +43,7 @@ public class AddOperation extends BaseCounterOperation<Long> {
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       writeHeaderAndCounterName(buf);
       buf.writeLong(delta);
    }

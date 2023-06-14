@@ -34,7 +34,7 @@ public class ClearOperation extends RetryOnFailureOperation<Void> {
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       codec.writeHeader(buf, header);
    }
 

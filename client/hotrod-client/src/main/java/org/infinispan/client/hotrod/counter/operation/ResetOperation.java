@@ -30,7 +30,7 @@ public class ResetOperation extends BaseCounterOperation<Void> {
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       writeHeaderAndCounterName(buf);
    }
 

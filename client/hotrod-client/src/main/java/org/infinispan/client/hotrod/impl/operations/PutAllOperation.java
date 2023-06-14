@@ -75,7 +75,7 @@ public class PutAllOperation extends StatsAffectingRetryingOperation<Void> {
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
 
       codec.writeHeader(buf, header);
       codec.writeExpirationParams(buf, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit);

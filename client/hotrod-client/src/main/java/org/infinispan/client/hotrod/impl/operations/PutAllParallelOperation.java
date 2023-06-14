@@ -17,6 +17,7 @@ import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
 import org.infinispan.client.hotrod.telemetry.impl.TelemetryService;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.channel.Channel;
 
 /**
  * @author Guillaume Darmont / guillaume@dropinocean.com
@@ -72,7 +73,7 @@ public class PutAllParallelOperation extends ParallelHotRodOperation<Void, PutAl
 
 
    @Override
-   public void writeBytes(ByteBuf buffer) {
+   public void writeBytes(Channel channel, ByteBuf buffer) {
       throw new UnsupportedOperationException("TODO!");
    }
 }

@@ -69,7 +69,7 @@ public class ExecuteOperation<T> extends RetryOnFailureOperation<T> {
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       codec.writeHeader(buf, header);
       ByteBufUtil.writeString(buf, taskName);
       ByteBufUtil.writeVInt(buf, marshalledParams.size());

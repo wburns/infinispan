@@ -49,7 +49,7 @@ public class UpdateBloomFilterOperation extends HotRodOperation<Void> implements
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       writeArrayOperation(buf, bloomBits);
    }
 

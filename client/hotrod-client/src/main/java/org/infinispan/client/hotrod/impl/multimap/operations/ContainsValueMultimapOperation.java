@@ -54,7 +54,7 @@ public class ContainsValueMultimapOperation extends RetryOnFailureOperation<Bool
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       codec.writeHeader(buf, header);
       codec.writeExpirationParams(buf, lifespan, lifespanTimeUnit, maxIdle, maxIdleTimeUnit);
       ByteBufUtil.writeArray(buf, value);

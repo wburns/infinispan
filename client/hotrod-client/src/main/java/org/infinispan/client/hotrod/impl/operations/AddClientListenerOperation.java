@@ -77,7 +77,7 @@ public class AddClientListenerOperation extends ClientListenerOperation {
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       ClientListener clientListener = extractClientListener();
 
       // TODO: look into...

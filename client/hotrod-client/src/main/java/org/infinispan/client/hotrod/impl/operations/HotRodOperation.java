@@ -204,5 +204,5 @@ public abstract class HotRodOperation<T> extends CompletableFuture<T> implements
       return codec;
    }
 
-   public abstract void writeBytes(ByteBuf buf);
+   public abstract void writeBytes(Channel channel, ByteBuf buf);
 }

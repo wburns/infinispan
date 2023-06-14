@@ -69,7 +69,7 @@ public final class QueryOperation extends RetryOnFailureOperation<BaseQueryRespo
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       // marshall and write the request
       byte[] requestBytes = querySerializer.serializeQueryRequest(remoteQuery, null);
       writeArrayOperation(buf, requestBytes);

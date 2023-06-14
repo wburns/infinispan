@@ -111,13 +111,14 @@ class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
       }
       ChannelRecord channelRecord = new ChannelRecord(unresolvedAddress, channelPool);
       channel.attr(ChannelRecord.KEY).set(channelRecord);
+      HeaderDecoder headerDecoder = new HeaderDecoder(channelFactory, configuration, operationsFactory.getListenerNotifier());
       if (isFirstPing) {
          isFirstPing = false;
-         channel.pipeline().addLast(InitialPingHandler.NAME, new InitialPingHandler(operationsFactory));
+         channel.pipeline().addLast(InitialPingHandler.NAME, new InitialPingHandler(operationsFactory, headerDecoder));
       } else {
          channel.pipeline().addLast(ActivationHandler.NAME, ActivationHandler.INSTANCE);
       }
-      channel.pipeline().addLast(HeaderDecoder.NAME, new HeaderDecoder(channelFactory, configuration, operationsFactory.getListenerNotifier()));
+      channel.pipeline().addLast(HeaderDecoder.NAME, headerDecoder);
       if (configuration.connectionPool().minEvictableIdleTime() > 0) {
          // This handler needs to be the last so that HeaderDecoder has the chance to cancel the idle event
          channel.pipeline().addLast(IdleStateHandlerProvider.NAME,

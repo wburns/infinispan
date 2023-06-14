@@ -37,7 +37,7 @@ public class GetCounterNamesOperation extends BaseCounterOperation<Collection<St
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       codec.writeHeader(buf, header);
       setCacheName();
    }

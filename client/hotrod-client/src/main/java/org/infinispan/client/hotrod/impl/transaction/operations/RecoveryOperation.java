@@ -68,7 +68,7 @@ public class RecoveryOperation extends RetryOnFailureOperation<Collection<Xid>> 
    }
 
    @Override
-   public void writeBytes(ByteBuf buf) {
+   public void writeBytes(Channel channel, ByteBuf buf) {
       codec.writeHeader(buf, header);
    }
 

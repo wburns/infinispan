@@ -146,7 +146,7 @@ public class ChannelPoolTest extends AbstractRetryTest {
       }
 
       @Override
-      public void writeBytes(ByteBuf buf) {
+      public void writeBytes(Channel channel, ByteBuf buf) {
          throw new UnsupportedOperationException("Should not ever be invoked!");
       }
 
