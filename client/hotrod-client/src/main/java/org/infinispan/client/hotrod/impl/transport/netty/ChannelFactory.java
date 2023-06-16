@@ -48,7 +48,6 @@ import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.CodecHolder;
 import org.infinispan.client.hotrod.impl.topology.CacheInfo;
 import org.infinispan.client.hotrod.impl.topology.ClusterInfo;
-import org.infinispan.client.hotrod.impl.transport.netty.ChannelPool.ChannelEventType;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.commons.marshall.Marshaller;
@@ -74,7 +73,7 @@ import net.jcip.annotations.ThreadSafe;
  */
 @ThreadSafe
 public class ChannelFactory {
-
+   public enum ChannelEventType { CONNECTED, CLOSED_IDLE, CLOSED_ACTIVE, CONNECT_FAILED}
    public static final String DEFAULT_CLUSTER_NAME = "___DEFAULT-CLUSTER___";
    private static final Log log = LogFactory.getLog(ChannelFactory.class, Log.class);
 
@@ -214,14 +213,8 @@ public class ChannelFactory {
    }
 
    protected ChannelPool createChannelPool(Bootstrap bootstrap, ChannelInitializer channelInitializer, SocketAddress address) {
-      int maxConnections = configuration.connectionPool().maxActive();
-      if (maxConnections < 0) {
-         maxConnections = Integer.MAX_VALUE;
-      }
-      return new ChannelPool(bootstrap.config().group().next(), address, channelInitializer,
-            configuration.connectionPool().exhaustedAction(), this::onConnectionEvent,
-            configuration.connectionPool().maxWait(), maxConnections,
-            configuration.connectionPool().maxPendingRequests());
+      return codecHolder.getCodec().createPool(bootstrap.config().group().next(), address, channelInitializer,
+            this::onConnectionEvent, configuration);
    }
 
    protected final OperationsFactory getOperationsFactory() {

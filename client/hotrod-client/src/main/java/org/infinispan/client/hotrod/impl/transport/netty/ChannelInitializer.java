@@ -45,7 +45,7 @@ import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslHandler;
 import io.netty.handler.timeout.IdleStateHandler;
 
-class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
+public class ChannelInitializer extends io.netty.channel.ChannelInitializer<Channel> {
    private static final Log log = LogFactory.getLog(ChannelInitializer.class);
 
    private final Bootstrap bootstrap;
