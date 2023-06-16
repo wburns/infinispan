@@ -1,17 +1,21 @@
 package org.infinispan.client.hotrod.impl.protocol;
 
-import java.util.concurrent.CompletionStage;
+import java.net.SocketAddress;
+import java.util.function.BiConsumer;
 
-import org.infinispan.client.hotrod.impl.operations.HotRodOperation;
+import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.transport.netty.ChannelFactory;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelInitializer;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelPool;
+
+import io.netty.util.concurrent.EventExecutor;
 
 /**
  * @since 14.0
  */
 public class Codec50 extends Codec40 {
    @Override
-   public <V> CompletionStage<V> executeCommand(HotRodOperation<V> operation, ChannelFactory factory) {
-      // TODO: call into channel factory
-      return super.executeCommand(operation, factory);
+   public ChannelPool createPool(EventExecutor executor, SocketAddress address, ChannelInitializer channelInitializer, BiConsumer<ChannelPool, ChannelFactory.ChannelEventType> connectionFailureListener, Configuration configuration) {
+      return super.createPool(executor, address, channelInitializer, connectionFailureListener, configuration);
    }
 }

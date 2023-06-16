@@ -423,11 +423,6 @@ public class Codec20 implements Codec, HotRodConstants {
    }
 
    @Override
-   public <V> CompletionStage<V> executeCommand(HotRodOperation<V> operation, ChannelFactory factory) {
-      return operation.execute();
-   }
-
-   @Override
    public ChannelPool createPool(EventExecutor executor, SocketAddress address, ChannelInitializer channelInitializer,
                                  BiConsumer<ChannelPool, ChannelFactory.ChannelEventType> connectionFailureListener,
                                  Configuration configuration) {

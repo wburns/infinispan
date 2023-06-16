@@ -179,8 +179,6 @@ public interface Codec {
       return false;
    }
 
-   <V> CompletionStage<V> executeCommand(HotRodOperation<V> operation, ChannelFactory factory);
-
    ChannelPool createPool(EventExecutor executor, SocketAddress address, ChannelInitializer newChannelInvoker,
                           BiConsumer<ChannelPool, ChannelFactory.ChannelEventType> connectionFailureListener,
                           Configuration configuration);
