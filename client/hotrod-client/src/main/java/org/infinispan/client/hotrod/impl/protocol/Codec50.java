@@ -15,7 +15,9 @@ import io.netty.util.concurrent.EventExecutor;
  */
 public class Codec50 extends Codec40 {
    @Override
-   public ChannelPool createPool(EventExecutor executor, SocketAddress address, ChannelInitializer channelInitializer, BiConsumer<ChannelPool, ChannelFactory.ChannelEventType> connectionFailureListener, Configuration configuration) {
+   public ChannelPool createPool(EventExecutor executor, SocketAddress address, ChannelInitializer channelInitializer,
+                                 BiConsumer<ChannelPool, ChannelFactory.ChannelEventType> connectionFailureListener,
+                                 Configuration configuration) {
       return super.createPool(executor, address, channelInitializer, connectionFailureListener, configuration);
    }
 }
