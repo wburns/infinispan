@@ -1,6 +1,5 @@
 package org.infinispan.remoting.transport.jgroups;
 
-import org.infinispan.factories.GlobalComponentRegistry;
 import org.jgroups.ChannelListener;
 import org.jgroups.JChannel;
 import org.jgroups.conf.ProtocolStackConfigurator;
@@ -13,7 +12,7 @@ import org.jgroups.util.SocketFactory;
 public interface JGroupsChannelConfigurator extends ProtocolStackConfigurator {
    String getName();
 
-   JChannel createChannel(String name, GlobalComponentRegistry globalComponentRegistry) throws Exception;
+   JChannel createChannel(String name) throws Exception;
 
    void setSocketFactory(SocketFactory socketFactory);
 

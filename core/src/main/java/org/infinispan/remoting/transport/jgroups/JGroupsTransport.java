@@ -787,7 +787,7 @@ public class JGroupsTransport implements Transport, ChannelListener {
       }
       configurator.addChannelListener(this);
       try {
-         channel = configurator.createChannel(configuration.transport().clusterName(), globalComponentRegistry);
+         channel = configurator.createChannel(configuration.transport().clusterName());
       } catch (Exception e) {
          throw CLUSTER.errorCreatingChannelFromConfigurator(configurator.getProtocolStackString(), e);
       }

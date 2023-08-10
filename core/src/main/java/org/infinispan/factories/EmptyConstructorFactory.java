@@ -2,6 +2,8 @@ package org.infinispan.factories;
 
 import static org.infinispan.util.logging.Log.CONTAINER;
 
+import org.infinispan.backpressure.BackpressureNotifier;
+import org.infinispan.backpressure.BackpressureNotifierImpl;
 import org.infinispan.commands.RemoteCommandsFactory;
 import org.infinispan.commons.time.TimeService;
 import org.infinispan.container.versioning.RankCalculator;
@@ -16,6 +18,8 @@ import org.infinispan.marshall.protostream.impl.SerializationContextRegistry;
 import org.infinispan.marshall.protostream.impl.SerializationContextRegistryImpl;
 import org.infinispan.remoting.inboundhandler.GlobalInboundInvocationHandler;
 import org.infinispan.remoting.inboundhandler.InboundInvocationHandler;
+import org.infinispan.security.PrincipalRoleMapper;
+import org.infinispan.security.RolePermissionMapper;
 import org.infinispan.topology.PersistentUUIDManager;
 import org.infinispan.topology.PersistentUUIDManagerImpl;
 import org.infinispan.util.EmbeddedTimeService;
