@@ -85,7 +85,7 @@ public class PrimitivesTest extends AbstractInfinispanTest {
    }
 
    public void testLargeArray() {
-      BytesObjectOutput out = new BytesObjectOutput(10240, globalMarshaller);
+      InMemoryObjectOutput out = new BytesObjectOutput(10240, globalMarshaller);
       byte[] bytes = new byte[]{0};
       out.write(bytes);
       expectException(OutOfMemoryError.class, () -> out.write(bytes, 0, Integer.MAX_VALUE));

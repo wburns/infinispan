@@ -12,7 +12,7 @@ import java.io.ObjectInput;
  *
  * This should be removed when the {@link GlobalMarshaller} is no longer based on {@link org.infinispan.commons.marshall.StreamingMarshaller}.
  */
-abstract public class AbstractBytesObjectInput implements ObjectInput {
+abstract public class AbstractBytesObjectInput implements InMemoryObjectInput {
    final byte bytes[];
    int pos;
    int offset; // needed for external JBoss Marshalling, to be able to rewind correctly when the bytes are prepended :(
@@ -29,11 +29,6 @@ abstract public class AbstractBytesObjectInput implements ObjectInput {
          return -1;
       }
       return bytes[pos++] & 0xff;
-   }
-
-   @Override
-   public int read(byte[] b) {
-      return read(b, 0, b.length);
    }
 
    @Override
@@ -73,16 +68,6 @@ abstract public class AbstractBytesObjectInput implements ObjectInput {
    }
 
    @Override
-   public void close() {
-      // No-op
-   }
-
-   @Override
-   public void readFully(byte[] b) throws EOFException {
-      readFully(b, 0, b.length);
-   }
-
-   @Override
    public void readFully(byte[] b, int off, int len) throws EOFException {
       if (off + len >= bytes.length)
          throw new EOFException();
@@ -92,14 +77,8 @@ abstract public class AbstractBytesObjectInput implements ObjectInput {
    }
 
    @Override
-   public int skipBytes(int n) throws EOFException {
-      checkPosLength(n);
+   public int skipBytes(int n) {
       return (int) skip(n);
-   }
-
-   @Override
-   public boolean readBoolean() throws EOFException {
-      return readByte() != 0;
    }
 
    @Override
@@ -109,22 +88,9 @@ abstract public class AbstractBytesObjectInput implements ObjectInput {
    }
 
    @Override
-   public int readUnsignedByte() throws EOFException {
-      return readByte() & 0xff;
-   }
-
-   @Override
    public short readShort() throws EOFException {
       checkPosLength(2);
       short v = (short) (bytes[pos] << 8 | (bytes[pos + 1] & 0xff));
-      pos += 2;
-      return v;
-   }
-
-   @Override
-   public int readUnsignedShort() throws EOFException {
-      checkPosLength(2);
-      int v = (bytes[pos] & 0xff) << 8 | (bytes[pos + 1] & 0xff);
       pos += 2;
       return v;
    }
@@ -151,21 +117,6 @@ abstract public class AbstractBytesObjectInput implements ObjectInput {
    @Override
    public long readLong() throws EOFException {
       return (long) readInt() << 32L | (long) readInt() & 0xffffffffL;
-   }
-
-   @Override
-   public float readFloat() throws EOFException {
-      return Float.intBitsToFloat(readInt());
-   }
-
-   @Override
-   public double readDouble() throws EOFException {
-      return Double.longBitsToDouble(readLong());
-   }
-
-   @Override
-   public String readLine() {
-      return null;
    }
 
    @Override
@@ -236,6 +187,7 @@ abstract public class AbstractBytesObjectInput implements ObjectInput {
       return new String(chararr, 0, chararr_count);
    }
 
+   @Override
    public String readString() throws EOFException {
       int mark = readByte();
 
