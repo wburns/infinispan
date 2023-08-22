@@ -1460,8 +1460,11 @@ public class JGroupsTransport implements Transport, ChannelListener {
    private void sendCommand(Collection<Address> targets, ReplicableCommand command, long requestId,
                             DeliverOrder deliverOrder, boolean checkView) {
       Objects.requireNonNull(targets);
+      Message message = new BytesMessage();
+      marshallRequest(message, command, requestId);
+      setMessageFlags(message, deliverOrder, true);
 
-      Message copy = messageFromCommand(null, command, requestId, deliverOrder, true);
+      Message copy = message;
       for (Iterator<Address> it = targets.iterator(); it.hasNext(); ) {
          Address address = it.next();
 
@@ -1471,17 +1474,41 @@ public class JGroupsTransport implements Transport, ChannelListener {
          if (address.equals(getAddress()))
             continue;
 
-         Message messageToSend;
-         if (it.hasNext()) {
-            messageToSend = copy.copy(true, true);
-         } else {
-            messageToSend = copy;
-         }
-
          copy.dest(toJGroupsAddress(address));
-         send(messageToSend);
+         send(copy);
+
+         // Send a different Message instance to each target
+         if (it.hasNext()) {
+            copy = copy.copy(true, true);
+         }
       }
    }
+   // This doesn't work with TCP and UDP??
+//   private void sendCommand(Collection<Address> targets, ReplicableCommand command, long requestId,
+//                            DeliverOrder deliverOrder, boolean checkView) {
+//      Objects.requireNonNull(targets);
+//
+//      Message copy = messageFromCommand(null, command, requestId, deliverOrder, true);
+//      for (Iterator<Address> it = targets.iterator(); it.hasNext(); ) {
+//         Address address = it.next();
+//
+//         if (checkView && !clusterView.contains(address))
+//            continue;
+//
+//         if (address.equals(getAddress()))
+//            continue;
+//
+//         Message messageToSend;
+//         if (it.hasNext()) {
+//            messageToSend = copy.copy(true, true);
+//         } else {
+//            messageToSend = copy;
+//         }
+//
+//         copy.dest(toJGroupsAddress(address));
+//         send(messageToSend);
+//      }
+//   }
 
    TimeService getTimeService() {
       return timeService;

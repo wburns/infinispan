@@ -17,7 +17,7 @@ import org.testng.annotations.Test;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 
-@Test(groups = "functional", testName = "marshall.core.ObjectInputOutputCompatibility")
+@Test(groups = "functional", testName = "marshall.core.ObjectInputOutputCompatibilityTest")
 public class ObjectInputOutputCompatibilityTest {
    public static class OuterTestClass {
       private final int id;

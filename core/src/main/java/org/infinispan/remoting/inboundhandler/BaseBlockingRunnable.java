@@ -43,11 +43,11 @@ public abstract class BaseBlockingRunnable implements BlockingRunnable {
    @Override
    public void run() {
       // TODO: need to optionally do this based on if NettyTP is on stack or not
-//      if (sync) {
-//         runSync();
-//      } else {
+      if (sync) {
+         runSync();
+      } else {
          runAsync();
-//      }
+      }
    }
 
    private void runSync() {

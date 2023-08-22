@@ -22,14 +22,10 @@ import org.infinispan.executors.LazyInitializingScheduledExecutorService;
 import org.infinispan.factories.annotations.DefaultFactoryFor;
 import org.infinispan.factories.annotations.Inject;
 import org.infinispan.factories.impl.BasicComponentRegistry;
-import org.infinispan.factories.impl.ComponentRef;
 import org.infinispan.factories.threads.BlockingThreadFactory;
 import org.infinispan.factories.threads.CoreExecutorFactory;
 import org.infinispan.factories.threads.DefaultThreadFactory;
 import org.infinispan.factories.threads.NonBlockingThreadFactory;
-import org.infinispan.util.concurrent.BlockingTaskAwareExecutorServiceImpl;
-
-import io.netty.channel.EventLoopGroup;
 
 /**
  * A factory that specifically knows how to create named executors.
@@ -65,12 +61,12 @@ public class NamedExecutorsFactory extends AbstractComponentFactory implements A
                         ExecutorServiceType.SCHEDULED);
          } else if (componentName.equals(NON_BLOCKING_EXECUTOR)) {
             JGroupsConfiguration jGroupsConfiguration = globalConfiguration.transport().jgroups();
-            if (jGroupsConfiguration.isClustered() && hasNettyTP(jGroupsConfiguration)) {
-               ComponentRef<EventLoopGroup> ref = basicComponentRegistry.getComponent(EventLoopGroup.class);
-               // This means our event loop can't have a cyclical dependency on us otherwise we will get stuck
-               EventLoopGroup runningEventLoopGroup = ref.running();
-               return new BlockingTaskAwareExecutorServiceImpl(runningEventLoopGroup, globalComponentRegistry.getTimeService());
-            }
+//            if (jGroupsConfiguration.isClustered() && hasNettyTP(jGroupsConfiguration)) {
+//               ComponentRef<EventLoopGroup> ref = basicComponentRegistry.getComponent(EventLoopGroup.class);
+//               // This means our event loop can't have a cyclical dependency on us otherwise we will get stuck
+//               EventLoopGroup runningEventLoopGroup = ref.running();
+//               return new BlockingTaskAwareExecutorServiceImpl(runningEventLoopGroup, globalComponentRegistry.getTimeService());
+//            }
             return createExecutorService(
                         globalConfiguration.nonBlockingThreadPool(),
                         NON_BLOCKING_EXECUTOR, ExecutorServiceType.NON_BLOCKING);
