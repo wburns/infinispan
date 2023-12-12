@@ -163,13 +163,13 @@ public class NonBlockingSoftIndexFileStore<K, V> implements NonBlockingStore<K, 
    @Override
    public CompletionStage<Void> addSegments(IntSet segments) {
       temporaryTable.addSegments(segments);
-      return CompletableFutures.completedNull();
+      return index.addSegments(segments);
    }
 
    @Override
    public CompletionStage<Void> removeSegments(IntSet segments) {
       temporaryTable.removeSegments(segments);
-      return CompletableFutures.completedNull();
+      return index.removeSegments(segments);
    }
 
    @Override
@@ -201,7 +201,7 @@ public class NonBlockingSoftIndexFileStore<K, V> implements NonBlockingStore<K, 
       try {
          index = new Index(ctx.getNonBlockingManager(), fileProvider, getIndexLocation(), configuration.indexSegments(),
                cacheSegments, configuration.minNodeSize(), configuration.maxNodeSize(), temporaryTable, compactor,
-               timeService);
+               timeService, blockingManager.asExecutor("sifs-index"));
       } catch (IOException e) {
          throw log.cannotOpenIndex(configuration.indexLocation(), e);
       }
@@ -446,7 +446,7 @@ public class NonBlockingSoftIndexFileStore<K, V> implements NonBlockingStore<K, 
 
    protected void startIndex() {
       // this call is extracted for better testability
-      index.start(blockingManager.asExecutor("sifs-index"));
+      index.start();
    }
 
    @Override

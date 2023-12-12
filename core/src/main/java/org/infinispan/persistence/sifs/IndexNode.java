@@ -3,7 +3,6 @@ package org.infinispan.persistence.sifs;
 import java.io.IOException;
 import java.lang.ref.SoftReference;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -86,9 +85,15 @@ class IndexNode {
       this.offset = offset;
       this.occupiedSpace = occupiedSpace;
 
-      ByteBuffer buffer = loadBuffer(segment.getIndexFile(), offset, occupiedSpace);
+      ByteBuffer buffer;
+      try (FileProvider.Handle handle = segment.getIndexFile()) {
+         buffer = loadBuffer(handle, offset, occupiedSpace);
+      }
 
       prefix = new byte[buffer.getShort()];
+      if (prefix.length > buffer.remaining()) {
+         System.currentTimeMillis();
+      }
       buffer.get(prefix);
 
       byte flags = buffer.get();
@@ -122,14 +127,14 @@ class IndexNode {
       }
    }
 
-   private static ByteBuffer loadBuffer(FileChannel indexFile, long offset, int occupiedSpace) throws IOException {
+   private static ByteBuffer loadBuffer(FileProvider.Handle indexFile, long offset, int occupiedSpace) throws IOException {
       ByteBuffer buffer = ByteBuffer.allocate(occupiedSpace);
       int read = 0;
       do {
          int nowRead = indexFile.read(buffer, offset + read);
          if (nowRead < 0) {
             throw new IOException("Cannot read record [" + offset + ":" + occupiedSpace + "] (already read "
-                  + read + "), file size is " + indexFile.size());
+                  + read + "), file size is " + indexFile.getFileSize());
          }
          read += nowRead;
       } while (read < occupiedSpace);
@@ -224,7 +229,9 @@ class IndexNode {
       }
       assert buffer.position() == buffer.limit() : "Buffer position: " + buffer.position() + " limit: " + buffer.limit();
       buffer.flip();
-      segment.getIndexFile().write(buffer, offset);
+      try (FileProvider.Handle handle = segment.getIndexFile()) {
+         handle.write(buffer, offset);
+      }
 
       if (log.isTraceEnabled()) {
          log.tracef("Persisted %08x (length %d, %d %s) to %d:%d", System.identityHashCode(this), length(),
@@ -392,7 +399,9 @@ class IndexNode {
 
       buffer.flip();
 
-      this.segment.getIndexFile().write(buffer, offset);
+      try (FileProvider.Handle handle = this.segment.getIndexFile()) {
+         handle.write(buffer, offset);
+      }
    }
 
    private static IndexNode findParentNode(IndexNode root, byte[] indexKey, Deque<Path> stack) throws IOException {
@@ -446,7 +455,7 @@ class IndexNode {
                   }
                } else {
                   newRoot = IndexNode.emptyWithInnerNodes(root.segment).copyWith(0, 0, result.newNodes);
-                  root.segment.getIndexFile().force(false);
+                  root.segment.forceIndexIfOpen(false);
                   if (log.isTraceEnabled()) {
                      log.tracef("Setting new root %08x (index has grown)", System.identityHashCode(newRoot));
                   }

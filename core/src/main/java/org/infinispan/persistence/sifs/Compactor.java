@@ -565,6 +565,7 @@ class Compactor {
                log.tracef("Loading from index for key %s when processing file %s", key, scheduledFile);
                EntryInfo info = index.getInfo(key, segment, serializedKey);
                if (info == null) {
+                  // TODO: this will happen a lot now that the index removes values for entire segments; just drop the entry... should we check the segments we own?
                   if (isLogFile) {
                      // LogFile may have written the data but not updated temporary table yet
                      log.tracef("No index found for key %s, but it is a logFile, ignoring rest of the file", key);

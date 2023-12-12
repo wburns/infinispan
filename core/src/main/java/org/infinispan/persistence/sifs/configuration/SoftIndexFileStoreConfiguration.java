@@ -43,6 +43,11 @@ public class SoftIndexFileStoreConfiguration extends AbstractStoreConfiguration<
       return index.indexLocation();
    }
 
+   /**
+    * This argument now controls the maximum number of threads that the index may use. The number of threads
+    * will never exceed the number of cache segments configured
+    * @return how many
+    */
    public int indexSegments() {
       return index.indexSegments();
    }
