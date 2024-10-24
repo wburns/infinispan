@@ -113,9 +113,9 @@ public class OperationDispatcher {
       this.clientListenerNotifier = clientListenerNotifier;
       this.maxRetries = configuration.maxRetries();
 
-      this.connectionFailedServers = configuration.clientIntelligence() == ClientIntelligence.BASIC && configuration.basicFailedServerTimeout() > 0 ?
+      this.connectionFailedServers = configuration.serverFailedTimeout() > 0 ?
             Collections.newSetFromMap(Caffeine.newBuilder()
-                  .expireAfterWrite(configuration.basicFailedServerTimeout(), TimeUnit.MILLISECONDS)
+                  .expireAfterWrite(configuration.serverFailedTimeout(), TimeUnit.MILLISECONDS)
                   .<SocketAddress, Boolean>build().asMap())
             : ConcurrentHashMap.newKeySet();
 

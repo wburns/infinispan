@@ -125,9 +125,9 @@ public class ChannelFactory {
       this.configuration = configuration;
       this.codecHolder = codecHolder;
 
-      this.failedServers = configuration.clientIntelligence() == ClientIntelligence.BASIC && configuration.basicFailedServerTimeout() > 0 ?
+      this.failedServers = configuration.serverFailedTimeout() > 0 ?
             Collections.newSetFromMap(Caffeine.newBuilder()
-                  .expireAfterWrite(configuration.basicFailedServerTimeout(), TimeUnit.MILLISECONDS)
+                  .expireAfterWrite(configuration.serverFailedTimeout(), TimeUnit.MILLISECONDS)
                   .<SocketAddress, Boolean>build().asMap())
             : new HashSet<>();
    }

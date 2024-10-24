@@ -102,8 +102,8 @@ public abstract class AbstractConfigurationChildBuilder implements Configuration
    }
 
    @Override
-   public ConfigurationBuilder basicFailedTimeout(int timeoutInMilliseconds) {
-      return builder.basicFailedTimeout(timeoutInMilliseconds);
+   public ConfigurationBuilder serverFailureTimeout(int timeoutInMilliseconds) {
+      return builder.serverFailureTimeout(timeoutInMilliseconds);
    }
 
    @Override

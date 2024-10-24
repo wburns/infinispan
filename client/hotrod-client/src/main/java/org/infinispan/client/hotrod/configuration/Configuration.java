@@ -4,7 +4,6 @@ import static org.infinispan.client.hotrod.impl.ConfigurationProperties.ASYNC_EX
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_CALLBACK_HANDLER;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_CLIENT_SUBJECT;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.AUTH_SERVER_NAME;
-import static org.infinispan.client.hotrod.impl.ConfigurationProperties.BASIC_FAILED_TIMEOUT;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.BATCH_SIZE;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CACHE_CONFIGURATION_SUFFIX;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.CACHE_MARSHALLER;
@@ -39,6 +38,7 @@ import static org.infinispan.client.hotrod.impl.ConfigurationProperties.PROTOCOL
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.REQUEST_BALANCING_STRATEGY;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SASL_MECHANISM;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SASL_PROPERTIES_PREFIX;
+import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SERVER_FAILED_TIMEOUT;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SERVER_LIST;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SNI_HOST_NAME;
 import static org.infinispan.client.hotrod.impl.ConfigurationProperties.SO_TIMEOUT;
@@ -123,7 +123,7 @@ public class Configuration {
    private final int dnsResolverMaxTTL;
    private final int dnsResolverNegativeTTL;
    private final RemoteCacheManagerMetricsRegistry metricRegistry;
-   private final int basicFailedServerTimeout;
+   private final int serverFailedTimeout;
 
    public Configuration(ExecutorFactoryConfiguration asyncExecutorFactory, Supplier<FailoverRequestBalancingStrategy> balancingStrategyFactory, ClassLoader classLoader,
                         ClientIntelligence clientIntelligence, ConnectionPoolConfiguration connectionPool, int connectionTimeout, Class<? extends ConsistentHash>[] consistentHashImpl,
@@ -137,7 +137,7 @@ public class Configuration {
                         List<SerializationContextInitializer> contextInitializers,
                         Map<String, RemoteCacheConfiguration> remoteCaches,
                         TransportFactory transportFactory, boolean tracingPropagationEnabled, RemoteCacheManagerMetricsRegistry metricRegistry,
-                        int basicFailedServerTimeout) {
+                        int serverFailedTimeout) {
       this.asyncExecutorFactory = asyncExecutorFactory;
       this.balancingStrategyFactory = balancingStrategyFactory;
       this.maxRetries = maxRetries;
@@ -173,7 +173,7 @@ public class Configuration {
       this.transportFactory = transportFactory;
       this.tracingPropagationEnabled = tracingPropagationEnabled;
       this.metricRegistry = Objects.requireNonNullElse(metricRegistry, RemoteCacheManagerMetricsRegistry.DISABLED);
-      this.basicFailedServerTimeout = basicFailedServerTimeout;
+      this.serverFailedTimeout = serverFailedTimeout;
    }
 
    public ExecutorFactoryConfiguration asyncExecutorFactory() {
@@ -404,8 +404,8 @@ public class Configuration {
     * Default is 30_000 milliseconds or 30 seconds.
     * @return time in milliseconds
     */
-   public int basicFailedServerTimeout() {
-      return basicFailedServerTimeout;
+   public int serverFailedTimeout() {
+      return serverFailedTimeout;
    }
 
    @Override
@@ -423,7 +423,7 @@ public class Configuration {
             + ", transaction=" + transaction
             + ", statistics=" + statistics
             + ", metricRegistry=" + metricRegistry
-            + ", basicFailedServerTime=" + basicFailedServerTimeout
+            + ", serverFailedTimeout=" + serverFailedTimeout
             + "]";
    }
 
@@ -458,7 +458,7 @@ public class Configuration {
       properties.setProperty(VALUE_SIZE_ESTIMATE, valueSizeEstimate());
       properties.setProperty(MAX_RETRIES, maxRetries());
       properties.setProperty(STATISTICS, statistics().enabled());
-      properties.setProperty(BASIC_FAILED_TIMEOUT, basicFailedServerTimeout());
+      properties.setProperty(SERVER_FAILED_TIMEOUT, serverFailedTimeout());
 
       properties.setProperty(DNS_RESOLVER_MIN_TTL, dnsResolverMinTTL);
       properties.setProperty(DNS_RESOLVER_MAX_TTL, dnsResolverMaxTTL);

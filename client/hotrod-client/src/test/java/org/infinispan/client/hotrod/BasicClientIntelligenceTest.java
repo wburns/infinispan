@@ -31,7 +31,7 @@ public class BasicClientIntelligenceTest extends MultiHotRodServersTest {
       org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
             new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
       // Retry after every half second to make test faster
-      clientBuilder.basicFailedTimeout(500);
+      clientBuilder.serverFailureTimeout(500);
       clientBuilder.addServers(HotRodClientTestingUtil.getServersString(server(0), server(1)));
       clientBuilder.clientIntelligence(ClientIntelligence.BASIC);
 
@@ -63,7 +63,7 @@ public class BasicClientIntelligenceTest extends MultiHotRodServersTest {
 
       org.infinispan.client.hotrod.configuration.ConfigurationBuilder clientBuilder =
             new org.infinispan.client.hotrod.configuration.ConfigurationBuilder();
-      clientBuilder.basicFailedTimeout(500);
+      clientBuilder.serverFailureTimeout(500);
       clientBuilder.addServers(HotRodClientTestingUtil.getServersString(server(1)));
       clientBuilder.clientIntelligence(ClientIntelligence.BASIC);
 
