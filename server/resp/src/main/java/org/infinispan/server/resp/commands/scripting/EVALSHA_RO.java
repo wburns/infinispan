@@ -17,12 +17,8 @@ import io.netty.channel.ChannelHandlerContext;
 public class EVALSHA_RO extends EVAL {
 
    protected CompletionStage<RespRequestHandler> performEval(Resp3Handler handler, ChannelHandlerContext ctx, String script, String[] keys, String[] argv) {
-      try {
-         handler.respServer().luaEngine().evalSha(handler, ctx, script, keys, argv, ScriptFlags.NO_WRITES.value());
-         return handler.myStage();
-      } catch (Exception e) {
-         handler.writer().customError(e.getMessage()); // FIXME
-         return handler.myStage();
-      }
+      return handler.stageToReturn(handler.respServer().luaEngine().evalSha(handler, ctx, script, keys, argv,
+                  ScriptFlags.NO_WRITES.value())
+            .thenApply(ignore -> handler), ctx);
    }
 }

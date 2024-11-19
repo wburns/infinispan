@@ -34,9 +34,11 @@ public class LuaTaskEngine implements TaskEngine {
 
    private final LuaContextPool pool;
    private final ScriptingManager scriptingManager;
+   private final BlockingManager blockingManager;
 
-   public LuaTaskEngine(ScriptingManager scriptingManager) {
+   public LuaTaskEngine(ScriptingManager scriptingManager, BlockingManager blockingManager) {
       this.scriptingManager = scriptingManager;
+      this.blockingManager = blockingManager;
       this.pool = new LuaContextPool(LuaContext::new, 2, 4, 120);
    }
 
@@ -44,28 +46,32 @@ public class LuaTaskEngine implements TaskEngine {
       pool.shutdown();
    }
 
-   public void eval(Resp3Handler handler, ChannelHandlerContext ctx, String code, String[] keys, String[] args, long flags) {
-      LuaScript script = scriptLoad(code, false);
-      LuaContext luaCtx = pool.borrow();
-      try {
-         registerScript(luaCtx, script);
-         runScript(luaCtx, handler, ctx, script, keys, args, flags);
-      } finally {
-         unregisterScript(luaCtx, script);
-         pool.returnToPool(luaCtx);
-      }
+   public CompletionStage<Void> eval(Resp3Handler handler, ChannelHandlerContext ctx, String code, String[] keys, String[] args, long flags) {
+      return blockingManager.runBlocking(() -> {
+         LuaScript script = scriptLoad(code, false);
+         LuaContext luaCtx = pool.borrow();
+         try {
+            registerScript(luaCtx, script);
+            runScript(luaCtx, handler, ctx, script, keys, args, flags);
+         } finally {
+            unregisterScript(luaCtx, script);
+            pool.returnToPool(luaCtx);
+         }
+      }, "eval");
    }
 
-   public void evalSha(Resp3Handler handler, ChannelHandlerContext ctx, String sha, String[] keys, String[] args, long flags) {
-      CacheEntry<String, String> entry = scriptingManager.getScriptWithMetadata(scriptName(sha));
-      LuaScript script = new LuaScript(entry.getValue(), (ScriptMetadata) entry.getMetadata());
-      LuaContext luaCtx = pool.borrow();
-      try {
-         registerScript(luaCtx, script);
-         runScript(luaCtx, handler, ctx, script, keys, args, flags);
-      } finally {
-         pool.returnToPool(luaCtx);
-      }
+   public CompletionStage<Void> evalSha(Resp3Handler handler, ChannelHandlerContext ctx, String sha, String[] keys, String[] args, long flags) {
+      return blockingManager.runBlocking(() -> {
+         CacheEntry<String, String> entry = scriptingManager.getScriptWithMetadata(scriptName(sha));
+         LuaScript script = new LuaScript(entry.getValue(), (ScriptMetadata) entry.getMetadata());
+         LuaContext luaCtx = pool.borrow();
+         try {
+            registerScript(luaCtx, script);
+            runScript(luaCtx, handler, ctx, script, keys, args, flags);
+         } finally {
+            pool.returnToPool(luaCtx);
+         }
+      }, "eval-sha");
    }
 
    private void runScript(LuaContext luaCtx, Resp3Handler handler, ChannelHandlerContext ctx, LuaScript script, String[] keys, String[] args, long flags) {

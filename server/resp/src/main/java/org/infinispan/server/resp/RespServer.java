@@ -121,7 +121,7 @@ public class RespServer extends AbstractProtocolServer<RespServerConfiguration> 
       }
       // Register the task engine with the task manager
       ScriptingManager scriptingManager = gcr.getComponent(ScriptingManager.class);
-      luaTaskEngine = new LuaTaskEngine(scriptingManager);
+      luaTaskEngine = new LuaTaskEngine(scriptingManager, getBlockingManager());
       TaskManager taskManager = gcr.getComponent(TaskManager.class);
       taskManager.registerTaskEngine(luaTaskEngine);
       super.startInternal();

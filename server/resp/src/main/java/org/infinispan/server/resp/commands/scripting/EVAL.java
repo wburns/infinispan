@@ -54,12 +54,7 @@ public class EVAL extends RespCommand implements Resp3Command {
    }
 
    protected CompletionStage<RespRequestHandler> performEval(Resp3Handler handler, ChannelHandlerContext ctx, String script, String[] keys, String[] argv) {
-      try {
-         handler.respServer().luaEngine().eval(handler, ctx, script, keys, argv, 0);
-         return handler.myStage();
-      } catch (Exception e) {
-         handler.writer().customError(e.getMessage()); // FIXME
-         return handler.myStage();
-      }
+      return handler.stageToReturn(handler.respServer().luaEngine().eval(handler, ctx, script, keys, argv, 0)
+            .thenApply(ignore -> handler), ctx);
    }
 }
