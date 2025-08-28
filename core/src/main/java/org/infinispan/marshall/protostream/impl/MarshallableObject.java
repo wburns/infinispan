@@ -94,32 +94,28 @@ public class MarshallableObject<T> extends AbstractMarshallableWrapper<T> {
          final TagReader in = ctx.getReader();
          WrappedMessage message = null;
          byte[] bytes = null;
-         boolean done = false;
-         while (!done) {
-            final int tag = in.readTag();
-            switch (tag) {
-               case 0:
-                  done = true;
-                  break;
-               case 1 << WireType.TAG_TYPE_NUM_BITS | WireType.WIRETYPE_LENGTH_DELIMITED: {
-                  bytes = in.readByteArray();
-                  break;
-               }
-               case (2 << WireType.TAG_TYPE_NUM_BITS | WireType.WIRETYPE_LENGTH_DELIMITED): {
-                  if (delegate == null)
-                     delegate = ctx.getSerializationContext().getMarshallerDelegate(org.infinispan.protostream.WrappedMessage.class);
-                  int length = in.readUInt32();
-                  int oldLimit = in.pushLimit(length);
-                  message = readMessage(delegate, ctx);
-                  in.checkLastTagWas(0);
-                  in.popLimit(oldLimit);
-                  break;
-               }
-               default: {
-                  if (!in.skipField(tag)) done = true;
-               }
-            }
+         byte tag = readByteTag(in);
+         if (tag == ((1 << WireType.TAG_TYPE_NUM_BITS) | WireType.WIRETYPE_LENGTH_DELIMITED)) {
+            bytes = in.readByteArray();
+            tag = readByteTag(in);
          }
+         if (tag == ((2 << WireType.TAG_TYPE_NUM_BITS) | WireType.WIRETYPE_LENGTH_DELIMITED)) {
+            if (delegate == null)
+               delegate = ((org.infinispan.protostream.impl.SerializationContextImpl) ctx.getSerializationContext()).getMarshallerDelegate(org.infinispan.protostream.WrappedMessage.class);
+            int length = in.readUInt32();
+            int oldLimit = in.pushLimit(length);
+            message = readMessage(delegate, ctx);
+            in.checkLastTagWas(0);
+            in.popLimit(oldLimit);
+            tag = readByteTag(in);
+         }
+
+         // Ignore any additional tags we may run into
+         while (tag != 0) {
+            if (!in.skipField(tag)) break;
+            tag = readByteTag(in);
+         }
+
          if (bytes == null && message == null)
             return EMPTY_INSTANCE;
 
@@ -141,7 +137,7 @@ public class MarshallableObject<T> extends AbstractMarshallableWrapper<T> {
             ctx.getWriter().writeBytes(1, buf.getBuf(), buf.getOffset(), buf.getLength());
          } else {
             if (delegate == null)
-               delegate = ctx.getSerializationContext().getMarshallerDelegate(WrappedMessage.class);
+               delegate = ((org.infinispan.protostream.impl.SerializationContextImpl) ctx.getSerializationContext()).getMarshallerDelegate(WrappedMessage.class);
             writeNestedMessage(delegate, ctx, 2, new WrappedMessage(object));
          }
       }
