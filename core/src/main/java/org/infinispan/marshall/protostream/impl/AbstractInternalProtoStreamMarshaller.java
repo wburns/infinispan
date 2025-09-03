@@ -79,19 +79,27 @@ public abstract class AbstractInternalProtoStreamMarshaller implements Marshalle
       if (obj == null)
          return ByteBufferImpl.EMPTY_INSTANCE;
 
-      // Retrieve the size predictor without wrapping, as this will provide a more accurate estimate
-      BufferSizePredictor sizePredictor = marshallableTypeHints.getBufferSizePredictor(obj);
-      int estimatedSize = sizePredictor.nextSize(obj);
       if (requiresWrapping(obj)) {
          obj = new MarshallableUserObject<>(obj);
-         // Add the additional bytes required by the object wrapper to the estimate
-         estimatedSize = AbstractMarshallableWrapper.size(estimatedSize);
       }
-      try (RandomAccessOutputStream os = objectToOutputStream(obj, estimatedSize)) {
-         int length = os.getPosition();
-         ByteBuffer buf = ByteBufferImpl.create(os.getByteBuffer());
-         sizePredictor.recordSize(length);
-         return buf;
+      try {
+         int estimatedSize = ProtobufUtil.computeWrappedMessageSize(getSerializationContext(), obj);
+         try (RandomAccessOutputStream os = objectToOutputStream(obj, estimatedSize)) {
+
+//      // Retrieve the size predictor without wrapping, as this will provide a more accurate estimate
+//      BufferSizePredictor sizePredictor = marshallableTypeHints.getBufferSizePredictor(obj);
+//      int estimatedSize = sizePredictor.nextSize(obj);
+//      if (requiresWrapping(obj)) {
+//         obj = new MarshallableUserObject<>(obj);
+//         // Add the additional bytes required by the object wrapper to the estimate
+//         estimatedSize = AbstractMarshallableWrapper.size(estimatedSize);
+//      }
+//      try (RandomAccessOutputStream os = objectToOutputStream(obj, estimatedSize)) {
+//         int length = os.getPosition();
+            ByteBuffer buf = ByteBufferImpl.create(os.getByteBuffer());
+//         sizePredictor.recordSize(length);
+            return buf;
+         }
       } catch (IOException e) {
          throw new MarshallingException(e);
       }
