@@ -5,6 +5,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 
 import org.infinispan.commons.dataconversion.MediaType;
+import org.infinispan.protostream.RandomAccessOutputStream;
 
 import net.jcip.annotations.ThreadSafe;
 
@@ -27,6 +28,8 @@ public interface StreamAwareMarshaller {
     */
    void writeObject(Object o, OutputStream out) throws IOException;
 
+   void writeObject(Object o, RandomAccessOutputStream raos) throws IOException;
+
    /**
     * Unmarshall an object from the {@link InputStream}
     *
@@ -36,6 +39,10 @@ public interface StreamAwareMarshaller {
     * @throws ClassNotFoundException if the class of the object trying to unmarshall is not found
     */
    Object readObject(InputStream in) throws ClassNotFoundException, IOException;
+
+   default Object readObject(InputStream in, int exactLength) throws ClassNotFoundException, IOException {
+      return readObject(in);
+   }
 
    /**
     * A method that checks whether the given object is marshallable as per the rules of this marshaller.
@@ -52,6 +59,10 @@ public interface StreamAwareMarshaller {
     * @return int representing the next predicted buffer size.
     */
    int sizeEstimate(Object o);
+
+   default int exactSize(Object o) {
+      return -1;
+   }
 
    /**
     * @return the {@link MediaType} associated with the content produced by the marshaller

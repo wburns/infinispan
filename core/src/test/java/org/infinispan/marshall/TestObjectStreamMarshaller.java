@@ -17,6 +17,7 @@ import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.manager.EmbeddedCacheManager;
 import org.infinispan.marshall.persistence.PersistenceMarshaller;
 import org.infinispan.marshall.persistence.impl.PersistenceMarshallerImpl;
+import org.infinispan.protostream.RandomAccessOutputStream;
 import org.infinispan.protostream.SerializationContextInitializer;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.test.fwk.TestCacheManagerFactory;
@@ -84,6 +85,11 @@ public class TestObjectStreamMarshaller implements PersistenceMarshaller {
    @Override
    public void writeObject(Object o, OutputStream out) throws IOException {
       marshaller.writeObject(o, out);
+   }
+
+   @Override
+   public void writeObject(Object o, RandomAccessOutputStream raos) throws IOException {
+      marshaller.writeObject(o, raos);
    }
 
    @Override

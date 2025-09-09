@@ -151,6 +151,7 @@ public class MarshallableMap<K, V> {
          if (object == null) {
             ctx.getWriter().writeBytes(field, Util.EMPTY_BYTE_ARRAY);
          } else {
+            // TODO: this is creating an extra array here
             ByteBuffer buf = marshaller.objectToBuffer(object);
             ctx.getWriter().writeBytes(field, buf.getBuf(), buf.getOffset(), buf.getLength());
          }

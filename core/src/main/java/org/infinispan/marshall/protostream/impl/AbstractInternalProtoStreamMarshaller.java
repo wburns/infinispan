@@ -79,27 +79,19 @@ public abstract class AbstractInternalProtoStreamMarshaller implements Marshalle
       if (obj == null)
          return ByteBufferImpl.EMPTY_INSTANCE;
 
+      // Retrieve the size predictor without wrapping, as this will provide a more accurate estimate
+      BufferSizePredictor sizePredictor = marshallableTypeHints.getBufferSizePredictor(obj);
+      int estimatedSize = sizePredictor.nextSize(obj);
       if (requiresWrapping(obj)) {
          obj = new MarshallableUserObject<>(obj);
+         // Add the additional bytes required by the object wrapper to the estimate
+         estimatedSize = AbstractMarshallableWrapper.size(estimatedSize);
       }
-      try {
-         int estimatedSize = ProtobufUtil.computeWrappedMessageSize(getSerializationContext(), obj);
-         try (RandomAccessOutputStream os = objectToOutputStream(obj, estimatedSize)) {
-
-//      // Retrieve the size predictor without wrapping, as this will provide a more accurate estimate
-//      BufferSizePredictor sizePredictor = marshallableTypeHints.getBufferSizePredictor(obj);
-//      int estimatedSize = sizePredictor.nextSize(obj);
-//      if (requiresWrapping(obj)) {
-//         obj = new MarshallableUserObject<>(obj);
-//         // Add the additional bytes required by the object wrapper to the estimate
-//         estimatedSize = AbstractMarshallableWrapper.size(estimatedSize);
-//      }
-//      try (RandomAccessOutputStream os = objectToOutputStream(obj, estimatedSize)) {
-//         int length = os.getPosition();
-            ByteBuffer buf = ByteBufferImpl.create(os.getByteBuffer());
-//         sizePredictor.recordSize(length);
-            return buf;
-         }
+      try (RandomAccessOutputStream os = objectToOutputStream(obj, estimatedSize)) {
+         int length = os.getPosition();
+         ByteBuffer buf = ByteBufferImpl.create(os.getByteBuffer());
+         sizePredictor.recordSize(length);
+         return buf;
       } catch (IOException e) {
          throw new MarshallingException(e);
       }
@@ -157,8 +149,20 @@ public abstract class AbstractInternalProtoStreamMarshaller implements Marshalle
    }
 
    @Override
+   public void writeObject(Object o, RandomAccessOutputStream raos) throws IOException {
+      if (requiresWrapping(o))
+         o = new MarshallableUserObject<>(o);
+      ProtobufUtil.toWrappedStream(getSerializationContext(), raos, o);
+   }
+
+   @Override
    public Object readObject(InputStream in) throws ClassNotFoundException, IOException {
       return unwrapAndInit(ProtobufUtil.fromWrappedStream(getSerializationContext(), in));
+   }
+
+   @Override
+   public Object readObject(InputStream in, int exactLength) throws ClassNotFoundException, IOException {
+      return unwrapAndInit(ProtobufUtil.fromWrappedStream(getSerializationContext(), in, exactLength));
    }
 
    protected Object unwrapAndInit(Object o) {
@@ -175,11 +179,34 @@ public abstract class AbstractInternalProtoStreamMarshaller implements Marshalle
 
    @Override
    public int sizeEstimate(Object o) {
-      if (skipUserMarshaller)
-         return marshallableTypeHints.getBufferSizePredictor(o.getClass()).nextSize(o);
+//      if (skipUserMarshaller)
+//         return marshallableTypeHints.getBufferSizePredictor(o.getClass()).nextSize(o);
+//
+//      int userBytesEstimate = userMarshaller.getBufferSizePredictor(o.getClass()).nextSize(o);
+//      return MarshallableUserObject.size(userBytesEstimate);
+      try {
+         return ProtobufUtil.estimateMessageSize(getSerializationContext(), o);
+      } catch (Throwable t) {
+         log.cannotMarshall(o.getClass(), t);
+         if (t instanceof MarshallingException)
+            throw (MarshallingException) t;
+         throw new MarshallingException(t.getMessage(), t.getCause());
+      }
+   }
 
-      int userBytesEstimate = userMarshaller.getBufferSizePredictor(o.getClass()).nextSize(o);
-      return MarshallableUserObject.size(userBytesEstimate);
+   @Override
+   public int exactSize(Object o) {
+      if (!getSerializationContext().canMarshall(o)) {
+         return -1;
+      }
+      try {
+         return ProtobufUtil.computeWrappedMessageSize(getSerializationContext(), o);
+      } catch (Throwable t) {
+         log.cannotMarshall(o.getClass(), t);
+         if (t instanceof MarshallingException)
+            throw (MarshallingException) t;
+         throw new MarshallingException(t.getMessage(), t.getCause());
+      }
    }
 
    @Override
