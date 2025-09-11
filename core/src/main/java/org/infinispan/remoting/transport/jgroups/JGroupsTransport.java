@@ -73,7 +73,6 @@ import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.jmx.CacheManagerJmxRegistration;
 import org.infinispan.jmx.ObjectNameKeys;
 import org.infinispan.notifications.cachemanagerlistener.CacheManagerNotifier;
-import org.infinispan.protostream.RandomAccessOutputStream;
 import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.inboundhandler.InboundInvocationHandler;
 import org.infinispan.remoting.inboundhandler.Reply;
@@ -1244,20 +1243,47 @@ public class JGroupsTransport implements Transport {
       public void writeTo(DataOutput out) throws IOException {
          out.writeByte(key.getLength());
          out.write(key.getBytes());
-         if (out instanceof ByteArrayDataOutputStream bados) {
-            int pos = bados.position();
-            // Reserve space for size to write after
-            bados.position(pos + 4);
-            marshaller.writeObject(object, new JGroupsByteArrayOutputStream(bados));
-            int posAfter = bados.position();
-            bados.position(pos);
-            bados.writeInt(posAfter - pos - 4);
-            bados.position(posAfter);
-         } else if (out instanceof PartialOutputStream pos) {
-            throw new UnsupportedOperationException("TODO");
+         if (object instanceof byte[]) {
+            out.writeInt(((byte[]) object).length);
+            out.write((byte[]) object);
          } else {
-            throw new IllegalArgumentException("We only support ByteArrayDataOutputStream, was: " + out);
+            try {
+               byte[] buffer = ((Marshaller) marshaller).objectToByteBuffer(object);
+               out.writeInt(buffer.length);
+               out.write(buffer);
+            } catch (InterruptedException e) {
+               throw new RuntimeException(e);
+            }
          }
+//         if (out instanceof BaseDataOutputStream bdos) {
+//            int pos = bdos.position();
+//            // Reserve space for size to write after
+//            bdos.position(pos + 4);
+//            JGroupsByteArrayOutputStream jgbaos = getJGroupsByteArrayOutputStream(out, bdos);
+//            marshaller.writeObject(object, jgbaos);
+//            int posAfter = bdos.position();
+////            byte[] bytes = jgbaos.toByteArray();
+////            log.fatal("Exact size for: " + object + " was: " + (posAfter - pos - 4) + " and bytes are " +
+////                  Arrays.toString(bytes) + " with length: " + bytes.length);
+//            bdos.position(pos);
+//            bdos.writeInt(posAfter - pos - 4);
+//            bdos.position(posAfter);
+//         } else {
+//            throw new IllegalArgumentException("We only support ByteArrayDataOutputStream or PartialOutputStream, was: " + out);
+//         }
+      }
+
+      private static JGroupsByteArrayOutputStream getJGroupsByteArrayOutputStream(DataOutput out, BaseDataOutputStream bdos) {
+         if (bdos instanceof PartialOutputStream partialOutputStream) {
+            DataOutput dataOutput = partialOutputStream.getOut();
+            if (!(dataOutput instanceof ByteArrayDataOutputStream bados)) {
+               throw new IllegalArgumentException("We only support ByteArrayDataOutputStream in a PartialOutputStream, was: " + out);
+            }
+            return new JGroupsByteArrayOutputStream(partialOutputStream, bados);
+         } else if (bdos instanceof ByteArrayDataOutputStream bados) {
+            return new JGroupsByteArrayOutputStream(bados);
+         }
+         throw new IllegalArgumentException("We only support ByteArrayDataOutputStream or PartialOutputStream, was: " + out);
       }
 
       @Override
@@ -1278,6 +1304,7 @@ public class JGroupsTransport implements Transport {
             } else {
                throw new IllegalArgumentException("We only support a DataInput that implements InputStream!");
             }
+//            log.fatal("Unmarshalled command: " + object);
          } catch (Throwable t) {
             this.readThrowable = t;
          }
@@ -1285,7 +1312,7 @@ public class JGroupsTransport implements Transport {
 
       @Override
       public int serializedSize() {
-         return serializedSize;
+         return serializedSize + 1 + key.getLength() + 4;
       }
 
       @Override
@@ -1322,16 +1349,18 @@ public class JGroupsTransport implements Transport {
 
    private Message createMessage(org.jgroups.Address target, Object command, long requestId) {
       if (marshaller instanceof StreamAwareMarshaller sam) {
-         int size = sam.sizeEstimate(command);
+//         int size = sam.sizeEstimate(command);
+         int size = sam.exactSize(command);
          if (size > 0) {
-//            byte[] bytes = null;
-//            try {
-//               bytes = marshaller.objectToByteBuffer(command);
-//            } catch (IOException | InterruptedException e) {
-//               throw new RuntimeException(e);
-//            }
-//            Message message = new ObjectMessage(target, new StreamObject(bytes, sam, size));
-            Message message = new ObjectMessage(target, new StreamObject(command, clusterNameBytes, sam, size));
+            byte[] bytes;
+            try {
+//               log.fatal("Marshalled command: " + command);
+               bytes = marshaller.objectToByteBuffer(command);
+            } catch (IOException | InterruptedException e) {
+               throw new RuntimeException(e);
+            }
+            Message message = new ObjectMessage(target, new StreamObject(bytes, clusterNameBytes, sam, size));
+//            Message message = new ObjectMessage(target, new StreamObject(command, clusterNameBytes, sam, size));
             addRequestHeader(message, requestId);
             return message;
          }
