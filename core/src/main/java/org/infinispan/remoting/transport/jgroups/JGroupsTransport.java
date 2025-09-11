@@ -49,7 +49,6 @@ import org.infinispan.commons.io.ByteBuffer;
 import org.infinispan.commons.io.ByteBufferImpl;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.marshall.MarshallingException;
-import org.infinispan.commons.marshall.StreamAwareMarshaller;
 import org.infinispan.commons.marshall.WrappedByteArray;
 import org.infinispan.commons.marshall.WrappedBytes;
 import org.infinispan.commons.time.TimeService;
@@ -116,7 +115,7 @@ import org.jgroups.Header;
 import org.jgroups.JChannel;
 import org.jgroups.MergeView;
 import org.jgroups.Message;
-import org.jgroups.ObjectMessage;
+import org.jgroups.MessageFactory;
 import org.jgroups.UpHandler;
 import org.jgroups.View;
 import org.jgroups.blocks.RequestCorrelator;
@@ -134,13 +133,8 @@ import org.jgroups.stack.AddressGenerator;
 import org.jgroups.stack.IpAddress;
 import org.jgroups.stack.Protocol;
 import org.jgroups.stack.ProtocolStack;
-import org.jgroups.util.BaseDataOutputStream;
-import org.jgroups.util.ByteArrayDataInputStream;
-import org.jgroups.util.ByteArrayDataOutputStream;
 import org.jgroups.util.ExtendedUUID;
 import org.jgroups.util.MessageBatch;
-import org.jgroups.util.PartialOutputStream;
-import org.jgroups.util.SizeStreamable;
 import org.jgroups.util.SocketFactory;
 
 /**
@@ -188,29 +182,19 @@ public class JGroupsTransport implements Transport {
    private static final byte EMPTY_MESSAGE_BYTE = 0;
    private static final ByteBuffer EMPTY_MESSAGE_BUFFER = ByteBufferImpl.create(new byte[]{EMPTY_MESSAGE_BYTE});
 
-   @Inject
-   protected GlobalConfiguration configuration;
-   @Inject
-   @ComponentName(KnownComponentNames.INTERNAL_MARSHALLER)
+   @Inject protected GlobalConfiguration configuration;
+   @Inject @ComponentName(KnownComponentNames.INTERNAL_MARSHALLER)
    protected Marshaller marshaller;
-   @Inject
-   protected CacheManagerNotifier notifier;
-   @Inject
-   protected TimeService timeService;
-   @Inject
-   protected InboundInvocationHandler invocationHandler;
-   @Inject
-   @ComponentName(KnownComponentNames.TIMEOUT_SCHEDULE_EXECUTOR)
+   @Inject protected CacheManagerNotifier notifier;
+   @Inject protected TimeService timeService;
+   @Inject protected InboundInvocationHandler invocationHandler;
+   @Inject @ComponentName(KnownComponentNames.TIMEOUT_SCHEDULE_EXECUTOR)
    protected ScheduledExecutorService timeoutExecutor;
-   @Inject
-   @ComponentName(KnownComponentNames.NON_BLOCKING_EXECUTOR)
+   @Inject @ComponentName(KnownComponentNames.NON_BLOCKING_EXECUTOR)
    protected ExecutorService nonBlockingExecutor;
-   @Inject
-   protected CacheManagerJmxRegistration jmxRegistration;
-   @Inject
-   protected JGroupsMetricsManager metricsManager;
-   @Inject
-   InfinispanTelemetry telemetry;
+   @Inject protected CacheManagerJmxRegistration jmxRegistration;
+   @Inject protected JGroupsMetricsManager metricsManager;
+   @Inject InfinispanTelemetry telemetry;
 
    private final Lock viewUpdateLock = new ReentrantLock();
    private final Condition viewUpdateCondition = viewUpdateLock.newCondition();
@@ -229,6 +213,9 @@ public class JGroupsTransport implements Transport {
    private String localSite;
    private volatile RaftManager raftManager = EmptyRaftManager.INSTANCE;
    private WrappedBytes clusterNameBytes;
+
+   // TODO: this is not safe with tests stopping
+   private static final ConcurrentMap<WrappedBytes, Marshaller> MARSHALLER = new ConcurrentHashMap<>();
 
    // ------------------------------------------------------------------------------------------------------------------
    // Lifecycle and setup stuff
@@ -471,6 +458,85 @@ public class JGroupsTransport implements Transport {
       return channel.getName();
    }
 
+   public static class InfinispanBytesMesssage extends BytesMessage implements Callable<Object> {
+      private static final short TYPE = 2321;
+      private WrappedBytes key;
+      private Marshaller marshaller;
+
+//      private Object desrializedObject;
+      private Throwable receivedThrowable;
+
+      public InfinispanBytesMesssage() { }
+
+      public InfinispanBytesMesssage(org.jgroups.Address target, WrappedBytes key, Marshaller marshaller) {
+         super(target);
+         this.key = key;
+         this.marshaller = marshaller;
+      }
+
+      @Override
+      protected int payloadSize() {
+         return super.payloadSize() + 1 + key.getLength();
+      }
+
+      @Override
+      public short getType() {
+         return TYPE;
+      }
+
+      @Override
+      public void writePayload(DataOutput out) throws IOException {
+         out.writeByte(key.getLength());
+         out.write(key.getBytes());
+         super.writePayload(out);
+      }
+
+      @Override
+      public void readPayload(DataInput in) {
+         try {
+            int keyLength = in.readByte();
+            if (marshaller == null) {
+               byte[] keyBytes = new byte[keyLength];
+               in.readFully(keyBytes);
+               key = new WrappedByteArray(keyBytes);
+               marshaller = MARSHALLER.get(key);
+            } else {
+               in.skipBytes(keyLength);
+            }
+            super.readPayload(in);
+//            if (desrializedObject == null) {
+//               if (marshaller == null) {
+//                  throw new IllegalStateException("Marshaller not found for key: " + key);
+//               }
+//               desrializedObject = marshaller.objectFromByteBuffer(getObject());
+//            }
+         } catch (Throwable t) {
+            receivedThrowable = t;
+         }
+      }
+
+      @Override
+      public Object call() throws MarshallingException {
+         if (receivedThrowable != null) {
+            throw new MarshallingException(receivedThrowable);
+         }
+         return getObject();
+      }
+
+      @Override
+      public byte[] getArray() {
+         if (receivedThrowable != null) {
+            throw new MarshallingException(receivedThrowable);
+         }
+         return super.getArray();
+      }
+   }
+
+   static {
+      Supplier<? extends Message> s= InfinispanBytesMesssage::new;
+      MessageFactory.register(InfinispanBytesMesssage.TYPE, s);
+   }
+
    @Start
    @Override
    public void start() {
@@ -481,13 +547,9 @@ public class JGroupsTransport implements Transport {
       props = TypedProperties.toTypedProperties(configuration.transport().properties());
       requests = new RequestRepository();
 
-      ClassConfigurator.addIfAbsent((short) 1030, StreamObject.class);
-
       String clusterName = configuration.transport().clusterName();
       clusterNameBytes = new WrappedByteArray(clusterName.getBytes(StandardCharsets.UTF_8));
-      if (marshaller instanceof StreamAwareMarshaller) {
-         MARSHALLER.put(clusterNameBytes, (StreamAwareMarshaller) marshaller);
-      }
+      MARSHALLER.put(clusterNameBytes, marshaller);
 
       initChannel();
 
@@ -897,6 +959,7 @@ public class JGroupsTransport implements Transport {
          if (oldFuture != null) {
             oldFuture.complete(null);
          }
+         MARSHALLER.remove(clusterNameBytes);
       }
    }
 
@@ -1210,185 +1273,40 @@ public class JGroupsTransport implements Transport {
       doSendForCluster(destination, target, command, requestId, deliverOrder);
    }
 
-   private static final ConcurrentMap<WrappedBytes, StreamAwareMarshaller> MARSHALLER = new ConcurrentHashMap<>();
-
-   public static final class StreamObject implements SizeStreamable, Callable<Object> {
-      private StreamAwareMarshaller marshaller;
-
-      private Object object;
-      private int serializedSize;
-      private WrappedBytes key;
-      private Throwable readThrowable;
-
-      public StreamObject() {
-         // Only to be invoked by JGroups - we need to figure out if we can reference a marshaller here. For now we
-         // just store the byte[] value into our object for demarshalling later
-//         this.marshaller = MARSHALLER;
-      }
-
-      public StreamObject(Object object, WrappedBytes key, StreamAwareMarshaller marshaller, int serializedSize) {
-         this.object = Objects.requireNonNull(object);
-         this.marshaller = Objects.requireNonNull(marshaller);
-         if (serializedSize <= 0) {
-            throw new IllegalArgumentException("serializedSize must be greater than 0");
-         }
-         if (key.getLength() > 256) {
-            throw new IllegalArgumentException("Only support a key of 256 bytes or less");
-         }
-         this.key = Objects.requireNonNull(key);
-         this.serializedSize = serializedSize;
-      }
-
-      @Override
-      public void writeTo(DataOutput out) throws IOException {
-         out.writeByte(key.getLength());
-         out.write(key.getBytes());
-         if (object instanceof byte[]) {
-            out.writeInt(((byte[]) object).length);
-            out.write((byte[]) object);
-         } else {
-            try {
-               byte[] buffer = ((Marshaller) marshaller).objectToByteBuffer(object);
-               out.writeInt(buffer.length);
-               out.write(buffer);
-            } catch (InterruptedException e) {
-               throw new RuntimeException(e);
-            }
-         }
-//         if (out instanceof BaseDataOutputStream bdos) {
-//            int pos = bdos.position();
-//            // Reserve space for size to write after
-//            bdos.position(pos + 4);
-//            JGroupsByteArrayOutputStream jgbaos = getJGroupsByteArrayOutputStream(out, bdos);
-//            marshaller.writeObject(object, jgbaos);
-//            int posAfter = bdos.position();
-////            byte[] bytes = jgbaos.toByteArray();
-////            log.fatal("Exact size for: " + object + " was: " + (posAfter - pos - 4) + " and bytes are " +
-////                  Arrays.toString(bytes) + " with length: " + bytes.length);
-//            bdos.position(pos);
-//            bdos.writeInt(posAfter - pos - 4);
-//            bdos.position(posAfter);
-//         } else {
-//            throw new IllegalArgumentException("We only support ByteArrayDataOutputStream or PartialOutputStream, was: " + out);
-//         }
-      }
-
-      private static JGroupsByteArrayOutputStream getJGroupsByteArrayOutputStream(DataOutput out, BaseDataOutputStream bdos) {
-         if (bdos instanceof PartialOutputStream partialOutputStream) {
-            DataOutput dataOutput = partialOutputStream.getOut();
-            if (!(dataOutput instanceof ByteArrayDataOutputStream bados)) {
-               throw new IllegalArgumentException("We only support ByteArrayDataOutputStream in a PartialOutputStream, was: " + out);
-            }
-            return new JGroupsByteArrayOutputStream(partialOutputStream, bados);
-         } else if (bdos instanceof ByteArrayDataOutputStream bados) {
-            return new JGroupsByteArrayOutputStream(bados);
-         }
-         throw new IllegalArgumentException("We only support ByteArrayDataOutputStream or PartialOutputStream, was: " + out);
-      }
-
-      @Override
-      public void readFrom(DataInput in) {
-         try {
-            byte b = in.readByte();
-            byte[] bytes = new byte[(int) b];
-            in.readFully(bytes);
-            key = new WrappedByteArray(bytes);
-
-            marshaller = MARSHALLER.get(key);
-
-            serializedSize = in.readInt();
-            if (in instanceof ByteArrayDataInputStream badis && marshaller instanceof Marshaller m) {
-               object = m.objectFromByteBuffer(badis.buffer(), badis.position(), serializedSize);
-            } else if (in instanceof InputStream is) {
-               object = marshaller.readObject(is, serializedSize);
-            } else {
-               throw new IllegalArgumentException("We only support a DataInput that implements InputStream!");
-            }
-//            log.fatal("Unmarshalled command: " + object);
-         } catch (Throwable t) {
-            this.readThrowable = t;
-         }
-      }
-
-      @Override
-      public int serializedSize() {
-         return serializedSize + 1 + key.getLength() + 4;
-      }
-
-      @Override
-      public boolean equals(Object obj) {
-         if (obj == this) return true;
-         if (obj == null || obj.getClass() != this.getClass()) return false;
-         var that = (StreamObject) obj;
-         return Objects.equals(this.object, that.object) &&
-               Objects.equals(this.marshaller, that.marshaller) &&
-               this.serializedSize == that.serializedSize;
-      }
-
-      @Override
-      public int hashCode() {
-         return Objects.hash(object, marshaller, serializedSize);
-      }
-
-      @Override
-      public String toString() {
-         return "StreamMessage[" +
-               "object=" + object + ", " +
-               "marshaller=" + marshaller + ", " +
-               "serializedSize=" + serializedSize + ']';
-      }
-
-      @Override
-      public Object call() throws MarshallingException {
-         if (readThrowable != null) {
-            throw new MarshallingException(readThrowable);
-         }
-         return object;
-      }
+   private Message createMessage() {
+      return createMessage(null);
    }
 
-   private Message createMessage(org.jgroups.Address target, Object command, long requestId) {
-      if (marshaller instanceof StreamAwareMarshaller sam) {
-//         int size = sam.sizeEstimate(command);
-         int size = sam.exactSize(command);
-         if (size > 0) {
-            byte[] bytes;
-            try {
-//               log.fatal("Marshalled command: " + command);
-               bytes = marshaller.objectToByteBuffer(command);
-            } catch (IOException | InterruptedException e) {
-               throw new RuntimeException(e);
-            }
-            Message message = new ObjectMessage(target, new StreamObject(bytes, clusterNameBytes, sam, size));
-//            Message message = new ObjectMessage(target, new StreamObject(command, clusterNameBytes, sam, size));
-            addRequestHeader(message, requestId);
-            return message;
-         }
-      }
-      Message message = new BytesMessage(target);
-      try {
-         ByteBuffer bytes = marshaller.objectToBuffer(command);
-         message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
-         addRequestHeader(message, requestId);
-         return message;
-      } catch (RuntimeException e) {
-         throw e;
-      } catch (Exception e) {
-         throw new RuntimeException("Failure to marshal argument(s)", e);
-      }
+   private Message createMessage(org.jgroups.Address target) {
+      return new InfinispanBytesMesssage(target, clusterNameBytes, marshaller);
+//      return new BytesMessage(target);
+   }
+
+   void doSendForCrossSite(SiteAddress target, Object command, long requestId, DeliverOrder deliverOrder) {
+      Message message = createMessage(target);
+      marshallRequest(message, command, requestId);
+      setMessageFlagsForCrossSite(message, deliverOrder);
+      send(message);
    }
 
    void doSendForCluster(Address address, ExtendedUUID target, Object command, long requestId, DeliverOrder deliverOrder) {
-      Message message = createMessage(target, command, requestId);
+      Message message = createMessage(target);
+      marshallRequest(message, command, requestId);
       setMessageFlagsForCluster(message, deliverOrder);
       send(message);
       metricsManager.recordMessageSent(address, message.size(), requestId == Request.NO_REQUEST_ID);
    }
 
-   void doSendForCrossSite(SiteAddress target, Object command, long requestId, DeliverOrder deliverOrder) {
-      Message message = createMessage(target, command, requestId);
-      setMessageFlagsForCrossSite(message, deliverOrder);
-      send(message);
+   private void marshallRequest(Message message, Object command, long requestId) {
+      try {
+         ByteBuffer bytes = marshaller.objectToBuffer(command);
+         message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
+         addRequestHeader(message, requestId);
+      } catch (RuntimeException e) {
+         throw e;
+      } catch (Exception e) {
+         throw new RuntimeException("Failure to marshal argument(s)", e);
+      }
    }
 
    private static void setMessageFlagsForCrossSite(Message message, DeliverOrder deliverOrder) {
@@ -1517,7 +1435,8 @@ public class JGroupsTransport implements Transport {
     * Send a command to the entire cluster.
     */
    private void sendCommandToAll(ReplicableCommand command, long requestId, DeliverOrder deliverOrder) {
-      Message message = createMessage(null, command, requestId);
+      Message message = createMessage();
+      marshallRequest(message, command, requestId);
       setMessageFlagsForCluster(message, deliverOrder);
       send(message);
       clusterView.getMembersSet().stream()
@@ -1583,7 +1502,8 @@ public class JGroupsTransport implements Transport {
    private void sendCommand(Collection<Address> targets, ReplicableCommand command, long requestId,
                             DeliverOrder deliverOrder) {
       Objects.requireNonNull(targets);
-      Message message = createMessage(null, command, requestId);
+      Message message = createMessage();
+      marshallRequest(message, command, requestId);
       setMessageFlagsForCluster(message, deliverOrder);
 
       Message copy = message;
@@ -1621,7 +1541,6 @@ public class JGroupsTransport implements Transport {
    void processMessage(Message message) {
       org.jgroups.Address src = message.src();
       short flags = message.getFlags();
-      Callable<Object> resultSupplier = getResultSupplier(message);
       RequestCorrelator.Header header = message.getHeader(HEADER_ID);
       byte type;
       long requestId;
@@ -1643,34 +1562,14 @@ public class JGroupsTransport implements Transport {
       switch (type) {
          case SINGLE_MESSAGE:
          case REQUEST:
-            processRequest(src, flags, resultSupplier, requestId);
+            processRequest(src, flags, message, requestId);
             break;
          case RESPONSE:
-            processResponse(src, resultSupplier, requestId);
+            processResponse(src, message, requestId);
             break;
          default:
             CLUSTER.invalidMessageType(type, src);
       }
-   }
-
-   private Callable<Object> getResultSupplier(Message message) {
-      Callable<Object> resultSupplier;
-      if (message instanceof ObjectMessage) {
-         resultSupplier = message.getObject();
-      } else {
-         resultSupplier = () -> {
-            byte[] buffer = message.getArray();
-            int length = message.getLength();
-            if (length == 0) {
-               // Empty buffer signals the ForkChannel with this name is not running on the remote node
-               return CacheNotFoundResponse.INSTANCE;
-            } else if (length == 1 && buffer[0] == EMPTY_MESSAGE_BYTE) {
-               return SuccessfulResponse.SUCCESSFUL_EMPTY_RESPONSE;
-            }
-            return marshaller.objectFromByteBuffer(buffer, message.getOffset(), length);
-         };
-      }
-      return resultSupplier;
    }
 
    private void sendResponse(org.jgroups.Address target, Response response, long requestId, Object command) {
@@ -1682,39 +1581,26 @@ public class JGroupsTransport implements Transport {
          // Avoid NPEs during stop()
          return;
       }
-      Message message = null;
-      if (response == null) {
-         message = new BytesMessage(target);
-         message.setArray(EMPTY_MESSAGE_BUFFER.getBuf());
-      } else if (marshaller instanceof StreamAwareMarshaller sam) {
-         int size = sam.exactSize(response);
-         if (size > 0) {
-            message = new ObjectMessage(target, new StreamObject(response, clusterNameBytes, sam, size));
-         }
-      }
-      if (message == null) {
+      try {
+         // If no response, then send a buffer containing a single byte. An empty payload is not possible,
+         // as this can also signify to a receiver that the ForkChannel is not running on this node.
+         bytes = response == null ? EMPTY_MESSAGE_BUFFER : marshaller.objectToBuffer(response);
+      } catch (Throwable t) {
          try {
-            // If no response, then send a buffer containing a single byte. An empty payload is not possible,
-            // as this can also signify to a receiver that the ForkChannel is not running on this node.
-            bytes = marshaller.objectToBuffer(response);
-         } catch (Throwable t) {
-            try {
-               // this call should succeed (all exceptions are serializable)
-               Exception e = t instanceof Exception ? ((Exception) t) : new CacheException(t);
-               bytes = marshaller.objectToBuffer(new ExceptionResponse(e));
-            } catch (Throwable tt) {
-               if (channel.isConnected()) {
-                  CLUSTER.errorSendingResponse(requestId, target, command);
-               }
-               return;
+            // this call should succeed (all exceptions are serializable)
+            Exception e = t instanceof Exception ? ((Exception) t) : new CacheException(t);
+            bytes = marshaller.objectToBuffer(new ExceptionResponse(e));
+         } catch (Throwable tt) {
+            if (channel.isConnected()) {
+               CLUSTER.errorSendingResponse(requestId, target, command);
             }
+            return;
          }
-         message = new BytesMessage(target);
-         message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
       }
 
       try {
-         message.setFlag(REPLY_FLAGS, false);
+         Message message = createMessage(target).setFlag(REPLY_FLAGS, false);
+         message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
          RequestCorrelator.Header header = new RequestCorrelator.Header(RESPONSE, requestId,
                CORRELATOR_ID);
          message.putHeader(HEADER_ID, header);
@@ -1727,8 +1613,11 @@ public class JGroupsTransport implements Transport {
       }
    }
 
-   private void processRequest(org.jgroups.Address src, short flags, Callable<Object> resultSupplier, long requestId) {
+   private void processRequest(org.jgroups.Address src, short flags, Message message, long requestId) {
       try {
+         byte[] buffer = message.getArray();
+         int offset = message.getOffset();
+         int length = message.getLength();
          DeliverOrder deliverOrder = decodeDeliverMode(flags);
          if (Objects.equals(src, channel.getAddress())) {
             // DISCARD ignores the DONT_LOOPBACK flag, see https://issues.jboss.org/browse/JGRP-2205
@@ -1737,7 +1626,7 @@ public class JGroupsTransport implements Transport {
             return;
          }
 
-         Object command = resultSupplier.call();
+         Object command = marshaller.objectFromByteBuffer(buffer, offset, length);
          Reply reply;
          if (requestId != Request.NO_REQUEST_ID) {
             if (log.isTraceEnabled())
@@ -1765,9 +1654,20 @@ public class JGroupsTransport implements Transport {
       }
    }
 
-   private void processResponse(org.jgroups.Address src, Callable<Object> resultSupplier, long requestId) {
+   private void processResponse(org.jgroups.Address src, Message message, long requestId) {
       try {
-         Response response = (Response) resultSupplier.call();
+         byte[] buffer = message.getArray();
+         int offset = message.getOffset();
+         int length = message.getLength();
+         Response response;
+         if (length == 0) {
+            // Empty buffer signals the ForkChannel with this name is not running on the remote node
+            response = CacheNotFoundResponse.INSTANCE;
+         } else if (length == 1 && buffer[0] == EMPTY_MESSAGE_BYTE) {
+            response = SuccessfulResponse.SUCCESSFUL_EMPTY_RESPONSE;
+         } else {
+            response = (Response) marshaller.objectFromByteBuffer(buffer, offset, length);
+         }
          if (log.isTraceEnabled())
             log.tracef("%s received response for request %d from %s: %s", getAddress(), requestId, src, response);
          if (src instanceof SiteUUID siteUUID) {
