@@ -546,6 +546,8 @@ public class JGroupsTransport implements Transport {
                byte[] bytes = new byte[sizeEstimate];
                in.readFully(bytes);
                desrializedObject = ((Marshaller) marshaller).objectFromByteBuffer(bytes);
+            } else {
+               in.skipBytes(4 + sizeEstimate);
             }
          } catch (Throwable t) {
             receivedThrowable = t;
@@ -1337,7 +1339,7 @@ public class JGroupsTransport implements Transport {
    }
 
    private Message createMessage(org.jgroups.Address target, Object command) {
-      int actualSize = ((StreamAwareMarshaller) marshaller).sizeEstimate(command);
+      int actualSize = ((StreamAwareMarshaller) marshaller).exactSize(command);
       // TODO: need to pass size estimate
       return new InfinispanBytesMesssage(target, clusterNameBytes, actualSize, command, (StreamAwareMarshaller) marshaller);
 //      return new BytesMessage(target);
