@@ -1532,7 +1532,7 @@ public interface Log extends BasicLogger {
 
    @LogMessage(level = ERROR)
    @Message(value = "Error sending response for request %d@%s, command %s", id = 440)
-   void errorSendingResponse(long requestId, org.jgroups.Address origin, Object command);
+   void errorSendingResponse(long requestId, org.jgroups.Address origin, Object command, @Cause Throwable t);
 
    @Message(value = "Unsupported async cache mode '%s' for transactional caches", id = 441)
    CacheConfigurationException unsupportedAsyncCacheMode(CacheMode cacheMode);

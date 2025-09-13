@@ -147,7 +147,9 @@ public class DistSyncFuncTest extends BaseDistFunctionalTest<Object, String> {
 
       assertOnAllCachesAndOwnership("k1", "value");
 
-      assertEquals("value", caches.get(1).get("k1"));
+      for (int i = 0; i < INIT_CLUSTER_SIZE; ++i) {
+         assertEquals("value", caches.get(i).get("k1"));
+      }
 
       retval = getFirstNonOwner("k1").remove("k1", "value");
       asyncWait("k1", RemoveCommand.class);
