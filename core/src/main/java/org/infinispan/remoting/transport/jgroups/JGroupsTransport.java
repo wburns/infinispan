@@ -222,6 +222,7 @@ public class JGroupsTransport implements Transport {
    private WrappedBytes clusterNameBytes;
 
    // TODO: this is not safe with tests stopping
+   private static final ConcurrentMap<WrappedBytes, Integer> MARSHALLER_COUNT = new ConcurrentHashMap<>();
    private static final ConcurrentMap<WrappedBytes, StreamAwareMarshaller> MARSHALLER = new ConcurrentHashMap<>();
 
    // ------------------------------------------------------------------------------------------------------------------
@@ -639,7 +640,14 @@ public class JGroupsTransport implements Transport {
 
       String clusterName = configuration.transport().clusterName();
       clusterNameBytes = new WrappedByteArray(clusterName.getBytes(StandardCharsets.UTF_8));
-      MARSHALLER.put(clusterNameBytes, (StreamAwareMarshaller) marshaller);
+      StreamAwareMarshaller sam = (StreamAwareMarshaller) marshaller;
+      MARSHALLER_COUNT.compute(clusterNameBytes, (cnb, count) -> {
+         if (count == null) {
+            MARSHALLER.put(cnb, sam);
+            return 1;
+         }
+         return count + 1;
+      });
 
       initChannel();
 
@@ -1049,7 +1057,13 @@ public class JGroupsTransport implements Transport {
          if (oldFuture != null) {
             oldFuture.complete(null);
          }
-         MARSHALLER.remove(clusterNameBytes);
+         MARSHALLER_COUNT.computeIfPresent(clusterNameBytes, (cnb, count) -> {
+            if (count == 1) {
+               MARSHALLER.remove(cnb);
+               return null;
+            }
+            return count - 1;
+         });
       }
    }
 
@@ -1710,7 +1724,7 @@ public class JGroupsTransport implements Transport {
             message = new BytesMessage(target);
             message.setArray(EMPTY_MESSAGE_BUFFER.getBuf());
          } else {
-            int actualSize = ((StreamAwareMarshaller) marshaller).sizeEstimate(command);
+            int actualSize = ((StreamAwareMarshaller) marshaller).sizeEstimate(response);
             message = new InfinispanBytesMesssage(null, clusterNameBytes, actualSize, response, (StreamAwareMarshaller) marshaller);
          }
 
