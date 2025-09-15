@@ -1725,7 +1725,7 @@ public class JGroupsTransport implements Transport {
             message.setArray(EMPTY_MESSAGE_BUFFER.getBuf());
          } else {
             int actualSize = ((StreamAwareMarshaller) marshaller).sizeEstimate(response);
-            message = new InfinispanBytesMesssage(null, clusterNameBytes, actualSize, response, (StreamAwareMarshaller) marshaller);
+            message = new InfinispanBytesMesssage(target, clusterNameBytes, actualSize, response, (StreamAwareMarshaller) marshaller);
          }
 
          message.setFlag(REPLY_FLAGS, false);
