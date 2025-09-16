@@ -12,7 +12,6 @@ import org.infinispan.commons.marshall.MarshallableTypeHints;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.marshall.MarshallingException;
 import org.infinispan.commons.marshall.StreamAwareMarshaller;
-import org.infinispan.commons.util.LimitedInputStream;
 import org.infinispan.commons.util.Util;
 import org.infinispan.factories.KnownComponentNames;
 import org.infinispan.factories.annotations.ComponentName;
@@ -163,8 +162,7 @@ public abstract class AbstractInternalProtoStreamMarshaller implements Marshalle
 
    @Override
    public Object readObject(InputStream in, int exactLength) throws ClassNotFoundException, IOException {
-      // TODO: eventually convert to a different stream based approach?
-      return unwrapAndInit(ProtobufUtil.fromWrappedStream(getSerializationContext(), new LimitedInputStream(in, exactLength)));
+      return unwrapAndInit(ProtobufUtil.fromWrappedStream(getSerializationContext(), in, exactLength));
    }
 
    protected Object unwrapAndInit(Object o) {
