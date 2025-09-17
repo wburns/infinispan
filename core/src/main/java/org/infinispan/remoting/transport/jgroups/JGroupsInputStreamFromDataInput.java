@@ -22,6 +22,14 @@ public class JGroupsInputStreamFromDataInput extends InputStream {
    }
 
    @Override
+   public int read(byte[] b, int off, int len) throws IOException {
+      // This will throw exception for EOF.. which means either a bug or the socket was closed early, in which
+      // case propagation is fine
+      dataInput.readFully(b, off, len);
+      return len;
+   }
+
+   @Override
    public long skip(long n) throws IOException {
       return dataInput.skipBytes((int) (n & 0x7FFF_FFFF));
    }

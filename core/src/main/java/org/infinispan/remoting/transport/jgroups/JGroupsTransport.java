@@ -562,9 +562,14 @@ public class JGroupsTransport implements Transport {
             if (desrializedObject == null) {
                // TODO: stream this
                int length = in.readInt();
-               byte[] bytes = new byte[length];
-               in.readFully(bytes);
-               desrializedObject = marshaller.readObject(new ByteArrayInputStream(bytes));
+//               byte[] bytes = new byte[length];
+//               in.readFully(bytes);
+//               desrializedObject = marshaller.readObject(new ByteArrayInputStream(bytes));
+               if (in instanceof InputStream is) {
+                  desrializedObject = marshaller.readObject(is, length);
+               } else {
+                  desrializedObject = marshaller.readObject(new JGroupsInputStreamFromDataInput(in), length);
+               }
             } else {
                in.skipBytes(sizeEstimate + 4);
             }
