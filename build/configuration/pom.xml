@@ -86,10 +86,11 @@
       <version.antlr3>3.5.3</version.antlr3>
       <version.arquillian>1.8.1.Final</version.arquillian>
       <version.awaitility>4.3.0</version.awaitility>
-       <version.blockhound>1.0.14.RELEASE</version.blockhound>
+      <version.blockhound>1.0.14.RELEASE</version.blockhound>
       <version.bouncycastle>1.70</version.bouncycastle>
       <version.byteman>4.0.25</version.byteman>
       <version.caffeine>3.2.2</version.caffeine>
+      <version.checker-qual>3.49.5</version.checker-qual>
       <version.commons.compress>1.28.0</version.commons.compress>
       <version.console>16.0.3.Final</version.console>
       <version.ehcache.sizeof>0.3.0</version.ehcache.sizeof>
@@ -99,7 +100,7 @@
       <version.graalvm>24.0.0</version.graalvm>
       <version.groovy>2.4.21</version.groovy>
       <version.hamcrest>2.2</version.hamcrest>
-      <version.hibernate.core>6.4.10.Final</version.hibernate.core>
+      <version.hibernate.core>6.6.29.Final</version.hibernate.core>
       <version.hibernate.search>8.1.1.Final</version.hibernate.search>
       <version.hibernate.models>1.0.1</version.hibernate.models>
       <version.infinispan>16.0.0-SNAPSHOT</version.infinispan>
