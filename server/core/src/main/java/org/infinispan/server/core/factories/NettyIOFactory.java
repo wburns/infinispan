@@ -16,7 +16,7 @@ import io.netty.channel.EventLoopGroup;
  * Factory to create netty io event loop and replace the non blocking executor with it
  *
  * @author Pedro Ruivo
- * @author William Burns
+ * @author William Burnsz
  * @since 13.0
  */
 @DefaultFactoryFor(names = KnownComponentNames.NON_BLOCKING_EXECUTOR)

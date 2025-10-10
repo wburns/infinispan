@@ -9,6 +9,8 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationTargetException;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -23,7 +25,6 @@ import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,9 +48,7 @@ import org.infinispan.commons.CacheException;
 import org.infinispan.commons.IllegalLifecycleStateException;
 import org.infinispan.commons.io.ByteBuffer;
 import org.infinispan.commons.io.ByteBufferImpl;
-import org.infinispan.commons.marshall.ByteBackedRandomAccessOutputStream;
 import org.infinispan.commons.marshall.Marshaller;
-import org.infinispan.commons.marshall.MarshallingException;
 import org.infinispan.commons.marshall.StreamAwareMarshaller;
 import org.infinispan.commons.marshall.WrappedByteArray;
 import org.infinispan.commons.marshall.WrappedBytes;
@@ -74,7 +73,6 @@ import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.jmx.CacheManagerJmxRegistration;
 import org.infinispan.jmx.ObjectNameKeys;
 import org.infinispan.notifications.cachemanagerlistener.CacheManagerNotifier;
-import org.infinispan.protostream.RandomAccessOutputStream;
 import org.infinispan.remoting.inboundhandler.DeliverOrder;
 import org.infinispan.remoting.inboundhandler.InboundInvocationHandler;
 import org.infinispan.remoting.inboundhandler.Reply;
@@ -111,7 +109,6 @@ import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.infinispan.xsite.XSiteBackup;
 import org.infinispan.xsite.commands.remote.XSiteRequest;
-import org.jgroups.BaseMessage;
 import org.jgroups.BytesMessage;
 import org.jgroups.ChannelListener;
 import org.jgroups.Event;
@@ -120,7 +117,6 @@ import org.jgroups.JChannel;
 import org.jgroups.MergeView;
 import org.jgroups.Message;
 import org.jgroups.MessageFactory;
-import org.jgroups.ObjectMessage;
 import org.jgroups.UpHandler;
 import org.jgroups.View;
 import org.jgroups.blocks.RequestCorrelator;
@@ -138,8 +134,6 @@ import org.jgroups.stack.AddressGenerator;
 import org.jgroups.stack.IpAddress;
 import org.jgroups.stack.Protocol;
 import org.jgroups.stack.ProtocolStack;
-import org.jgroups.util.ByteArray;
-import org.jgroups.util.ByteArrayDataOutputStream;
 import org.jgroups.util.ExtendedUUID;
 import org.jgroups.util.MessageBatch;
 import org.jgroups.util.SocketFactory;
@@ -189,6 +183,8 @@ public class JGroupsTransport implements Transport {
    private static final byte EMPTY_MESSAGE_BYTE = 0;
    private static final ByteBuffer EMPTY_MESSAGE_BUFFER = ByteBufferImpl.create(new byte[]{EMPTY_MESSAGE_BYTE});
 
+   private static final MessageCreator<? extends Message> MESSAGE_CREATOR;
+
    @Inject protected GlobalConfiguration configuration;
    @Inject @ComponentName(KnownComponentNames.INTERNAL_MARSHALLER)
    protected Marshaller marshaller;
@@ -221,9 +217,10 @@ public class JGroupsTransport implements Transport {
    private volatile RaftManager raftManager = EmptyRaftManager.INSTANCE;
    private WrappedBytes clusterNameBytes;
 
-   // TODO: this is not safe with tests stopping
-   private static final ConcurrentMap<WrappedBytes, Integer> MARSHALLER_COUNT = new ConcurrentHashMap<>();
-   private static final ConcurrentMap<WrappedBytes, StreamAwareMarshaller> MARSHALLER = new ConcurrentHashMap<>();
+   static final ConcurrentMap<WrappedBytes, Integer> MARSHALLER_COUNT = new ConcurrentHashMap<>();
+   static final ConcurrentMap<WrappedBytes, StreamAwareMarshaller> MARSHALLER = new ConcurrentHashMap<>();
+
+   static volatile StreamAwareMarshaller SINGLE_MARSHALLER;
 
    // ------------------------------------------------------------------------------------------------------------------
    // Lifecycle and setup stuff
@@ -466,171 +463,70 @@ public class JGroupsTransport implements Transport {
       return channel.getName();
    }
 
-   public static class InfinispanBytesMesssage extends BaseMessage implements Callable<Object> {
-      private static final short TYPE = 2321;
-      private WrappedBytes key;
-      private StreamAwareMarshaller marshaller;
-
-      private Object desrializedObject;
-      private int sizeEstimate;
-      private Throwable receivedThrowable;
-
-      public InfinispanBytesMesssage() { }
-
-      public InfinispanBytesMesssage(org.jgroups.Address target, WrappedBytes key, int sizeEstimate, Object object,
-                                     StreamAwareMarshaller marshaller) {
-         super(target);
-         this.key = Objects.requireNonNull(key);
-         this.desrializedObject = Objects.requireNonNull(object);
-         this.sizeEstimate = sizeEstimate;
-         this.marshaller = Objects.requireNonNull(marshaller);
+   static {
+      MessageCreator<? extends Message> messageCreator;
+      try {
+         Class<?> nettyMessageClass = Class.forName("org.infinispan.server.core.transport.NettyInfinispanMessage");
+         Constructor<?> constructor = nettyMessageClass.getConstructor();
+         messageCreator = (MessageCreator<? extends Message>) constructor.newInstance();
+      } catch (ClassNotFoundException e) {
+         messageCreator = new DefaultInfinispanMessage();
+      } catch (NoSuchMethodException | InstantiationException | IllegalAccessException | InvocationTargetException e) {
+         log.trace("Failure to allocate NettyInfinispanMessage - falling back to DefaultInfinispanMessage", e);
+         messageCreator = new DefaultInfinispanMessage();
       }
-
-      @Override
-      protected int payloadSize() {
-         return sizeEstimate + 1 + key.getLength();
-      }
-
-      @Override
-      public short getType() {
-         return TYPE;
-      }
-
-      @Override
-      public boolean hasPayload() {
-         return true;
-      }
-
-      @Override
-      public boolean hasArray() {
-         return false;
-      }
-
-      @Override
-      public void writePayload(DataOutput out) throws IOException {
-         out.writeByte(key.getLength());
-         out.write(key.getBytes());
-
-         if (out instanceof ByteArrayDataOutputStream bdos) {
-            // This might over allocate, but will always be larger than our value
-            bdos.ensureCapacity(sizeEstimate + 4);
-            int originalPos = bdos.position();
-
-            try (RandomAccessOutputStream ros = new ByteBackedRandomAccessOutputStream(bdos.buffer(), originalPos + 4)) {
-               marshaller.writeObject(desrializedObject, ros);
-               bdos.position(originalPos);
-               bdos.writeInt(ros.getPosition() - originalPos - 4);
-               bdos.position(ros.getPosition());
-            }
-
-         } else {
-            try {
-               byte[] bytes = ((Marshaller) marshaller).objectToByteBuffer(desrializedObject);
-               out.writeInt(bytes.length);
-               out.write(bytes);
-            } catch (InterruptedException e) {
-               throw new IOException(e);
-            }
-         }
-
-//         if (out instanceof PartialOutputStream pos) {
-//            DataOutput dOut = pos.getOut();
-//            if (dOut instanceof ByteArrayDataOutputStream bados) {
-//               marshaller.writeObject(desrializedObject, new JGroupsByteArrayOutputStream(pos, bados));
-//            } else {
-//               throw new UnsupportedOperationException("DataOutput was partial but didn't contain a ByteArrayDataOutputStream!");
-//            }
-//         } else if (out instanceof ByteArrayDataOutputStream bados) {
-//            marshaller.writeObject(desrializedObject, new JGroupsByteArrayOutputStream(bados));
-//         } else {
-//            throw new UnsupportedOperationException("DataOutput was neither PartialOutputStream or ByteArrayDataOutputStream!");
-//         }
-      }
-
-      @Override
-      public void readPayload(DataInput in) {
-         try {
-            if (marshaller == null) {
-               int keyLength = in.readByte();
-               byte[] keyBytes = new byte[keyLength];
-               in.readFully(keyBytes);
-               key = new WrappedByteArray(keyBytes);
-               marshaller = MARSHALLER.get(key);
-            } else {
-               in.skipBytes(key.getLength() + 1);
-            }
-            if (desrializedObject == null) {
-               // TODO: stream this
-               int length = in.readInt();
-//               byte[] bytes = new byte[length];
-//               in.readFully(bytes);
-//               desrializedObject = marshaller.readObject(new ByteArrayInputStream(bytes));
-               if (in instanceof InputStream is) {
-                  desrializedObject = marshaller.readObject(is, length);
-               } else {
-                  desrializedObject = marshaller.readObject(new JGroupsInputStreamFromDataInput(in), length);
-               }
-            } else {
-               in.skipBytes(sizeEstimate + 4);
-            }
-         } catch (Throwable t) {
-            receivedThrowable = t;
-         }
-      }
-
-      @Override
-      protected Message copyPayload(Message copy) {
-         if (copy instanceof InfinispanBytesMesssage ibm) {
-            ibm.key = key;
-            ibm.sizeEstimate = sizeEstimate;
-            ibm.marshaller = marshaller;
-            ibm.desrializedObject = desrializedObject;
-         }
-         return copy;
-      }
-
-      @Override
-      public Object call() throws MarshallingException {
-         if (receivedThrowable != null) {
-            throw new MarshallingException(receivedThrowable);
-         }
-         return desrializedObject;
-      }
-
-      public byte[]            getArray()                           {throw new UnsupportedOperationException();}
-
-      @Override
-      public int getOffset() {
-         return -1;
-      }
-
-      @Override
-      public int getLength() {
-         return -1;
-      }
-
-      public ObjectMessage setArray(byte[] b, int off, int len) {throw new UnsupportedOperationException();}
-      public ObjectMessage     setArray(ByteArray buf)              {throw new UnsupportedOperationException();}
-
-      @Override
-      public <T> T getObject() {
-         return null;
-      }
-
-      @Override
-      public Message setObject(Object obj) {
-         return null;
-      }
-
-      @Override
-      public Supplier<? extends Message> create() {
-         return InfinispanBytesMesssage::new;
-      }
+      MESSAGE_CREATOR = messageCreator;
+      MessageFactory.register(InfinispanMessage.TYPE, messageCreator.create());
    }
 
-   static {
-      Supplier<? extends Message> s= InfinispanBytesMesssage::new;
-      MessageFactory.register(InfinispanBytesMesssage.TYPE, s);
+   public interface MessageCreator<T extends InfinispanMessage> {
+      Supplier<T> create();
+      T create(org.jgroups.Address target, WrappedBytes key, Object object,
+               StreamAwareMarshaller marshaller);
+   }
+
+   static class DefaultInfinispanMessage extends InfinispanMessage implements MessageCreator<DefaultInfinispanMessage> {
+      public DefaultInfinispanMessage(org.jgroups.Address target, WrappedBytes key, Object object,
+                                      StreamAwareMarshaller marshaller) {
+         super(target, key, object, marshaller);
+      }
+
+      public DefaultInfinispanMessage() { }
+
+      @Override
+      protected void writeObjectToDataOutput(DataOutput out) throws IOException {
+         try {
+            byte[] bytes = ((Marshaller) marshaller).objectToByteBuffer(deserializedObject);
+            // Make sure size is updated just in case
+            size = bytes.length;
+            out.writeInt(bytes.length);
+            out.write(bytes);
+         } catch (InterruptedException e) {
+            throw new IOException(e);
+         }
+      }
+
+      @Override
+      protected Object deserializeObject(DataInput in, int length) throws IOException, ClassNotFoundException {
+         //               byte[] bytes = new byte[length];
+//               in.readFully(bytes);
+//               desrializedObject = marshaller.readObject(new ByteArrayInputStream(bytes));
+         if (in instanceof InputStream is) {
+            return marshaller.readObject(is, length);
+         } else {
+            return marshaller.readObject(new JGroupsInputStreamFromDataInput(in), length);
+         }
+      }
+
+      @Override
+      public Supplier<DefaultInfinispanMessage> create() {
+         return JGroupsTransport.DefaultInfinispanMessage::new;
+      }
+
+      @Override
+      public DefaultInfinispanMessage create(org.jgroups.Address target, WrappedBytes key, Object object, StreamAwareMarshaller marshaller) {
+         return new DefaultInfinispanMessage(target, key, object, marshaller);
+      }
    }
 
    @Start
@@ -653,6 +549,7 @@ public class JGroupsTransport implements Transport {
          }
          return count + 1;
       });
+      SINGLE_MARSHALLER = sam;
 
       initChannel();
 
@@ -1387,10 +1284,7 @@ public class JGroupsTransport implements Transport {
    }
 
    private Message createMessage(org.jgroups.Address target, Object command) {
-      int actualSize = ((StreamAwareMarshaller) marshaller).sizeEstimate(command);
-      // TODO: need to pass size estimate
-      return new InfinispanBytesMesssage(target, clusterNameBytes, actualSize, command, (StreamAwareMarshaller) marshaller);
-//      return new BytesMessage(target);
+      return MESSAGE_CREATOR.create(target, clusterNameBytes, command, (StreamAwareMarshaller) marshaller);
    }
 
    void doSendForCrossSite(SiteAddress target, Object command, long requestId, DeliverOrder deliverOrder) {
@@ -1692,36 +1586,6 @@ public class JGroupsTransport implements Transport {
          // Avoid NPEs during stop()
          return;
       }
-//      try {
-//         // If no response, then send a buffer containing a single byte. An empty payload is not possible,
-//         // as this can also signify to a receiver that the ForkChannel is not running on this node.
-//         bytes = response == null ? EMPTY_MESSAGE_BUFFER : marshaller.objectToBuffer(response);
-//      } catch (Throwable t) {
-//         try {
-//            // this call should succeed (all exceptions are serializable)
-//            Exception e = t instanceof Exception ? ((Exception) t) : new CacheException(t);
-//            bytes = marshaller.objectToBuffer(new ExceptionResponse(e));
-//         } catch (Throwable tt) {
-//            tt.addSuppressed(t);
-//            if (channel.isConnected()) {
-//               CLUSTER.errorSendingResponse(requestId, target, command, tt);
-//            }
-//            return;
-//         }
-//      }
-//      try {
-//         Message message = new BytesMessage(target).setFlag(REPLY_FLAGS, false);
-//         message.setArray(bytes.getBuf(), bytes.getOffset(), bytes.getLength());
-//         RequestCorrelator.Header header = new RequestCorrelator.Header(RESPONSE, requestId,
-//               CORRELATOR_ID);
-//         message.putHeader(HEADER_ID, header);
-//
-//         channel.send(message);
-//      } catch (Throwable t) {
-//         if (channel.isConnected()) {
-//            CLUSTER.errorSendingResponse(requestId, target, command, t);
-//         }
-//      }
 
       try {
          Message message;
@@ -1729,8 +1593,7 @@ public class JGroupsTransport implements Transport {
             message = new BytesMessage(target);
             message.setArray(EMPTY_MESSAGE_BUFFER.getBuf());
          } else {
-            int actualSize = ((StreamAwareMarshaller) marshaller).sizeEstimate(response);
-            message = new InfinispanBytesMesssage(target, clusterNameBytes, actualSize, response, (StreamAwareMarshaller) marshaller);
+            message = new DefaultInfinispanMessage(target, clusterNameBytes, response, (StreamAwareMarshaller) marshaller);
          }
 
          message.setFlag(REPLY_FLAGS, false);
@@ -1759,7 +1622,7 @@ public class JGroupsTransport implements Transport {
          }
 
          Object command;
-         if (message instanceof InfinispanBytesMesssage ibm) {
+         if (message instanceof InfinispanMessage ibm) {
             command = ibm.call();
          } else {
             byte[] buffer = message.getArray();
@@ -1798,7 +1661,7 @@ public class JGroupsTransport implements Transport {
       try {
          Response response;
          // TODO: what about empty for fork channel? It should be a ByteMessage.. for now
-         if (message instanceof InfinispanBytesMesssage ibm) {
+         if (message instanceof InfinispanMessage ibm) {
             response = (Response) ibm.call();
          } else {
             byte[] buffer = message.getArray();
