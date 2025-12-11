@@ -60,7 +60,7 @@ public final class NativeTransport {
 
    private static boolean useNativeIOUring() {
       try {
-         Class.forName("io.netty.incubator.channel.uring.IOUring", true, NativeTransport.class.getClassLoader());
+         Class.forName("io.netty.channel.uring.IoUring", true, NativeTransport.class.getClassLoader());
          if (IOURingNativeTransport.isAvailable()) {
             return !IOURING_DISABLED && IS_LINUX;
          } else {
