@@ -1,0 +1,136 @@
+/*
+ * Copied from https://github.com/franz1981/Netty-VirtualThread-Scheduler/tree/master/core/src/main/java/io/netty/loom
+ * SHA: bce3da0d09d8aaf9ff47f9020fd3744287dbf61f
+ * Date: 2025-12-11
+ */
+package io.netty.loom;
+
+import io.netty.loom.EventLoopScheduler.SharedRef;
+
+/**
+ * Global Netty scheduler proxy for virtual threads.
+ *
+ * <p>
+ * Inheritance rule (exact): a newly started virtual thread inherits the
+ * caller's {@code EventLoopScheduler} only when both conditions are true:
+ * <ol>
+ * <li>{@code jdk.pollerMode} is {@code 3} (per-carrier pollers); and</li>
+ * <li>the thread performing the start/poller I/O is itself running under an
+ * {@code EventLoopScheduler} (i.e.
+ * {@code EventLoopScheduler.currentThreadSchedulerContext().scheduler()}
+ * returns a non-null {@code SharedRef}).</li>
+ * </ol>
+ *
+ * <p>
+ * The current implementation only attempts scheduler inheritance for
+ * poller-created virtual threads (recognized by the {@code "-Read-Poller"} name
+ * suffix). If either condition above is not met (or the thread kind is
+ * unrecognized) the virtual thread falls back to the default JDK scheduler.
+ *
+ * <p>
+ * This class is a proxy/dispatcher and does not implement a standalone
+ * scheduling policy. See {@link EventLoopScheduler} for details about scheduler
+ * attachment and execution.
+ */
+
+public class NettyScheduler implements Thread.VirtualThreadScheduler {
+
+   private static volatile NettyScheduler INSTANCE;
+
+   private final Thread.VirtualThreadScheduler jdkBuildinScheduler;
+
+   private final boolean perCarrierPollers;
+
+   private static NettyScheduler ensureInstalled() {
+      var instance = INSTANCE;
+      if (instance != null) {
+         return instance;
+      }
+      Thread.ofVirtual().unstarted(new Runnable() {
+         @Override
+         public void run() {
+
+         }
+      });
+      // we expect VirtualThread clinit to have loaded it by now
+      return INSTANCE;
+   }
+
+   public NettyScheduler(Thread.VirtualThreadScheduler jdkBuildinScheduler) {
+      this.jdkBuildinScheduler = jdkBuildinScheduler;
+      perCarrierPollers = Integer.getInteger("jdk.pollerMode", -1) == 3;
+      INSTANCE = this;
+   }
+
+   public boolean expectsPerCarrierPollers() {
+      return perCarrierPollers;
+   }
+
+   Thread.VirtualThreadScheduler jdkBuildinScheduler() {
+      return jdkBuildinScheduler;
+   }
+
+   @Override
+   public void onStart(Thread.VirtualThreadTask virtualThreadTask) {
+      if (virtualThreadTask.attachment() instanceof SharedRef ref) {
+         var eventLoop = ref.get();
+         if (eventLoop != null && eventLoop.execute(virtualThreadTask)) {
+            return;
+         }
+         // the v thread has been rejected by its assigned scheduler or its scheduler is
+         // gone
+         virtualThreadTask.attach(null);
+      } else {
+         if (perCarrierPollers) {
+            // Read-Poller threads should always inherit the event loop scheduler from the
+            // caller thread
+            if (Thread.currentThread().isVirtual()) {
+               // TODO
+               // https://github.com/openjdk/loom/blob/12ddf39bb59252a8274d8b937bd075b2a6dbc3f8/src/java.base/share/classes/java/lang/VirtualThread.java#L270C18-L270C33
+               // in theory should be easy to provide a VirtualThreadTask::current method to
+               // avoid the ScopedValue lookup
+               var schedulerRef = EventLoopScheduler.currentThreadSchedulerContext().scheduler();
+               // See
+               // https://github.com/openjdk/loom/blob/12ddf39bb59252a8274d8b937bd075b2a6dbc3f8/src/java.base/share/classes/sun/nio/ch/Poller.java#L723C48-L723C59
+               if (schedulerRef != null) {
+                  var scheduler = schedulerRef.get();
+                  if (scheduler != null && virtualThreadTask.thread().getName().endsWith("-Read-Poller")) {
+                     virtualThreadTask.attach(schedulerRef);
+                     if (scheduler.execute(virtualThreadTask)) {
+                        return;
+                     }
+                     virtualThreadTask.attach(null);
+                  }
+               }
+            }
+         }
+      }
+      jdkBuildinScheduler.onStart(virtualThreadTask);
+   }
+
+   @Override
+   public void onContinue(Thread.VirtualThreadTask virtualThreadTask) {
+      if (virtualThreadTask.attachment() instanceof SharedRef ref) {
+         var eventLoop = ref.get();
+         if (eventLoop != null && eventLoop.execute(virtualThreadTask)) {
+            return;
+         }
+         // the v thread has been rejected by its assigned scheduler or its scheduler is
+         // gone
+         virtualThreadTask.attach(null);
+      }
+      jdkBuildinScheduler.onContinue(virtualThreadTask);
+   }
+
+   static Thread newEventLoopScheduledThread(Runnable task, SharedRef sharedRef) {
+      return Thread.VirtualThreadScheduler.newThread(task, sharedRef);
+   }
+
+   public static boolean perCarrierPollers() {
+      return ensureInstalled().perCarrierPollers;
+   }
+
+   public static boolean isAvailable() {
+      return ensureInstalled() != null;
+   }
+}
