@@ -1086,29 +1086,31 @@ class Index {
    }
 
    Flowable<EntryRecord> publish(int cacheSegment, boolean loadValues) {
-      long stamp = lock.readLock();
-      try {
-         var segment = segments[cacheSegment];
-         if (segment.index.sizePerSegment.get(cacheSegment) == 0) {
-            lock.unlockRead(stamp);
-            return Flowable.empty();
-         }
-         return segment.root.publish((keyAndMetadataRecord, leafNode, fileProvider, currentTime) -> {
-            long expiryTime = keyAndMetadataRecord.getHeader().expiryTime();
-            // Ignore any key or value if it is expired or was removed
-            if (expiryTime > 0 && expiryTime < currentTime || keyAndMetadataRecord.getHeader().valueLength() <= 0) {
-               return null;
+      return Flowable.defer(() -> {
+         long stamp = lock.readLock();
+         try {
+            var segment = segments[cacheSegment];
+            if (segment.index.sizePerSegment.get(cacheSegment) == 0) {
+               lock.unlockRead(stamp);
+               return Flowable.empty();
             }
-            if (loadValues) {
-               log.tracef("Loading value record for leafNode: %s", leafNode);
+            return segment.root.publish((keyAndMetadataRecord, leafNode, fileProvider, currentTime) -> {
+               long expiryTime = keyAndMetadataRecord.getHeader().expiryTime();
+               // Ignore any key or value if it is expired or was removed
+               if (expiryTime > 0 && expiryTime < currentTime || keyAndMetadataRecord.getHeader().valueLength() <= 0) {
+                  return null;
+               }
+               if (loadValues) {
+                  log.tracef("Loading value record for leafNode: %s", leafNode);
 
-               return leafNode.loadValue(keyAndMetadataRecord, fileProvider);
-            }
-            return keyAndMetadataRecord;
-         }).doFinally(() -> lock.unlockRead(stamp));
-      } catch (Throwable t) {
-         lock.unlockRead(stamp);
-         throw t;
-      }
+                  return leafNode.loadValue(keyAndMetadataRecord, fileProvider);
+               }
+               return keyAndMetadataRecord;
+            }).doFinally(() -> lock.unlockRead(stamp));
+         } catch (Throwable t) {
+            lock.unlockRead(stamp);
+            throw t;
+         }
+      });
    }
 }
