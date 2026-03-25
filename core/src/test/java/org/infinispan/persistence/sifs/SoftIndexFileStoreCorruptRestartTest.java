@@ -227,10 +227,8 @@ public class SoftIndexFileStoreCorruptRestartTest extends BaseDistStoreTest<Inte
             if (previousLogFileId != null) {
                // The log appender has rolled to a new file
                // Use a key from the middle of the previous file, not the last one
-               if (firstKeyInPreviousFile != null) {
-                  int middleKey = firstKeyInPreviousFile + ((keyCounter - 1 - firstKeyInPreviousFile) / 2);
-                  keyInPreviousFile = "key-" + middleKey;
-               }
+               int middleKey = firstKeyInPreviousFile + ((keyCounter - 1 - firstKeyInPreviousFile) / 2);
+               keyInPreviousFile = "key-" + middleKey;
                break;
             }
             firstKeyInPreviousFile = keyCounter;
@@ -311,6 +309,23 @@ public class SoftIndexFileStoreCorruptRestartTest extends BaseDistStoreTest<Inte
       // This should return null immediately without trying to read from the corrupted file
       Object value2 = cache(0, cacheName).get(keyInPreviousFile);
       assertNull("Entry should remain null after being removed from index", value2);
+
+      // Now write a new value for the same key that was corrupted
+      cache(0, cacheName).put(keyInPreviousFile, "new-value-after-corruption");
+
+      // Verify we can read the new value
+      Object valueAfterWrite = cache(0, cacheName).get(keyInPreviousFile);
+      assertEquals("Should return the new value written after corruption was detected",
+            "new-value-after-corruption", valueAfterWrite);
+
+      // Restart the cache to verify the new value persists
+      killMember(0, cacheName);
+      createCacheManagers();
+
+      // After restart, verify we still get the new value (not null)
+      Object valueAfterRestart = cache(0, cacheName).get(keyInPreviousFile);
+      assertEquals("Should return the new value after cache restart",
+            "new-value-after-corruption", valueAfterRestart);
    }
 
    // Test for issue #17119 - iteration should handle corrupted entries gracefully
@@ -432,5 +447,22 @@ public class SoftIndexFileStoreCorruptRestartTest extends BaseDistStoreTest<Inte
             return false;
          }
       });
+
+      // Now write a new value for the same key that was corrupted
+      cache(0, cacheName).put(keyInPreviousFile, "new-value-after-iteration-corruption");
+
+      // Verify we can read the new value
+      Object valueAfterWrite = cache(0, cacheName).get(keyInPreviousFile);
+      assertEquals("Should return the new value written after corruption was detected during iteration",
+            "new-value-after-iteration-corruption", valueAfterWrite);
+
+      // Restart the cache to verify the new value persists
+      killMember(0, cacheName);
+      createCacheManagers();
+
+      // After restart, verify we still get the new value (not null)
+      Object valueAfterRestart = cache(0, cacheName).get(keyInPreviousFile);
+      assertEquals("Should return the new value after cache restart",
+            "new-value-after-iteration-corruption", valueAfterRestart);
    }
 }
