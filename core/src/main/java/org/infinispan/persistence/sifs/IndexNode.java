@@ -1129,11 +1129,17 @@ class IndexNode {
                      int readOffset = offset < 0 ? ~offset : offset;
                      EntryHeader header = EntryRecord.readEntryHeader(handle, readOffset);
                      if (header == null) {
-                        throw new IllegalStateException("Error reading header from " + file + ":" + readOffset + " | " + handle.getFileSize());
+                        // File has been truncated/corrupted - log warning and throw IllegalStateException with specific message
+                        // that can be caught and handled gracefully upstream
+                        log.warnf("Cannot read header from %d:%d (file size: %d). File may have been externally truncated or corrupted.",
+                              file, readOffset, handle.getFileSize());
+                        throw new IllegalStateException("Error reading header from " + file + ":" + readOffset + " | " + handle.getFileSize() + " (file corrupted)");
                      }
                      byte[] key = EntryRecord.readKey(handle, header, readOffset);
                      if (key == null) {
-                        throw new IllegalStateException("Error reading key from " + file + ":" + readOffset);
+                        log.warnf("Cannot read key from %d:%d. File may have been externally truncated or corrupted.",
+                              file, readOffset);
+                        throw new IllegalStateException("Error reading key from " + file + ":" + readOffset + " (file corrupted)");
                      }
                      headerAndKey = new EntryRecord(header, key);
                      keyReference = new SoftReference<>(headerAndKey);

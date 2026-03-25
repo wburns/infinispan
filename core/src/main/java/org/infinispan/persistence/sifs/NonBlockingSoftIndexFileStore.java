@@ -676,9 +676,42 @@ public class NonBlockingSoftIndexFileStore<K, V> implements NonBlockingStore<K, 
                      return marshallableEntry;
                   }
                } else {
-                  EntryRecord record = index.getRecord(key, segmentUsed, marshaller.objectToBuffer(key));
+                  org.infinispan.commons.io.ByteBuffer serializedKeyBuffer = marshaller.objectToBuffer(key);
+                  EntryPosition position = null;
+                  EntryRecord record = null;
+                  try {
+                     // Get position first so we can remove it from index if corrupted
+                     position = index.getPosition(key, segmentUsed, serializedKeyBuffer);
+                     if (position == null) {
+                        log.tracef("Entry for key=%s not found in index, returning null", key);
+                        return null;
+                     }
+                     record = index.getRecord(key, segmentUsed, serializedKeyBuffer);
+                  } catch (Exception e) {
+                     // Check if this is a file corruption error (might be wrapped in IOException)
+                     Throwable cause = e;
+                     while (cause != null) {
+                        if (cause.getMessage() != null && cause.getMessage().contains("(file corrupted)")) {
+                           // File was corrupted/truncated - remove the corrupted entry from the index
+                           if (position != null) {
+                              log.warnf("File corruption detected for key=%s at %d:%d, removing from index",
+                                    key, position.file, position.offset);
+                              // Send DROPPED request to remove the corrupted entry from the index
+                              byte[] serializedKey = serializedKeyBuffer.getBuf();
+                              index.handleRequest(IndexRequest.dropped(segmentUsed, key,
+                                    ByteBufferImpl.create(serializedKey, serializedKeyBuffer.getOffset(), serializedKeyBuffer.getLength()),
+                                    -1, -1, position.file, position.offset));
+                           } else {
+                              log.warnf("File corruption detected for key=%s but position is unknown", key);
+                           }
+                           return null;
+                        }
+                        cause = cause.getCause();
+                     }
+                     throw e;
+                  }
                   if (record == null) {
-                     log.tracef("Entry for key=%s not found in index, returning null", key);
+                     // Position exists but record is null (expired) - return null
                      return null;
                   }
                   return entryFromRecord(record);
