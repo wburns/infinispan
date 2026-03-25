@@ -1129,17 +1129,17 @@ class IndexNode {
                      int readOffset = offset < 0 ? ~offset : offset;
                      EntryHeader header = EntryRecord.readEntryHeader(handle, readOffset);
                      if (header == null) {
-                        // File has been truncated/corrupted - log warning and throw IllegalStateException with specific message
+                        // File has been truncated/corrupted - log warning and throw CorruptedIndexException
                         // that can be caught and handled gracefully upstream
                         log.warnf("Cannot read header from %d:%d (file size: %d). File may have been externally truncated or corrupted.",
                               file, readOffset, handle.getFileSize());
-                        throw new IllegalStateException("Error reading header from " + file + ":" + readOffset + " | " + handle.getFileSize() + " (file corrupted)");
+                        throw new CorruptedIndexException("Error reading header from " + file + ":" + readOffset + " | " + handle.getFileSize());
                      }
                      byte[] key = EntryRecord.readKey(handle, header, readOffset);
                      if (key == null) {
                         log.warnf("Cannot read key from %d:%d. File may have been externally truncated or corrupted.",
                               file, readOffset);
-                        throw new IllegalStateException("Error reading key from " + file + ":" + readOffset + " (file corrupted)");
+                        throw new CorruptedIndexException("Error reading key from " + file + ":" + readOffset);
                      }
                      headerAndKey = new EntryRecord(header, key);
                      keyReference = new SoftReference<>(headerAndKey);
@@ -1337,6 +1337,13 @@ class IndexNode {
                      }
                   }
                   previousKey = record.getKey();
+               } catch (CorruptedIndexException e) {
+                  // File corruption detected - skip the corrupted entry
+                  // The index will be cleaned up lazily if/when the key is accessed via load()
+                  log.warnf("File corruption detected during iteration for entry at %d:%d, skipping",
+                        leafNode.file, leafNode.offset);
+                  // Continue with the next entry
+                  continue;
                } catch (IndexNodeOutdatedException e) {
                   // Current key was outdated, we have to try from the previous entry we saw (note it is skipped)
                   if (previousKey != null) {

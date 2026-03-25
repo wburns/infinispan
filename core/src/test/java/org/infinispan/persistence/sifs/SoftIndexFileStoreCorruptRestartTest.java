@@ -284,9 +284,153 @@ public class SoftIndexFileStoreCorruptRestartTest extends BaseDistStoreTest<Inte
       assertNull("Expected null when loading key from truncated log file (was " +
             originalSize + " bytes, now 10)", value);
 
-      // Verify the entry was actually removed from the index by trying to read it again
+      // Verify the entry was actually removed from the index by checking the index directly
+      // Use eventually() since the index update is asynchronous
+      Index index = TestingUtil.extractField(sifsStore, "index");
+      org.infinispan.commons.marshall.Marshaller marshaller = TestingUtil.extractField(sifsStore, "marshaller");
+      org.infinispan.commons.io.ByteBuffer serializedKey = marshaller.objectToBuffer(keyInPreviousFile);
+      int segmentId = cache(0, cacheName).getAdvancedCache().getDistributionManager() != null ?
+            cache(0, cacheName).getAdvancedCache().getDistributionManager().getCacheTopology().getSegment(keyInPreviousFile) : 0;
+
+      // Create final copies for lambda
+      final String finalKey = keyInPreviousFile;
+      final Index finalIndex = index;
+      final org.infinispan.commons.io.ByteBuffer finalSerializedKey = serializedKey;
+      final int finalSegmentId = segmentId;
+
+      eventually("Entry position should be removed from index after corruption detected", () -> {
+         try {
+            EntryPosition positionAfter = finalIndex.getPosition(finalKey, finalSegmentId, finalSerializedKey);
+            return positionAfter == null;
+         } catch (Exception e) {
+            return false;
+         }
+      });
+
+      // Verify the entry is truly gone by trying to read it again
       // This should return null immediately without trying to read from the corrupted file
       Object value2 = cache(0, cacheName).get(keyInPreviousFile);
-      assertNull("Entry should be removed from index after corruption detected", value2);
+      assertNull("Entry should remain null after being removed from index", value2);
+   }
+
+   // Test for issue #17119 - iteration should handle corrupted entries gracefully
+   // This test writes entries until the log appender rolls to a new file, then truncates
+   // the PREVIOUS log file and performs iteration to verify corrupted entries are skipped
+   // and removed from the index.
+   public void testIterationWithCorruptedDataFile() throws Throwable {
+      WaitDelegatingNonBlockingStore store = TestingUtil.getFirstStoreWait(cache(0, cacheName));
+      NonBlockingSoftIndexFileStore sifsStore = (NonBlockingSoftIndexFileStore) store.delegate();
+      LogAppender logAppender = TestingUtil.extractField(sifsStore, "logAppender");
+
+      int keyCounter = 0;
+      Integer previousLogFileId = null;
+      Integer currentLogFileId = null;
+      String keyInPreviousFile = null;
+      Integer firstKeyInPreviousFile = null;
+
+      // Write entries until the log appender rolls to a new file
+      while (true) {
+         // Get the current log file from the log appender
+         FileProvider.Log currentLogFile = TestingUtil.extractField(logAppender, "logFile");
+         currentLogFileId = currentLogFile != null ? currentLogFile.fileId : null;
+
+         // Track the first key written to each log file
+         if (currentLogFileId != null && !currentLogFileId.equals(previousLogFileId)) {
+            if (previousLogFileId != null) {
+               // The log appender has rolled to a new file
+               // Use a key from the middle of the previous file, not the last one
+               if (firstKeyInPreviousFile != null) {
+                  int middleKey = firstKeyInPreviousFile + ((keyCounter - 1 - firstKeyInPreviousFile) / 2);
+                  keyInPreviousFile = "key-" + middleKey;
+               }
+               break;
+            }
+            firstKeyInPreviousFile = keyCounter;
+            previousLogFileId = currentLogFileId;
+         }
+
+         cache(0, cacheName).put("key-" + keyCounter, "value-" + keyCounter);
+         keyCounter++;
+
+         if (keyCounter > 10000) {
+            fail("Failed to roll to a new log file after " + keyCounter + " entries");
+         }
+      }
+
+      // Remember how many keys we have
+      int totalKeys = keyCounter;
+
+      // Clear all entries from memory to force loading from store
+      cache(0, cacheName).getAdvancedCache().getDataContainer().clear();
+
+      // Truncate the PREVIOUS log file (the finalized one) WHILE THE CACHE IS STILL RUNNING
+      Path previousLogFilePath = Paths.get(tmpDirectory, "data", cacheName, "data",
+            NonBlockingSoftIndexFileStore.PREFIX_LATEST + previousLogFileId);
+      File previousLogFile = previousLogFilePath.toFile();
+
+      if (!previousLogFile.exists()) {
+         fail("Previous log file does not exist: " + previousLogFile);
+      }
+
+      long originalSize = previousLogFile.length();
+
+      // Close the file handle to force re-reading from disk
+      FileProvider fileProvider = TestingUtil.extractField(sifsStore, "fileProvider");
+
+      // Get the file handle if it's open and close it to release the handle
+      FileProvider.Handle handle = fileProvider.getFileIfOpen(previousLogFileId);
+      if (handle != null) {
+         handle.close();
+      }
+
+      // Truncate the file to just a few bytes WHILE THE CACHE IS STILL RUNNING
+      try (RandomAccessFile raf = new RandomAccessFile(previousLogFile, "rw")) {
+         raf.setLength(10); // Keep just 10 bytes, corrupt the rest
+      }
+
+      // Perform iteration - should skip the corrupted entry and continue with others
+      int iteratedCount = 0;
+      boolean foundCorruptedKey = false;
+      for (Object key : cache(0, cacheName).keySet()) {
+         iteratedCount++;
+         if (key.equals(keyInPreviousFile)) {
+            foundCorruptedKey = true;
+         }
+      }
+
+      // The corrupted key should not be found during iteration
+      assertNull("Corrupted key should not be returned during iteration, should be null",
+            foundCorruptedKey ? "found" : null);
+
+      // We should have iterated through all keys except the corrupted one(s)
+      // Note: there might be multiple corrupted keys in the truncated file
+      log.infof("Iterated %d keys out of %d total (file was %d bytes, now 10)",
+            iteratedCount, totalKeys, originalSize);
+
+      // Now try to access the corrupted key directly via load()
+      // This should trigger index cleanup lazily
+      Object value = cache(0, cacheName).get(keyInPreviousFile);
+      assertNull("Corrupted key should return null when accessed directly", value);
+
+      // Verify the index was cleaned up after the direct access
+      Index index = TestingUtil.extractField(sifsStore, "index");
+      org.infinispan.commons.marshall.Marshaller marshaller = TestingUtil.extractField(sifsStore, "marshaller");
+      org.infinispan.commons.io.ByteBuffer serializedKey = marshaller.objectToBuffer(keyInPreviousFile);
+      int segmentId = cache(0, cacheName).getAdvancedCache().getDistributionManager() != null ?
+            cache(0, cacheName).getAdvancedCache().getDistributionManager().getCacheTopology().getSegment(keyInPreviousFile) : 0;
+
+      final String finalKey = keyInPreviousFile;
+      final Index finalIndex = index;
+      final org.infinispan.commons.io.ByteBuffer finalSerializedKey = serializedKey;
+      final int finalSegmentId = segmentId;
+
+      eventually("Entry position should be removed from index after direct access", () -> {
+         try {
+            EntryPosition positionAfter = finalIndex.getPosition(finalKey, finalSegmentId, finalSerializedKey);
+            return positionAfter == null;
+         } catch (Exception e) {
+            return false;
+         }
+      });
    }
 }

@@ -691,7 +691,7 @@ public class NonBlockingSoftIndexFileStore<K, V> implements NonBlockingStore<K, 
                      // Check if this is a file corruption error (might be wrapped in IOException)
                      Throwable cause = e;
                      while (cause != null) {
-                        if (cause.getMessage() != null && cause.getMessage().contains("(file corrupted)")) {
+                        if (cause instanceof CorruptedIndexException) {
                            // File was corrupted/truncated - remove the corrupted entry from the index
                            if (position != null) {
                               log.warnf("File corruption detected for key=%s at %d:%d, removing from index",
