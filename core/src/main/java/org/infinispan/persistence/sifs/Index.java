@@ -315,11 +315,15 @@ class Index {
    }
 
    private EntryRecord getRecord(Object key, int cacheSegment, byte[] indexKey, IndexNode.ReadOperation readOperation) throws IOException {
+      log.infof("getRecord: acquiring read lock");
       long stamp = lock.readLock();
+      log.infof("getRecord: acquired read lock with stamp %d", stamp);
       try {
          return IndexNode.applyOnLeaf(segments[cacheSegment], cacheSegment, indexKey, segments[cacheSegment].rootReadLock(), readOperation);
       } finally {
+         log.infof("getRecord: releasing read lock with stamp %d", stamp);
          lock.unlockRead(stamp);
+         log.infof("getRecord: released read lock with stamp %d", stamp);
       }
    }
 
@@ -327,11 +331,15 @@ class Index {
     * Get position or null if expired
     */
    public EntryPosition getPosition(Object key, int cacheSegment, org.infinispan.commons.io.ByteBuffer serializedKey) throws IOException {
+      log.infof("getPosition: acquiring read lock");
       long stamp = lock.readLock();
+      log.infof("getPosition: acquired read lock with stamp %d", stamp);
       try {
          return IndexNode.applyOnLeaf(segments[cacheSegment], cacheSegment, toIndexKey(serializedKey), segments[cacheSegment].rootReadLock(), IndexNode.ReadOperation.GET_POSITION);
       } finally {
+         log.infof("getPosition: releasing read lock with stamp %d", stamp);
          lock.unlockRead(stamp);
+         log.infof("getPosition: released read lock with stamp %d", stamp);
       }
    }
 
@@ -339,23 +347,32 @@ class Index {
     * Get position + numRecords, without expiration
     */
    public EntryInfo getInfo(Object key, int cacheSegment, byte[] serializedKey) throws IOException {
+      log.infof("getInfo: acquiring read lock");
       long stamp = lock.readLock();
+      log.infof("getInfo: acquired read lock with stamp %d", stamp);
       try {
          return IndexNode.applyOnLeaf(segments[cacheSegment], cacheSegment, serializedKey, segments[cacheSegment].rootReadLock(), IndexNode.ReadOperation.GET_INFO);
       } finally {
+         log.infof("getInfo: releasing read lock with stamp %d", stamp);
          lock.unlockRead(stamp);
+         log.infof("getInfo: released read lock with stamp %d", stamp);
       }
    }
 
    public CompletionStage<Void> clear() {
       log.tracef("Clearing index");
       long stamp;
+      log.infof("clear: trying to acquire write lock");
       if ((stamp = lock.tryWriteLock()) != 0) {
+         log.infof("clear: acquired write lock with stamp %d", stamp);
          // actualSubmitClear handles all the lock release calls
          return actualSubmitClear(stamp);
       } else {
+         log.infof("clear: try write lock failed, acquiring write lock asynchronously");
          return CompletableFuture.supplyAsync(() -> {
+            log.infof("clear: acquiring write lock");
             long innerStamp = lock.writeLock();
+            log.infof("clear: acquired write lock with stamp %d", innerStamp);
             return actualSubmitClear(innerStamp);
          }, executor).thenCompose(Function.identity());
       }
@@ -385,10 +402,14 @@ class Index {
                }
             }
             // Unlock has to happen after clearing sizePerSegment to have it stay consistent
+            log.infof("actualSubmitClear: releasing write lock with stamp %d", writeStampToUnlock);
             lock.unlockWrite(writeStampToUnlock);
+            log.infof("actualSubmitClear: released write lock with stamp %d", writeStampToUnlock);
          });
       } catch (Throwable t) {
+         log.infof("actualSubmitClear: releasing write lock with stamp %d (exception case)", writeStampToUnlock);
          lock.unlockWrite(writeStampToUnlock);
+         log.infof("actualSubmitClear: released write lock with stamp %d (exception case)", writeStampToUnlock);
          log.debugf(t, "Clear encountered exception");
          throw t;
       }
@@ -429,7 +450,9 @@ class Index {
 
    public CompletionStage<Void> stop(long maxSeqId) throws InterruptedException {
       AggregateCompletionStage<Void> aggregateCompletionStage;
+      log.infof("stop: acquiring read lock");
       long stamp = lock.readLock();
+      log.infof("stop: acquired read lock with stamp %d", stamp);
       try {
          for (FlowableProcessor<IndexRequest> flowableProcessor : flowableProcessors) {
             flowableProcessor.onComplete();
@@ -442,7 +465,9 @@ class Index {
 
          aggregateCompletionStage.dependsOn(removeSegmentsStage);
       } finally {
+         log.infof("stop: releasing read lock with stamp %d", stamp);
          lock.unlockRead(stamp);
+         log.infof("stop: released read lock with stamp %d", stamp);
       }
 
       // After all SIFS segments are complete we write the size
@@ -523,13 +548,17 @@ class Index {
          return maxSeqId;
       }
       long maxSeqId = 0;
+      log.infof("getOrCalculateMaxSeqId: acquiring read lock");
       long stamp = lock.readLock();
+      log.infof("getOrCalculateMaxSeqId: acquired read lock with stamp %d", stamp);
       try {
          for (Segment seg : segments) {
             maxSeqId = Math.max(maxSeqId, IndexNode.calculateMaxSeqId(seg, seg.rootReadLock()));
          }
       } finally {
+         log.infof("getOrCalculateMaxSeqId: releasing read lock with stamp %d", stamp);
          lock.unlockRead(stamp);
+         log.infof("getOrCalculateMaxSeqId: released read lock with stamp %d", stamp);
       }
       return maxSeqId;
    }
@@ -584,20 +613,29 @@ class Index {
    public CompletionStage<Void> addSegments(IntSet addedSegments) {
       long stamp;
       // Since actualAddSegments doesn't block we try a quick write lock acquisition to possibly avoid context change
+      log.infof("addSegments: trying to acquire write lock");
       if ((stamp = lock.tryWriteLock()) != 0) {
+         log.infof("addSegments: acquired write lock with stamp %d", stamp);
          try {
             actualAddSegments(addedSegments);
          } finally {
+            log.infof("addSegments: releasing write lock with stamp %d", stamp);
             lock.unlockWrite(stamp);
+            log.infof("addSegments: released write lock with stamp %d", stamp);
          }
          return CompletableFutures.completedNull();
       }
+      log.infof("addSegments: try write lock failed, acquiring write lock asynchronously");
       return CompletableFuture.runAsync(() -> {
+         log.infof("addSegments: acquiring write lock");
          long innerStamp = lock.writeLock();
+         log.infof("addSegments: acquired write lock with stamp %d", innerStamp);
          try {
             actualAddSegments(addedSegments);
          } finally {
+            log.infof("addSegments: releasing write lock with stamp %d", innerStamp);
             lock.unlockWrite(innerStamp);
+            log.infof("addSegments: released write lock with stamp %d", innerStamp);
          }
       }, executor);
    }
@@ -645,22 +683,31 @@ class Index {
    public CompletionStage<Void> removeSegments(IntSet removedCacheSegments) {
       long stamp;
       // Use a try lock to avoid context switch if possible
+      log.infof("removeSegments: trying to acquire write lock");
       if ((stamp = lock.tryWriteLock()) != 0) {
+         log.infof("removeSegments: acquired write lock with stamp %d", stamp);
          try {
             // This method doesn't block if we can acquire lock immediately, just replaces segments and flowables
             // and submits an async task
             actualRemoveSegments(removedCacheSegments);
          } finally {
+            log.infof("removeSegments: releasing write lock with stamp %d", stamp);
             lock.unlockWrite(stamp);
+            log.infof("removeSegments: released write lock with stamp %d", stamp);
          }
          return CompletableFutures.completedNull();
       }
+      log.infof("removeSegments: try write lock failed, acquiring write lock asynchronously");
       return CompletableFuture.runAsync(() -> {
+         log.infof("removeSegments: acquiring write lock");
          long innerStamp = lock.writeLock();
+         log.infof("removeSegments: acquired write lock with stamp %d", innerStamp);
          try {
             actualRemoveSegments(removedCacheSegments);
          } finally {
+            log.infof("removeSegments: releasing write lock with stamp %d", innerStamp);
             lock.unlockWrite(innerStamp);
+            log.infof("removeSegments: released write lock with stamp %d", innerStamp);
          }
       }, executor);
    }
@@ -1087,11 +1134,15 @@ class Index {
 
    Flowable<EntryRecord> publish(int cacheSegment, boolean loadValues) {
       return Flowable.defer(() -> {
+         log.infof("publish: acquiring read lock");
          long stamp = lock.readLock();
+         log.infof("publish: acquired read lock with stamp %d", stamp);
          try {
             var segment = segments[cacheSegment];
             if (segment.index.sizePerSegment.get(cacheSegment) == 0) {
+               log.infof("publish: releasing read lock with stamp %d (empty segment)", stamp);
                lock.unlockRead(stamp);
+               log.infof("publish: released read lock with stamp %d (empty segment)", stamp);
                return Flowable.empty();
             }
             return segment.root.publish((keyAndMetadataRecord, leafNode, fileProvider, currentTime) -> {
@@ -1106,9 +1157,15 @@ class Index {
                   return leafNode.loadValue(keyAndMetadataRecord, fileProvider);
                }
                return keyAndMetadataRecord;
-            }).doFinally(() -> lock.unlockRead(stamp));
+            }).doFinally(() -> {
+               log.infof("publish: releasing read lock with stamp %d (doFinally)", stamp);
+               lock.unlockRead(stamp);
+               log.infof("publish: released read lock with stamp %d (doFinally)", stamp);
+            });
          } catch (Throwable t) {
+            log.infof("publish: releasing read lock with stamp %d (exception case)", stamp);
             lock.unlockRead(stamp);
+            log.infof("publish: released read lock with stamp %d (exception case)", stamp);
             throw t;
          }
       });

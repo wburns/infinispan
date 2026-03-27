@@ -152,15 +152,20 @@ public class PersistenceManagerImpl implements PersistenceManager {
    private <K, V> NonBlockingStore<K, V> getStore(Predicate<StoreStatus> predicate) {
       // We almost always will be doing reads, so optimistic should be faster
       // Writes are only done during startup, shutdown and if removing a store
+      log.infof("getStore: trying optimistic read lock");
       long stamp = lock.tryOptimisticRead();
+      log.infof("getStore: obtained optimistic read lock with stamp %d", stamp);
       NonBlockingStore<K, V> store = getStoreLocked(predicate);
       if (!lock.validate(stamp)) {
-         stamp = acquireReadLock();
+         log.infof("getStore: optimistic read lock validation failed for stamp %d, acquiring read lock", stamp);
+         stamp = acquireReadLock("getStore");
          try {
             store = getStoreLocked(predicate);
          } finally {
-            releaseReadLock(stamp);
+            releaseReadLock("getStore", stamp);
          }
+      } else {
+         log.infof("getStore: optimistic read lock validation succeeded for stamp %d", stamp);
       }
       return store;
    }
@@ -199,9 +204,9 @@ public class PersistenceManagerImpl implements PersistenceManager {
       if (!enabled)
          return;
       // Blocks here waiting for stores and availability task to start if needed
-      Completable.using(this::acquireWriteLock,
+      Completable.using(() -> acquireWriteLock("start"),
                   __ -> startManagerAndStores(configuration.persistence().stores()),
-                  this::releaseWriteLock)
+                  stamp -> releaseWriteLock("start", stamp))
             .blockingAwait();
 
       TIMEOUT_FLOWABLE = Flowable.error(log.storeTimeoutBetweenEntries(configuration.clustering().remoteTimeout()));
@@ -355,7 +360,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
          log.trace("Polling Store availability");
       }
       AtomicReference<NonBlockingStore<?, ?>> firstUnavailableStore = new AtomicReference<>();
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("pollStoreAvailability");
       boolean release = true;
       try {
          AggregateCompletionStage<Void> stageBuilder = CompletionStages.aggregateCompletionStage();
@@ -389,11 +394,11 @@ public class PersistenceManagerImpl implements PersistenceManager {
          } else {
             release = false;
             return stage.thenCompose(__ -> updatePersistenceAvailability(firstUnavailableStore.get()))
-                        .whenComplete((e, throwable) -> releaseReadLock(stamp));
+                        .whenComplete((e, throwable) -> releaseReadLock("pollStoreAvailability", stamp));
          }
       } finally {
          if (release) {
-            releaseReadLock(stamp);
+            releaseReadLock("pollStoreAvailability", stamp);
          }
       }
    }
@@ -421,7 +426,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    @Stop
    public void stop() {
       AggregateCompletionStage<Void> allStage = CompletionStages.aggregateCompletionStage();
-      long stamp = acquireWriteLock();
+      long stamp = acquireWriteLock("stop");
       try {
          stopAvailabilityTask();
 
@@ -441,7 +446,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
          }
          stores = null;
       } finally {
-         releaseWriteLock(stamp);
+         releaseWriteLock("stop", stamp);
       }
       // Wait until it completes
       CompletionStages.join(allStage.freeze());
@@ -480,17 +485,17 @@ public class PersistenceManagerImpl implements PersistenceManager {
 
    @Override
    public Flowable<MarshallableEntry<Object, Object>> preloadPublisher() {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("preloadPublisher");
       NonBlockingStore<Object, Object> nonBlockingStore = getStoreLocked(status -> status.config.preload());
       if (nonBlockingStore == null) {
-         releaseReadLock(stamp);
+         releaseReadLock("preloadPublisher", stamp);
          return Flowable.empty();
       }
       Publisher<MarshallableEntry<Object, Object>> publisher = nonBlockingStore.publishEntries(
             IntSets.immutableRangeSet(segmentCount), null, true);
 
       return Flowable.fromPublisher(publisher)
-                     .doFinally(() -> releaseReadLock(stamp));
+                     .doFinally(() -> releaseReadLock("preloadPublisher", stamp));
    }
 
    @Override
@@ -509,14 +514,14 @@ public class PersistenceManagerImpl implements PersistenceManager {
             .doOnSuccess(l -> {
                if (l > 0) throw log.cannotAddStore(cache.wired().getName());
             })
-            .concatMapCompletable(v -> Completable.using(this::acquireWriteLock, lock ->
+            .concatMapCompletable(v -> Completable.using(() -> acquireWriteLock("addStore"), lock ->
                         startManagerAndStores(singletonList(storeConfiguration))
                               .doOnComplete(() -> {
                                  AsyncInterceptorChain chain = ComponentRegistry.componentOf(cache.wired(), AsyncInterceptorChain.class);
                                  interceptorChainFactory.addPersistenceInterceptors(chain, configuration, singletonList(storeConfiguration));
                                  listeners.forEach(l -> l.storeChanged(createStatus()));
                               })
-                  , this::releaseWriteLock))
+                  , stamp -> releaseWriteLock("addStore", stamp)))
             .toCompletionStage(null);
    }
 
@@ -553,7 +558,9 @@ public class PersistenceManagerImpl implements PersistenceManager {
    public CompletionStage<Void> disableStore(String storeType) {
       boolean stillHasAStore = false;
       AggregateCompletionStage<Void> aggregateCompletionStage = CompletionStages.aggregateCompletionStage();
+      log.infof("disableStore: acquiring write lock");
       long stamp = lock.writeLock();
+      log.infof("disableStore: acquired write lock with stamp %d", stamp);
       try {
          if (!checkStoreAvailability()) {
             return CompletableFutures.completedNull();
@@ -609,7 +616,9 @@ public class PersistenceManagerImpl implements PersistenceManager {
          }
          return aggregateCompletionStage.freeze();
       } finally {
+         log.infof("disableStore: releasing write lock with stamp %d", stamp);
          lock.unlockWrite(stamp);
+         log.infof("disableStore: released write lock with stamp %d", stamp);
       }
    }
 
@@ -622,7 +631,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
 
    @Override
    public <T> Set<T> getStores(Class<T> storeClass) {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("getStores");
       try {
          if (!checkStoreAvailability()) {
             return Collections.emptySet();
@@ -634,13 +643,13 @@ public class PersistenceManagerImpl implements PersistenceManager {
                .map(storeClass::cast)
                .collect(Collectors.toCollection(HashSet::new));
       } finally {
-         releaseReadLock(stamp);
+         releaseReadLock("getStores", stamp);
       }
    }
 
    @Override
    public Collection<String> getStoresAsString() {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("getStoresAsString");
       try {
          if (!checkStoreAvailability()) {
             return Collections.emptyList();
@@ -651,16 +660,16 @@ public class PersistenceManagerImpl implements PersistenceManager {
                .map(c -> c.getClass().getName())
                .collect(Collectors.toCollection(ArrayList::new));
       } finally {
-         releaseReadLock(stamp);
+         releaseReadLock("getStoresAsString", stamp);
       }
    }
 
    @Override
    public CompletionStage<Void> purgeExpired() {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("purgeExpired");
       try {
          if (!checkStoreAvailability()) {
-            releaseReadLock(stamp);
+            releaseReadLock("purgeExpired", stamp);
             return CompletableFutures.completedNull();
          }
          if (log.isTraceEnabled()) {
@@ -676,16 +685,16 @@ public class PersistenceManagerImpl implements PersistenceManager {
             }
          }
          return aggregateCompletionStage.freeze()
-               .whenComplete((v, t) -> releaseReadLock(stamp));
+               .whenComplete((v, t) -> releaseReadLock("purgeExpired", stamp));
       } catch (Throwable t) {
-         releaseReadLock(stamp);
+         releaseReadLock("purgeExpired", stamp);
          throw t;
       }
    }
 
    @Override
    public CompletionStage<Void> clearAllStores(Predicate<? super StoreConfiguration> predicate) {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("clearAllStores");
       boolean release = true;
       try {
          if (!checkStoreAvailability()) {
@@ -707,18 +716,18 @@ public class PersistenceManagerImpl implements PersistenceManager {
             return stage;
          } else {
             release = false;
-            return stage.whenComplete((e, throwable) -> releaseReadLock(stamp));
+            return stage.whenComplete((e, throwable) -> releaseReadLock("clearAllStores", stamp));
          }
       } finally {
          if (release) {
-            releaseReadLock(stamp);
+            releaseReadLock("clearAllStores", stamp);
          }
       }
    }
 
    @Override
    public CompletionStage<Boolean> deleteFromAllStores(Object key, int segment, Predicate<? super StoreConfiguration> predicate) {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("deleteFromAllStores");
       boolean release = true;
       try {
          if (!checkStoreAvailability()) {
@@ -752,7 +761,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
          } else {
             release = false;
             return stage.handle((removed, throwable) -> {
-               releaseReadLock(stamp);
+               releaseReadLock("deleteFromAllStores", stamp);
                if (throwable != null) {
                   throw CompletableFutures.asCompletionException(throwable);
                }
@@ -762,7 +771,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
          }
       } finally {
          if (release) {
-            releaseReadLock(stamp);
+            releaseReadLock("deleteFromAllStores", stamp);
          }
       }
    }
@@ -781,7 +790,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    @Override
    public <K, V> Publisher<MarshallableEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter,
          boolean fetchValue, boolean fetchMetadata, Predicate<? super StoreConfiguration> predicate) {
-      return Flowable.using(this::acquireReadLock,
+      return Flowable.using(() -> acquireReadLock("publishEntries"),
             ignore -> {
                if (!checkStoreAvailability()) {
                   return Flowable.empty();
@@ -814,7 +823,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
                }
                return Flowable.empty();
             },
-            this::releaseReadLock);
+            stamp -> releaseReadLock("publishEntries", stamp));
    }
 
    @Override
@@ -824,7 +833,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
 
    @Override
    public <K> Publisher<K> publishKeys(IntSet segments, Predicate<? super K> filter, Predicate<? super StoreConfiguration> predicate) {
-      return Flowable.using(this::acquireReadLock,
+      return Flowable.using(() -> acquireReadLock("publishKeys"),
                             ignore -> {
                                if (!checkStoreAvailability()) {
                                   return Flowable.empty();
@@ -860,7 +869,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
                                }
                                return Flowable.empty();
                             },
-                            this::releaseReadLock);
+                            stamp -> releaseReadLock("publishKeys", stamp));
    }
 
    @Override
@@ -872,7 +881,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    @Override
    public <K, V> CompletionStage<MarshallableEntry<K, V>> loadFromAllStores(Object key, int segment,
          boolean localInvocation, boolean includeStores) {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("loadFromAllStores");
       boolean release = true;
       try {
          if (!checkStoreAvailability()) {
@@ -888,11 +897,11 @@ public class PersistenceManagerImpl implements PersistenceManager {
             return stage;
          } else {
             release = false;
-            return stage.whenComplete((e, throwable) -> releaseReadLock(stamp));
+            return stage.whenComplete((e, throwable) -> releaseReadLock("loadFromAllStores", stamp));
          }
       } finally {
          if (release) {
-            releaseReadLock(stamp);
+            releaseReadLock("loadFromAllStores", stamp);
          }
       }
    }
@@ -935,10 +944,10 @@ public class PersistenceManagerImpl implements PersistenceManager {
       if (!isEnabled()) {
          return NonBlockingStore.SIZE_UNAVAILABLE_FUTURE;
       }
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("approximateSize");
       try {
          if (!isAvailable()) {
-            releaseReadLock(stamp);
+            releaseReadLock("approximateSize", stamp);
             return NonBlockingStore.SIZE_UNAVAILABLE_FUTURE;
          }
 
@@ -952,7 +961,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
                      predicate.test(storeStatus.config));
 
          if (firstStoreStatus == null) {
-            releaseReadLock(stamp);
+            releaseReadLock("approximateSize", stamp);
             return NonBlockingStore.SIZE_UNAVAILABLE_FUTURE;
          }
 
@@ -977,16 +986,16 @@ public class PersistenceManagerImpl implements PersistenceManager {
                      return storeSegments > 0 ? size * segments.size() / storeSegments : size;
                   });
          }
-         return stage.whenComplete((ignore, ignoreT) -> releaseReadLock(stamp));
+         return stage.whenComplete((ignore, ignoreT) -> releaseReadLock("approximateSize", stamp));
       } catch (Throwable t) {
-         releaseReadLock(stamp);
+         releaseReadLock("approximateSize", stamp);
          throw t;
       }
    }
 
    @Override
    public CompletionStage<Long> size(Predicate<? super StoreConfiguration> predicate, IntSet segments) {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("size");
       try {
          checkStoreAvailability();
          if (log.isTraceEnabled()) {
@@ -995,16 +1004,16 @@ public class PersistenceManagerImpl implements PersistenceManager {
          NonBlockingStore<?, ?> nonBlockingStore = getStoreLocked(storeStatus -> storeStatus.hasCharacteristic(
                Characteristic.BULK_READ) && predicate.test(storeStatus.config));
          if (nonBlockingStore == null) {
-            releaseReadLock(stamp);
+            releaseReadLock("size", stamp);
             return NonBlockingStore.SIZE_UNAVAILABLE_FUTURE;
          }
          if (segments == null) {
             segments = IntSets.immutableRangeSet(segmentCount);
          }
          return nonBlockingStore.size(segments)
-               .whenComplete((ignore, ignoreT) -> releaseReadLock(stamp));
+               .whenComplete((ignore, ignoreT) -> releaseReadLock("size", stamp));
       } catch (Throwable t) {
-         releaseReadLock(stamp);
+         releaseReadLock("size", stamp);
          throw t;
       }
    }
@@ -1022,7 +1031,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    @Override
    public CompletionStage<Void> writeToAllNonTxStores(MarshallableEntry marshalledEntry, int segment,
          Predicate<? super StoreConfiguration> predicate, long flags) {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("writeToAllNonTxStores");
       boolean release = true;
       try {
          if (!checkStoreAvailability()) {
@@ -1043,11 +1052,11 @@ public class PersistenceManagerImpl implements PersistenceManager {
             return stage;
          } else {
             release = false;
-            return stage.whenComplete((e, throwable) -> releaseReadLock(stamp));
+            return stage.whenComplete((e, throwable) -> releaseReadLock("writeToAllNonTxStores", stamp));
          }
       } finally {
          if (release) {
-            releaseReadLock(stamp);
+            releaseReadLock("writeToAllNonTxStores", stamp);
          }
       }
    }
@@ -1078,7 +1087,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    @Override
    public CompletionStage<Void> commitAllTxStores(TxInvocationContext<AbstractCacheTransaction> txInvocationContext,
          Predicate<? super StoreConfiguration> predicate) {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("commitAllTxStores");
       boolean release = true;
       try {
          if (!checkStoreAvailability()) {
@@ -1099,11 +1108,11 @@ public class PersistenceManagerImpl implements PersistenceManager {
             return stage;
          } else {
             release = false;
-            return stage.whenComplete((e, throwable) -> releaseReadLock(stamp));
+            return stage.whenComplete((e, throwable) -> releaseReadLock("commitAllTxStores", stamp));
          }
       } finally {
          if (release) {
-            releaseReadLock(stamp);
+            releaseReadLock("commitAllTxStores", stamp);
          }
       }
    }
@@ -1111,7 +1120,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    @Override
    public CompletionStage<Void> rollbackAllTxStores(TxInvocationContext<AbstractCacheTransaction> txInvocationContext,
          Predicate<? super StoreConfiguration> predicate) {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("rollbackAllTxStores");
       boolean release = true;
       try {
          if (!checkStoreAvailability()) {
@@ -1132,11 +1141,11 @@ public class PersistenceManagerImpl implements PersistenceManager {
             return stage;
          } else {
             release = false;
-            return stage.whenComplete((e, throwable) -> releaseReadLock(stamp));
+            return stage.whenComplete((e, throwable) -> releaseReadLock("rollbackAllTxStores", stamp));
          }
       } finally {
          if (release) {
-            releaseReadLock(stamp);
+            releaseReadLock("rollbackAllTxStores", stamp);
          }
       }
    }
@@ -1150,7 +1159,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    public <K, V> CompletionStage<Void> writeEntries(Iterable<MarshallableEntry<K, V>> iterable,
          Predicate<? super StoreConfiguration> predicate) {
       return Completable.using(
-            this::acquireReadLock,
+            () -> acquireReadLock("writeEntries"),
             ignore -> {
                if (!checkStoreAvailability()) {
                   return Completable.complete();
@@ -1176,7 +1185,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
                               Flowable.empty(), flowable));
                      });
             },
-            this::releaseReadLock
+            stamp -> releaseReadLock("writeEntries", stamp)
       ).toCompletionStage(null);
    }
 
@@ -1210,7 +1219,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    private <K, V> CompletionStage<Long> batchOperation(Flowable<MVCCEntry<K, V>> mvccEntryFlowable, InvocationContext ctx,
          HandleFlowables<K, V> flowableHandler) {
       return Single.using(
-            this::acquireReadLock,
+            () -> acquireReadLock("batchOperation"),
             ignore -> {
                if (!checkStoreAvailability()) {
                   return Single.just(0L);
@@ -1256,7 +1265,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
                      }).last(0L);
 
             },
-            this::releaseReadLock
+            stamp -> releaseReadLock("batchOperation", stamp)
       ).toCompletionStage();
    }
 
@@ -1442,7 +1451,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
 
    @Override
    public CompletionStage<Boolean> addSegments(IntSet segments) {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("addSegments");
       boolean release = true;
       try {
          if (!checkStoreAvailability()) {
@@ -1463,18 +1472,18 @@ public class PersistenceManagerImpl implements PersistenceManager {
             return stage;
          } else {
             release = false;
-            return stage.whenComplete((e, throwable) -> releaseReadLock(stamp));
+            return stage.whenComplete((e, throwable) -> releaseReadLock("addSegments", stamp));
          }
       } finally {
          if (release) {
-            releaseReadLock(stamp);
+            releaseReadLock("addSegments", stamp);
          }
       }
    }
 
    @Override
    public CompletionStage<Boolean> removeSegments(IntSet segments) {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("removeSegments");
       boolean release = true;
       try {
          if (!checkStoreAvailability()) {
@@ -1495,11 +1504,11 @@ public class PersistenceManagerImpl implements PersistenceManager {
             return stage;
          } else {
             release = false;
-            return stage.whenComplete((e, throwable) -> releaseReadLock(stamp));
+            return stage.whenComplete((e, throwable) -> releaseReadLock("removeSegments", stamp));
          }
       } finally {
          if (release) {
-            releaseReadLock(stamp);
+            releaseReadLock("removeSegments", stamp);
          }
       }
    }
@@ -1510,7 +1519,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
    }
 
    public <K, V> List<NonBlockingStore<K, V>> getAllStores(Predicate<Set<Characteristic>> predicate) {
-      long stamp = acquireReadLock();
+      long stamp = acquireReadLock("getAllStores");
       try {
          if (!checkStoreAvailability()) {
             return Collections.emptyList();
@@ -1520,7 +1529,7 @@ public class PersistenceManagerImpl implements PersistenceManager {
                .map(StoreStatus::<K, V>store)
                .collect(Collectors.toCollection(ArrayList::new));
       } finally {
-         releaseReadLock(stamp);
+         releaseReadLock("getAllStores", stamp);
       }
    }
 
@@ -1542,28 +1551,76 @@ public class PersistenceManagerImpl implements PersistenceManager {
     * Method must be here for augmentation to tell blockhound this method is okay to block
     */
    private long acquireReadLock() {
-      return lock.readLock();
+      log.infof("acquireReadLock: acquiring read lock");
+      long stamp = lock.readLock();
+      log.infof("acquireReadLock: acquired read lock with stamp %d", stamp);
+      return stamp;
+   }
+
+   /**
+    * Method must be here for augmentation to tell blockhound this method is okay to block
+    */
+   private long acquireReadLock(String callingMethod) {
+      log.infof("%s: acquiring read lock", callingMethod);
+      long stamp = lock.readLock();
+      log.infof("%s: acquired read lock with stamp %d", callingMethod, stamp);
+      return stamp;
    }
 
    /**
     * Method must be here for augmentation to tell blockhound this method is okay to block
     */
    private long acquireWriteLock() {
-      return lock.writeLock();
+      log.infof("acquireWriteLock: acquiring write lock");
+      long stamp = lock.writeLock();
+      log.infof("acquireWriteLock: acquired write lock with stamp %d", stamp);
+      return stamp;
+   }
+
+   /**
+    * Method must be here for augmentation to tell blockhound this method is okay to block
+    */
+   private long acquireWriteLock(String callingMethod) {
+      log.infof("%s: acquiring write lock", callingMethod);
+      long stamp = lock.writeLock();
+      log.infof("%s: acquired write lock with stamp %d", callingMethod, stamp);
+      return stamp;
    }
 
    /**
     * Opposite of acquireReadLock here for symmetry
     */
    private void releaseReadLock(long stamp) {
+      log.infof("releaseReadLock: releasing read lock with stamp %d", stamp);
       lock.unlockRead(stamp);
+      log.infof("releaseReadLock: released read lock with stamp %d", stamp);
+   }
+
+   /**
+    * Opposite of acquireReadLock here for symmetry
+    */
+   private void releaseReadLock(String callingMethod, long stamp) {
+      log.infof("%s: releasing read lock with stamp %d", callingMethod, stamp);
+      lock.unlockRead(stamp);
+      log.infof("%s: released read lock with stamp %d", callingMethod, stamp);
    }
 
    /**
     * Opposite of acquireWriteLock here for symmetry
     */
    private void releaseWriteLock(long stamp) {
+      log.infof("releaseWriteLock: releasing write lock with stamp %d", stamp);
       lock.unlockWrite(stamp);
+      log.infof("releaseWriteLock: released write lock with stamp %d", stamp);
+   }
+
+   /**
+    * Opposite of acquireWriteLock here for symmetry
+    */
+   private void releaseWriteLock(String callingMethod, long stamp) {
+      log.infof("%s: releasing write lock with stamp %d", callingMethod, stamp);
+      lock.unlockWrite(stamp);
+      log.infof("%s: released write lock with stamp %d", callingMethod, stamp);
    }
 
    private boolean checkStoreAvailability() {
