@@ -150,7 +150,7 @@ class Index {
       this.temporaryTable = temporaryTable;
       // Limits the amount of concurrent updates we do to the underlying indices to be based on the number of cache
       // segments. Note that this uses blocking threads so this number is still limited by that as well
-      int concurrency = Math.max(cacheSegments >> 4, 1);
+      int concurrency = Math.max(cacheSegments >> 4, 4);
       this.executor = new LimitedExecutor("sifs-index", executor, concurrency);
       this.emptySegment = new Segment(this, -1, temporaryTable);
       this.emptySegment.complete(null);
