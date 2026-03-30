@@ -362,19 +362,27 @@ class Index {
    }
 
    private CompletionStage<Void> actualSubmitClear(long writeStampToUnlock) {
+      AggregateCompletionStage<Void> stage = CompletionStages.aggregateCompletionStage();
       try {
-         AggregateCompletionStage<Void> stage = CompletionStages.aggregateCompletionStage();
-         for (FlowableProcessor<IndexRequest> processor : flowableProcessors) {
+         for (int i = 0; i < flowableProcessors.length; i++) {
+            FlowableProcessor<IndexRequest> processor = flowableProcessors[i];
             // Ignore emptyFlowable as we use this to signal that we don't own that segment anymore
-            if (processor == emptyFlowable) {
+            // Also ignore segments that haven't been initialized yet (null or emptySegment)
+            if (processor == emptyFlowable || segments[i] == null || segments[i] == emptySegment) {
                continue;
             }
             IndexRequest clearRequest = IndexRequest.clearRequest();
             processor.onNext(clearRequest);
             stage.dependsOn(clearRequest);
          }
+      } catch (Throwable t) {
+         lock.unlockWrite(writeStampToUnlock);
+         log.debugf(t, "Clear encountered exception while submitting requests");
+         throw t;
+      }
 
-         return stage.freeze().whenComplete((ignore, t) -> {
+      return stage.freeze().whenComplete((ignore, t) -> {
+         try {
             if (t != null) {
                log.clearError(t);
             } else {
@@ -384,14 +392,12 @@ class Index {
                   sizePerSegment.set(i, 0);
                }
             }
+         } finally {
             // Unlock has to happen after clearing sizePerSegment to have it stay consistent
+            // Use finally block to ensure unlock always happens even if clearing sizePerSegment throws
             lock.unlockWrite(writeStampToUnlock);
-         });
-      } catch (Throwable t) {
-         lock.unlockWrite(writeStampToUnlock);
-         log.debugf(t, "Clear encountered exception");
-         throw t;
-      }
+         }
+      });
    }
 
    public CompletionStage<Object> handleRequest(IndexRequest indexRequest) {
