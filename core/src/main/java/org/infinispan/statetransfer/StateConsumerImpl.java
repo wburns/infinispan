@@ -409,9 +409,16 @@ public class StateConsumerImpl implements StateConsumer {
          }
          IntSet addedSegments;
          if (previousWriteCh == null) {
-            // If we have any segments assigned in the initial CH, it means we are the first member.
-            // If we are not the first member, we can only add segments via rebalance.
-            addedSegments = IntSets.immutableEmptySet();
+            // This is our first topology as a member
+            // Check if rebalance is starting (not just joining during NO_REBALANCE)
+            if (startStateTransfer) {
+               // We're joining during an active rebalance - request our new segments
+               addedSegments = IntSets.mutableCopyFrom(newWriteSegments);
+            } else {
+               // We're either the first member, or joining during NO_REBALANCE
+               // In both cases, don't request segments yet - wait for coordinator to trigger rebalance
+               addedSegments = IntSets.immutableEmptySet();
+            }
 
             if (log.isTraceEnabled()) {
                log.tracef("On cache %s we have: added segments: %s", cacheName, addedSegments);
