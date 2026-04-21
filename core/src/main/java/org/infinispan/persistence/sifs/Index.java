@@ -1187,15 +1187,26 @@ class Index {
 
    Flowable<EntryRecord> publish(int cacheSegment, boolean loadValues) {
       long stamp = lock.readLock();
+      Segment segment;
+      Lock rootReadLock;
       try {
-         var segment = segments[cacheSegment];
+         segment = segments[cacheSegment];
          long segmentSize = segment.index.sizePerSegment.get(cacheSegment);
          log.tracef("SIFS Index.publish for segment %d: size=%d, loadValues=%s", Integer.valueOf(cacheSegment), Long.valueOf(segmentSize), Boolean.valueOf(loadValues));
          if (segmentSize == 0) {
             log.tracef("SIFS Index.publish returning empty for segment %d (size=0)", Integer.valueOf(cacheSegment));
-            lock.unlockRead(stamp);
             return Flowable.empty();
          }
+         // Acquire root read lock while holding Index lock to ensure memory visibility
+         rootReadLock = segment.rootReadLock();
+         rootReadLock.lock();
+      } finally {
+         // Release Index lock - we only needed it to safely get the segment reference
+         lock.unlockRead(stamp);
+      }
+
+      // Return flowable while holding rootReadLock to ensure root structure visibility
+      try {
          return segment.root.publish((keyAndMetadataRecord, leafNode, fileProvider, currentTime) -> {
             long expiryTime = keyAndMetadataRecord.getHeader().expiryTime();
             // Ignore any key or value if it is expired or was removed
@@ -1208,9 +1219,9 @@ class Index {
                return leafNode.loadValue(keyAndMetadataRecord, fileProvider);
             }
             return keyAndMetadataRecord;
-         }, false).doFinally(() -> lock.unlockRead(stamp));
+         }, false).doFinally(rootReadLock::unlock);
       } catch (Throwable t) {
-         lock.unlockRead(stamp);
+         rootReadLock.unlock();
          throw t;
       }
    }
