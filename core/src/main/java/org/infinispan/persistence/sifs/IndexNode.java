@@ -227,8 +227,8 @@ class IndexNode {
 
       if (log.isTraceEnabled()) {
          log.tracef("Persisted %08x (length %d, %d %s) to %d:%d", System.identityHashCode(this), length(),
-            innerNodes != null ? innerNodes.length : leafNodes.length,
-            innerNodes != null ? "children" : "leaves", offset, occupiedSpace);
+               innerNodes != null ? innerNodes.length : leafNodes.length,
+               innerNodes != null ? "children" : "leaves", offset, occupiedSpace);
       }
    }
 
@@ -678,6 +678,7 @@ class IndexNode {
          if (overwriteHook.check(request, -1, -1)) {
             return new IndexNode(segment, prefix, keyParts, new LeafNode[]{new LeafNode(file, offset, 1)});
          } else {
+            log.tracef("leafNodes were empty and overwriteHook check didn't pass, marking %s size of file %s free", size, file);
             segment.getCompactor().free(file, size);
             return this;
          }
@@ -738,18 +739,21 @@ class IndexNode {
                   file = oldLeafNode.file;
                   offset = oldLeafNode.offset;
                }
+               LeafNode leafNode = new LeafNode(file, offset, numRecords);
                lock.writeLock().lock();
                try {
-                  leafNodes[insertPart] = new LeafNode(file, offset, numRecords);
+                  leafNodes[insertPart] = leafNode;
                } finally {
                   lock.writeLock().unlock();
                }
 
                overwriteHook.setOverwritten(request, cacheSegment, true, oldLeafNode.file, oldLeafNode.offset);
+               log.tracef("leafNode was replaced with %s", leafNode);
                return this;
             } else {
                overwriteHook.setOverwritten(request, cacheSegment, false, -1, -1);
                segment.getCompactor().free(file, size);
+               log.tracef("overwriteHook check didn't pass, marking %s size of file %s free", size, file);
                return this;
             }
          } else {
@@ -1268,7 +1272,7 @@ class IndexNode {
    }
 
    <R> void recursiveNode(PublishFunction<R> publishFunction, IndexNode node, Index.Segment segment, ByRef<byte[]> lastRetrievedKey, FlowableEmitter<R> emitter,
-         long currentTime, ByRef.Boolean foundData, ByRef.Boolean done, boolean continueOnOutdated) throws IOException {
+                          long currentTime, ByRef.Boolean foundData, ByRef.Boolean done, boolean continueOnOutdated) throws IOException {
       Lock readLock = node.lock.readLock();
       readLock.lock();
       try {

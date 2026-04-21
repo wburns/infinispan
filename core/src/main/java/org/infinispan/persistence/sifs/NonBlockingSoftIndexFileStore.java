@@ -829,10 +829,17 @@ public class NonBlockingSoftIndexFileStore<K, V> implements NonBlockingStore<K, 
    @Override
    public Publisher<MarshallableEntry<K, V>> publishEntries(IntSet segments, Predicate<? super K> filter, boolean includeValues) {
       IntSet segmentsUsed = segmentsUsed(segments);
+      long publishStartTime = System.currentTimeMillis();
+      log.tracef("SIFS publishEntries called for segments %s (segmentsUsed=%s), includeValues=%s at time %d", segments, segmentsUsed, includeValues, publishStartTime);
       return blockingManager.blockingPublisher(Flowable.defer(() -> {
          Set<Object> seenKeys = new HashSet<>();
+         java.util.concurrent.atomic.AtomicInteger tableCount = new java.util.concurrent.atomic.AtomicInteger(0);
+         java.util.concurrent.atomic.AtomicInteger indexCount = new java.util.concurrent.atomic.AtomicInteger(0);
          Flowable<Map.Entry<Object, EntryPosition>> tableFlowable = temporaryTable.publish(segmentsUsed)
-               .doOnNext(entry -> seenKeys.add(entry.getKey()));
+               .doOnNext(entry -> {
+                  seenKeys.add(entry.getKey());
+                  tableCount.incrementAndGet();
+               });
          if (filter != null) {
             tableFlowable = tableFlowable.filter(entry -> filter.test((K) entry.getKey()));
          }
@@ -848,7 +855,9 @@ public class NonBlockingSoftIndexFileStore<K, V> implements NonBlockingStore<K, 
             }
             return Maybe.just(marshallableEntry);
          });
+         log.tracef("SIFS creating index publisher for segments %s, includeValues=%s at time %d", segmentsUsed, includeValues, System.currentTimeMillis());
          Flowable<MarshallableEntry<K, V>> indexFlowable = index.publish(segmentsUsed, includeValues)
+               .doOnNext(er -> indexCount.incrementAndGet())
                .mapOptional(er -> {
                   if (er.getHeader().valueLength() == 0) {
                      return Optional.empty();
@@ -865,7 +874,13 @@ public class NonBlockingSoftIndexFileStore<K, V> implements NonBlockingStore<K, 
                         er.getCreated(), er.getLastUsed()));
                });
 
-         return Flowable.concat(entryFlowable, indexFlowable);
+         return Flowable.concat(entryFlowable, indexFlowable)
+               .doOnComplete(() -> {
+                  long publishEndTime = System.currentTimeMillis();
+                  log.tracef("SIFS publishEntries completed for segments %s at time %d (took %dms): tableEntries=%d, indexEntries=%d, total=%d",
+                        segmentsUsed, publishEndTime, publishEndTime - publishStartTime,
+                        tableCount.get(), indexCount.get(), tableCount.get() + indexCount.get());
+               });
       }));
    }
 

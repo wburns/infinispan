@@ -315,9 +315,29 @@ public class StateConsumerImpl implements StateConsumer {
       final boolean wasMember = previousWriteCh != null &&
                                 previousWriteCh.getMembers().contains(address);
 
-      if (log.isTraceEnabled())
+      if (log.isTraceEnabled()) {
+         log.tracef("=== onTopologyUpdate START === cache %s", cacheName);
+         log.tracef("TopologyId=%d, Phase=%s, isRebalance=%b", Integer.valueOf(cacheTopology.getTopologyId()), cacheTopology.getPhase(), Boolean.valueOf(isRebalance));
+         log.tracef("LocalAddress=%s", address);
+         log.tracef("isMember=%b, wasMember=%b", Boolean.valueOf(isMember), Boolean.valueOf(wasMember));
+         log.tracef("Members: current=%s", cacheTopology.getMembers());
+         if (cacheTopology.getCurrentCH() != null) {
+            log.tracef("CurrentCH members: %s", cacheTopology.getCurrentCH().getMembers());
+            log.tracef("Segment 0 owners in currentCH: %s", cacheTopology.getCurrentCH().locateOwnersForSegment(0));
+         }
+         if (cacheTopology.getPendingCH() != null) {
+            log.tracef("PendingCH members: %s", cacheTopology.getPendingCH().getMembers());
+            log.tracef("Segment 0 owners in pendingCH: %s", cacheTopology.getPendingCH().locateOwnersForSegment(0));
+         }
+         log.tracef("WriteConsistentHash members: %s", newWriteCh.getMembers());
+         log.tracef("Segment 0 owners in writeConsistentHash: %s", newWriteCh.locateOwnersForSegment(0));
+         log.tracef("Segments owned by %s in writeConsistentHash: %s", address, newWriteSegments);
+         if (previousCacheTopology != null) {
+            log.tracef("PreviousTopologyId=%d, PreviousPhase=%s", Integer.valueOf(previousCacheTopology.getTopologyId()), previousCacheTopology.getPhase());
+         }
          log.tracef("Received new topology for cache %s, isRebalance = %b, isMember = %b, topology = %s", cacheName,
                     isRebalance, isMember, cacheTopology);
+      }
 
       if (!ownsData && isMember) {
          ownsData = true;
@@ -533,13 +553,27 @@ public class StateConsumerImpl implements StateConsumer {
          // when we lose membership (e.g. because there was a merge, the local partition was in degraded mode
          // and the other partition was available) or when L1 is enabled.
          if ((isMember || wasMember) && cacheTopology.getPhase() == CacheTopology.Phase.NO_REBALANCE) {
+            if (log.isTraceEnabled()) {
+               log.tracef("=== NO_REBALANCE CLEANUP START === cache %s, topologyId=%d", cacheName, Integer.valueOf(cacheTopology.getTopologyId()));
+               log.tracef("LocalAddress=%s, isMember=%b, wasMember=%b", rpcManager.getAddress(), Boolean.valueOf(isMember), Boolean.valueOf(wasMember));
+            }
             int numSegments = newWriteCh.getNumSegments();
             IntSet removedSegments = IntSets.mutableEmptySet(numSegments);
             IntSet newSegments = getOwnedSegments(newWriteCh);
+            if (log.isTraceEnabled()) {
+               log.tracef("newWriteCh used for cleanup: members=%s", newWriteCh.getMembers());
+               log.tracef("Segments owned by %s according to newWriteCh: %s", rpcManager.getAddress(), newSegments);
+               log.tracef("Segment 0 owners in newWriteCh: %s", newWriteCh.locateOwnersForSegment(0));
+               log.tracef("Is local address %s an owner of segment 0? %b", rpcManager.getAddress(), Boolean.valueOf(newWriteCh.locateOwnersForSegment(0).contains(rpcManager.getAddress())));
+            }
             for (int i = 0; i < numSegments; ++i) {
                if (!newSegments.contains(i)) {
                   removedSegments.set(i);
                }
+            }
+            if (log.isTraceEnabled()) {
+               log.tracef("Segments to REMOVE from stores: %s", removedSegments);
+               log.tracef("=== NO_REBALANCE CLEANUP END ===");
             }
 
             return removeStaleData(removedSegments)
@@ -1375,6 +1409,9 @@ public class StateConsumerImpl implements StateConsumer {
       if (configuration.clustering().cacheMode().isInvalidation()) {
          return CompletableFutures.completedNull();
       }
+      if (log.isTraceEnabled()) {
+         log.tracef("removeStaleData called for cache %s, segments=%s, currentTopologyId=%d", cacheName, removedSegments, Integer.valueOf(cacheTopology != null ? cacheTopology.getTopologyId() : -1));
+      }
       log.debugf("Removing no longer owned entries for cache %s", cacheName);
       if (keyInvalidationListener != null) {
          keyInvalidationListener.beforeInvalidation(removedSegments, IntSets.immutableEmptySet());
@@ -1383,6 +1420,9 @@ public class StateConsumerImpl implements StateConsumer {
       // This has to be invoked before removing the segments on the data container
       localPublisherManager.segmentsLost(removedSegments);
 
+      if (log.isTraceEnabled()) {
+         log.tracef("Calling dataContainer.removeSegments(%s) for cache %s", removedSegments, cacheName);
+      }
       dataContainer.removeSegments(removedSegments);
 
       // We have to invoke removeSegments above on the data container. This is always done in case if L1 is enabled. L1
@@ -1391,6 +1431,9 @@ public class StateConsumerImpl implements StateConsumer {
       if (removedSegments.isEmpty())
          return CompletableFutures.completedNull();
 
+      if (log.isTraceEnabled()) {
+         log.tracef("Calling persistenceManager.removeSegments(%s) for cache %s", removedSegments, cacheName);
+      }
       return persistenceManager.removeSegments(removedSegments)
                                .thenCompose(removed -> invalidateStaleEntries(removedSegments, removed));
    }
