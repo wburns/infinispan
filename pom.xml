@@ -114,7 +114,7 @@
       <!-- unstable and stress because we can have them inside a functional class, for example -->
       <defaultExcludedTestNGGroups>unstable,stress</defaultExcludedTestNGGroups>
       <defaultTestNGGroups>functional,unit,xsite,arquillian</defaultTestNGGroups>
-      <org.infinispan.tests.threads.virtual>true</org.infinispan.tests.threads.virtual>
+      <org.infinispan.tests.threads.virtual>false</org.infinispan.tests.threads.virtual>
       <dir.ispn>../</dir.ispn>
       <rerunFailingTestsCount>0</rerunFailingTestsCount>
       <testjvm.commonArgs>-XX:+UseG1GC -XX:-TieredCompilation -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=${user.dir} -Dio.netty.leakDetection.level=paranoid -XX:+UseCodeCacheFlushing</testjvm.commonArgs>
