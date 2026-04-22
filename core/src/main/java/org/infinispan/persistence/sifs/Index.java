@@ -38,6 +38,7 @@ import org.infinispan.util.concurrent.NonBlockingManager;
 
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 
+import io.reactivex.rxjava3.core.Completable;
 import io.reactivex.rxjava3.core.Flowable;
 import io.reactivex.rxjava3.functions.Action;
 import io.reactivex.rxjava3.functions.Consumer;
@@ -79,9 +80,6 @@ class Index {
    private final Segment[] segments;
    @GuardedBy("lock")
    private final FlowableProcessor<IndexRequest>[] flowableProcessors;
-   // Tracks per-segment removal completion - segment add must wait for this to complete (ISPN-17280)
-   @GuardedBy("lock")
-   private final CompletionStage<Void>[] segmentRemovalStages;
    private final TimeService timeService;
    private final File indexSizeFile;
    public final AtomicLongArray sizePerSegment;
@@ -96,6 +94,9 @@ class Index {
 
    // This will be set to > 0 if present in the index count
    private long maxSeqId = -1;
+
+   @GuardedBy("lock")
+   private CompletionStage<Void> removeSegmentsStage = CompletableFutures.completedNull();
 
    private final IndexNode.OverwriteHook movedHook = new IndexNode.OverwriteHook() {
       @Override
@@ -148,7 +149,6 @@ class Index {
 
       this.segments = new Segment[cacheSegments];
       this.flowableProcessors = new FlowableProcessor[cacheSegments];
-      this.segmentRemovalStages = new CompletionStage[cacheSegments];
 
       this.temporaryTable = temporaryTable;
       // Limits the amount of concurrent updates we do to the underlying indices to be based on the number of cache
@@ -378,6 +378,7 @@ class Index {
             stage.dependsOn(clearRequest);
          }
       } catch (Throwable t) {
+         lock.unlockWrite(writeStampToUnlock);
          log.debugf(t, "Clear encountered exception while submitting requests");
          throw t;
       } finally {
@@ -440,12 +441,7 @@ class Index {
             aggregateCompletionStage.dependsOn(segment);
          }
 
-         // Wait for all pending segment removals (ISPN-17280)
-         for (CompletionStage<Void> removalStage : segmentRemovalStages) {
-            if (removalStage != null) {
-               aggregateCompletionStage.dependsOn(removalStage);
-            }
-         }
+         aggregateCompletionStage.dependsOn(removeSegmentsStage);
       } finally {
          lock.unlockRead(stamp);
       }
@@ -587,57 +583,24 @@ class Index {
    }
 
    public CompletionStage<Void> addSegments(IntSet addedSegments) {
-      // Wait for any pending segment removals to complete before adding (ISPN-17280)
-      // We check under write lock to prevent race with concurrent removeSegments calls
       long stamp;
       // Since actualAddSegments doesn't block we try a quick write lock acquisition to possibly avoid context change
       if ((stamp = lock.tryWriteLock()) != 0) {
          try {
-            return waitForRemovalsAndAdd(addedSegments, stamp);
-         } catch (Throwable t) {
-            lock.unlockWrite(stamp);
-            throw t;
-         }
-      }
-      return CompletableFuture.supplyAsync(() -> {
-         long innerStamp = lock.writeLock();
-         try {
-            return waitForRemovalsAndAdd(addedSegments, innerStamp);
-         } catch (Throwable t) {
-            lock.unlockWrite(innerStamp);
-            throw t;
-         }
-      }, executor).thenCompose(Function.identity());
-   }
-
-   @GuardedBy("lock#writeLock")
-   private CompletionStage<Void> waitForRemovalsAndAdd(IntSet addedSegments, long stamp) {
-      // Collect per-segment removal stages under the same write lock
-      // This prevents removeSegments from starting while we're checking
-      AggregateCompletionStage<Void> pendingRemovals = CompletionStages.aggregateCompletionStage();
-      for (PrimitiveIterator.OfInt iter = addedSegments.iterator(); iter.hasNext(); ) {
-         int segmentId = iter.nextInt();
-         CompletionStage<Void> removalStage = segmentRemovalStages[segmentId];
-         if (removalStage != null && !removalStage.toCompletableFuture().isDone()) {
-            pendingRemovals.dependsOn(removalStage);
-         }
-      }
-
-      CompletionStage<Void> frozenRemovals = pendingRemovals.freeze();
-      if (frozenRemovals.toCompletableFuture().isDone()) {
-         // No pending removals - can add immediately while holding write lock
-         try {
             actualAddSegments(addedSegments);
-            return CompletableFutures.completedNull();
          } finally {
             lock.unlockWrite(stamp);
          }
+         return CompletableFutures.completedNull();
       }
-
-      // Release write lock while waiting for removals to complete
-      lock.unlockWrite(stamp);
-      // After removals complete, recursively call addSegments to re-acquire write lock and check again
-      return frozenRemovals.thenCompose(___ -> addSegments(addedSegments));
+      return CompletableFuture.runAsync(() -> {
+         long innerStamp = lock.writeLock();
+         try {
+            actualAddSegments(addedSegments);
+         } finally {
+            lock.unlockWrite(innerStamp);
+         }
+      }, executor);
    }
 
    private void traceSegmentsAdded(IntSet addedSegments) {
@@ -660,12 +623,8 @@ class Index {
 
          // Segment is already running, don't do anything
          if (segments[i] != null && segments[i] != emptySegment) {
-            log.tracef("SIFS Index: Segment %d already exists, skipping add", i);
             continue;
          }
-
-         // Clear the removal stage now that we've waited for it (ISPN-17280)
-         segmentRemovalStages[i] = null;
 
          UnicastProcessor<IndexRequest> flowableProcessor = UnicastProcessor.create(false);
          Segment segment = new Segment(this, i, temporaryTable);
@@ -676,8 +635,6 @@ class Index {
          // It is possible to write from multiple threads
          this.flowableProcessors[i] = flowableProcessor.toSerialized();
 
-         log.tracef("SIFS Index: Added segment %d at time %d, flowableProcessor=%s", i, System.currentTimeMillis(), System.identityHashCode(flowableProcessor));
-
          flowableProcessors[i]
                .observeOn(Schedulers.from(executor))
                .subscribe(segment, t -> {
@@ -687,134 +644,75 @@ class Index {
       }
    }
    public CompletionStage<Void> removeSegments(IntSet removedCacheSegments) {
+      List<Segment> removedSegments;
       long stamp;
       // Use a try lock to avoid context switch if possible
       if ((stamp = lock.tryWriteLock()) != 0) {
          try {
             // This method doesn't block if we can acquire lock immediately, just replaces segments and flowables
             // and submits an async task
-            return actualRemoveSegments(removedCacheSegments);
+            removedSegments = fetchRemovedSegments(removedCacheSegments);
          } finally {
             lock.unlockWrite(stamp);
          }
+         return actualRemoveSegments(removedSegments);
       }
       return CompletableFuture.supplyAsync(() -> {
          long innerStamp = lock.writeLock();
          try {
-            return actualRemoveSegments(removedCacheSegments);
+            return fetchRemovedSegments(removedCacheSegments);
          } finally {
             lock.unlockWrite(innerStamp);
          }
-      }, executor).thenCompose(Function.identity());
+      }, executor).thenCompose(this::actualRemoveSegments);
    }
 
-   private CompletionStage<Void> actualRemoveSegments(IntSet removedCacheSegments) {
-      long removalStartTime = System.currentTimeMillis();
-      log.tracef("SIFS Index: Removing segments %s from index at time %d", removedCacheSegments, removalStartTime);
-      int removedCount = removedCacheSegments.size();
-      List<Segment> removedSegments = new ArrayList<>(removedCount);
-      List<Integer> removedSegmentIds = new ArrayList<>(removedCount);
-      List<FlowableProcessor<IndexRequest>> removedFlowables = new ArrayList<>(removedCount);
-      List<CompletableFuture<Void>> removalFutures = new ArrayList<>(removedCount);
+   private List<Segment> fetchRemovedSegments(IntSet removedCacheSegments) {
+      log.tracef("Removing segments %s from index", removedCacheSegments);
+      int addedCount = removedCacheSegments.size();
+      List<Segment> removedSegments = new ArrayList<>(addedCount);
 
       for (PrimitiveIterator.OfInt iter = removedCacheSegments.iterator(); iter.hasNext(); ) {
          int i = iter.nextInt();
          // If the segment was not owned by us don't do anything with it
          if (segments[i] != emptySegment) {
-            Segment removedSegment = segments[i];
-            long currentSize = sizePerSegment.get(i);
-            log.tracef("SIFS Index: Marking segment %d for removal (current size=%d, segment=%s)", i, currentSize, System.identityHashCode(removedSegment));
-            removedSegments.add(removedSegment);
-            removedSegmentIds.add(i);
+            removedSegments.add(segments[i]);
             segments[i] = emptySegment;
-            removedFlowables.add(flowableProcessors[i]);
+            log.tracef("Completing segment %s for removal", i);
+            flowableProcessors[i].onComplete();
             flowableProcessors[i] = emptyFlowable;
-
-            // Create per-segment removal future, chaining with any previous pending removal (ISPN-17280)
-            CompletableFuture<Void> removalFuture = new CompletableFuture<>();
-            CompletionStage<Void> previousRemoval = segmentRemovalStages[i];
-            if (previousRemoval != null && !previousRemoval.toCompletableFuture().isDone()) {
-               // Chain this removal after the previous one completes
-               log.tracef("SIFS Index: Segment %d has pending removal, chaining", i);
-               segmentRemovalStages[i] = previousRemoval.thenCompose(___ -> removalFuture);
-            } else {
-               segmentRemovalStages[i] = removalFuture;
-            }
-            removalFutures.add(removalFuture);
 
             sizePerSegment.set(i, 0);
          }
       }
+      return removedSegments;
+   }
 
-      executor.execute(() -> {
-         try {
-            log.tracef("SIFS Index: Cleaning old index information for segments: %s at time %d", removedCacheSegments, System.currentTimeMillis());
-            // Process each segment removal independently
-            for (int offset = 0; offset < removedSegments.size(); ++offset) {
-               final int segmentId = removedSegmentIds.get(offset);
-               final CompletableFuture<Void> removalFuture = removalFutures.get(offset);
-               final Segment segment = removedSegments.get(offset);
-
-               // We signal to complete the flowables, once complete the index is updated as we need to
-               // update the compactor
-               log.tracef("SIFS Index: Calling onComplete() for segment %d flowable at time %d", segmentId, System.currentTimeMillis());
-               removedFlowables.get(offset).onComplete();
-
-               segment.whenComplete((v, t) -> {
-                  if (t == null) {
-                     log.tracef("SIFS Index: Segment %d CompletableFuture completed successfully at time %d, beginning cleanup", segmentId, System.currentTimeMillis());
-                  } else {
-                     log.tracef("SIFS Index: Segment %d CompletableFuture completed with error at time %d: %s", segmentId, System.currentTimeMillis(), t.getMessage());
-                  }
-               });
-
-               segment.thenCompose(___ ->
-                     // Now we free all entries in the index, this will include expired and removed entries
-                     // Removed doesn't currently update free stats per ISPN-15246 - so we remove those as well
-                     segment.root.publish((keyAndMetadataRecord, leafNode, fileProvider, timeService) -> {
-                              compactor.freeIfPresent(leafNode.file, keyAndMetadataRecord.getHeader().totalLength());
-                              return null;
-                           }, true).ignoreElements()
-                           .toCompletionStage(null)
-                     )
-                     .thenRun(() -> {
-                        // Delete the file - addSegments waits for this future so safe to delete (ISPN-17280)
-                        long deleteTime = System.currentTimeMillis();
-                        segment.delete();
-                        log.tracef("SIFS Index: Deleted file for segment %d at time %d (removal started at %d, delta=%dms)",
-                              segmentId, deleteTime, removalStartTime, deleteTime - removalStartTime);
-                     })
-                     .whenComplete((v, t) -> {
-                        // Complete the removal future (cleared by actualAddSegments)
-                        long completeTime = System.currentTimeMillis();
-                        if (t != null) {
-                           log.tracef("SIFS Index: Segment %d removal completed exceptionally at time %d: %s", segmentId, completeTime, t.getMessage());
-                           removalFuture.completeExceptionally(t);
-                        } else {
-                           log.tracef("SIFS Index: Segment %d removal completed successfully at time %d (total time=%dms)",
-                                 segmentId, completeTime, completeTime - removalStartTime);
-                           removalFuture.complete(null);
-                        }
-                     });
-            }
-         } catch (Throwable t) {
-            // If we fail to start processing, complete all futures exceptionally
-            log.tracef("SIFS Index: Exception during segment removal setup: %s", t.getMessage());
-            for (CompletableFuture<Void> future : removalFutures) {
-               future.completeExceptionally(t);
-            }
-         }
-      });
-
-      // Wait for all segment files to be deleted before completing
-      if (removalFutures.isEmpty()) {
+   private CompletionStage<Void> actualRemoveSegments(List<Segment> removedSegments) {
+      if (removedSegments.isEmpty()) {
          return CompletableFutures.completedNull();
       }
-      AggregateCompletionStage<Void> aggregateRemoval = CompletionStages.aggregateCompletionStage();
-      for (CompletableFuture<Void> future : removalFutures) {
-         aggregateRemoval.dependsOn(future);
-      }
-      return aggregateRemoval.freeze();
+
+      log.tracef("Cleaning old index information for segments: %s", removedSegments);
+      removeSegmentsStage = Flowable.fromIterable(removedSegments)
+            .concatMapCompletable(segment ->
+                  Completable.fromCompletionStage(segment.thenCompose(___ -> {
+                           // Now we free all entries in the index, this will include expired and removed entries
+                           // Removed doesn't currently update free stats per ISPN-15246 - so we remove those as well
+                           // TODO: we also need to "remove" the data if possible - this could resurrect data in some weird cases..
+                           //  but users shouldn't have clustered SIFS without purgeOnStartup
+                           // We could also run the compactor eventually which would remove the entry as it isn't in the
+                           // index any longer...
+                           return segment.root.publish((keyAndMetadataRecord, leafNode, fileProvider, timeService) -> {
+                                    compactor.freeIfPresent(leafNode.file, keyAndMetadataRecord.getHeader().totalLength());
+                                    return null;
+                                 }, true).ignoreElements()
+                                 .toCompletionStage(null);
+                        })
+                        .thenRun(segment::delete))
+            )
+            .toCompletionStage(null);
+      return removeSegmentsStage;
    }
 
    static class Segment extends CompletableFuture<Void> implements Consumer<IndexRequest>, Action {
@@ -900,8 +798,7 @@ class Index {
 
       @Override
       public void accept(IndexRequest request) throws Throwable {
-         long acceptTime = System.currentTimeMillis();
-         if (log.isTraceEnabled()) log.tracef("SIFS Segment %d: Indexing %s at time %d", Integer.valueOf(id), request, Long.valueOf(acceptTime));
+         if (log.isTraceEnabled()) log.tracef("Indexing %s", request);
          IndexNode.OverwriteHook overwriteHook;
          IndexNode.RecordChange recordChange;
          switch (request.getType()) {
@@ -954,9 +851,6 @@ class Index {
       // This is ran when the flowable ends either via normal termination or error
       @Override
       public void run() throws IOException {
-         long runStartTime = System.currentTimeMillis();
-         long currentSize = index.sizePerSegment.get(id);
-         log.tracef("SIFS Segment %d: run() called at time %d, flushing index to disk (current size=%d)", id, runStartTime, currentSize);
          try {
             IndexSpace rootSpace = allocateIndexSpace(root.length());
             root.store(rootSpace);
@@ -999,12 +893,8 @@ class Index {
                write(handle, buffer, 0);
             }
 
-            long completeTime = System.currentTimeMillis();
-            log.tracef("SIFS Segment %d: Index flushed to disk at time %d (took %dms), completing Segment CompletableFuture",
-                  id, completeTime, completeTime - runStartTime);
             complete(null);
          } catch (Throwable t) {
-            log.tracef("SIFS Segment %d: Index flush failed at time %d: %s", id, System.currentTimeMillis(), t.getMessage());
             completeExceptionally(t);
          }
       }
@@ -1142,6 +1032,13 @@ class Index {
       public TimeService getTimeService() {
          return index.timeService;
       }
+
+      @Override
+      public String toString() {
+         return "Segment{" +
+               "id=" + id +
+               '}';
+      }
    }
 
    /**
@@ -1180,33 +1077,18 @@ class Index {
    }
 
    Flowable<EntryRecord> publish(IntSet cacheSegments, boolean loadValues) {
-      log.tracef("SIFS Index.publish called for segments %s, loadValues=%s", cacheSegments, loadValues);
       return Flowable.fromIterable(cacheSegments)
             .concatMap(cacheSegment -> publish(cacheSegment, loadValues));
    }
 
    Flowable<EntryRecord> publish(int cacheSegment, boolean loadValues) {
       long stamp = lock.readLock();
-      Segment segment;
-      Lock rootReadLock;
       try {
-         segment = segments[cacheSegment];
-         long segmentSize = segment.index.sizePerSegment.get(cacheSegment);
-         log.tracef("SIFS Index.publish for segment %d: size=%d, loadValues=%s", Integer.valueOf(cacheSegment), Long.valueOf(segmentSize), Boolean.valueOf(loadValues));
-         if (segmentSize == 0) {
-            log.tracef("SIFS Index.publish returning empty for segment %d (size=0)", Integer.valueOf(cacheSegment));
+         var segment = segments[cacheSegment];
+         if (segment.index.sizePerSegment.get(cacheSegment) == 0) {
+            lock.unlockRead(stamp);
             return Flowable.empty();
          }
-         // Acquire root read lock while holding Index lock to ensure memory visibility
-         rootReadLock = segment.rootReadLock();
-         rootReadLock.lock();
-      } finally {
-         // Release Index lock - we only needed it to safely get the segment reference
-         lock.unlockRead(stamp);
-      }
-
-      // Return flowable while holding rootReadLock to ensure root structure visibility
-      try {
          return segment.root.publish((keyAndMetadataRecord, leafNode, fileProvider, currentTime) -> {
             long expiryTime = keyAndMetadataRecord.getHeader().expiryTime();
             // Ignore any key or value if it is expired or was removed
@@ -1219,9 +1101,9 @@ class Index {
                return leafNode.loadValue(keyAndMetadataRecord, fileProvider);
             }
             return keyAndMetadataRecord;
-         }, false).doFinally(rootReadLock::unlock);
+         }, false).doFinally(() -> lock.unlockRead(stamp));
       } catch (Throwable t) {
-         rootReadLock.unlock();
+         lock.unlockRead(stamp);
          throw t;
       }
    }
