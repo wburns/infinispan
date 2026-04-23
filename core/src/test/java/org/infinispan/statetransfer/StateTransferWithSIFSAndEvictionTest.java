@@ -111,7 +111,6 @@ public class StateTransferWithSIFSAndEvictionTest extends MultipleCacheManagersT
                Function.identity()
          );
 
-         // Use publisherWithoutSegments() to get only values, not segment completion notifications
          Publisher<?> segmentPublisher = publisher.publisherWithoutSegments();
          long count = Flowable.fromPublisher(segmentPublisher).count().blockingGet();
          segmentCounts.put(segment, count);
@@ -160,6 +159,10 @@ public class StateTransferWithSIFSAndEvictionTest extends MultipleCacheManagersT
       // Wait for the cluster to form with all nodes
       log.infof("Waiting for cluster to form with all %d nodes", INITIAL_CLUSTER_SIZE + ADDITIONAL_NODES);
       waitForClusterToForm(CACHE_NAME);
+
+      for (int i = 0; i < ADDITIONAL_NODES + INITIAL_CLUSTER_SIZE; ++i) {
+         log.infof("Node %s address is %s", i, cache(i, CACHE_NAME).getCacheManager().getAddress());
+      }
 
       // Assert that all entries are still present using segment-by-segment counting
       log.info("Verifying size and distribution after cluster expansion");
