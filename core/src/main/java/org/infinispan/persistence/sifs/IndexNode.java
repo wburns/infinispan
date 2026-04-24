@@ -699,7 +699,12 @@ class IndexNode {
          case MOVE:
             break;
          case DECREASE:
-            numRecords--;
+            // A "ghost" entry can happen during compaction when a segment is removed, so we ignore that (means old
+            // leafNode file doesn't match the request previous file)
+            if (numRecords > 1 || oldLeafNode.file < 0
+                  || (oldLeafNode.file == request.getPrevFile() && oldLeafNode.offset == request.getPrevOffset())) {
+               numRecords--;
+            }
             break;
       }
 
