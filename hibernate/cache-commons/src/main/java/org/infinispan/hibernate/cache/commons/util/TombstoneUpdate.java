@@ -77,12 +77,12 @@ public class TombstoneUpdate<T> implements Function<EntryView.ReadWriteEntryView
       } else if (storedValue instanceof Tombstone) {
          Tombstone tombstone = (Tombstone) storedValue;
          if (tombstone.getLastTimestamp() < timestamp) {
-            view.set(value);
+            view.set(value, region.getDataMetaParams());
          }
       } else if (storedValue == null) {
          // async putFromLoads shouldn't cross the invalidation timestamp
          if (region.getLastRegionInvalidation() < timestamp) {
-            view.set(value);
+            view.set(value, region.getDataMetaParams());
          }
       } else {
          // Don't do anything locally. This could be the async remote write, though, when local

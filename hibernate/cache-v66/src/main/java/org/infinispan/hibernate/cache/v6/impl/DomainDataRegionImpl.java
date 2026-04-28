@@ -65,6 +65,7 @@ public class DomainDataRegionImpl
 
    private Strategy strategy;
    private final MetaParam.MetaLifespan expiringMetaParam;
+   private final MetaParam.Writable<?>[] dataMetaParams;
 
    protected enum Strategy {
       NONE, VALIDATION, TOMBSTONES, VERSIONED_ENTRIES
@@ -79,6 +80,20 @@ public class DomainDataRegionImpl
 
       tombstoneExpiration = factory.getPendingPutsCacheConfiguration().expiration().maxIdle();
       expiringMetaParam = new MetaParam.MetaLifespan(tombstoneExpiration);
+      dataMetaParams = buildDataMetaParams(cache.getCacheConfiguration());
+   }
+
+   private static MetaParam.Writable<?>[] buildDataMetaParams(Configuration configuration) {
+      long lifespan = configuration.expiration().lifespan();
+      long maxIdle = configuration.expiration().maxIdle();
+      if (lifespan > 0 && maxIdle > 0) {
+         return new MetaParam.Writable<?>[] { new MetaParam.MetaLifespan(lifespan), new MetaParam.MetaMaxIdle(maxIdle) };
+      } else if (lifespan > 0) {
+         return new MetaParam.Writable<?>[] { new MetaParam.MetaLifespan(lifespan) };
+      } else if (maxIdle > 0) {
+         return new MetaParam.Writable<?>[] { new MetaParam.MetaMaxIdle(maxIdle) };
+      }
+      return new MetaParam.Writable<?>[0];
    }
 
    @Override
@@ -255,6 +270,11 @@ public class DomainDataRegionImpl
    @Override
    public MetaParam.MetaLifespan getExpiringMetaParam() {
       return expiringMetaParam;
+   }
+
+   @Override
+   public MetaParam.Writable<?>[] getDataMetaParams() {
+      return dataMetaParams;
    }
 
    @Override
