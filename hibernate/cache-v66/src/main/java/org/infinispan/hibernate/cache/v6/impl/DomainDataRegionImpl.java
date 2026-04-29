@@ -35,6 +35,7 @@ import org.infinispan.hibernate.cache.commons.InfinispanDataRegion;
 import org.infinispan.hibernate.cache.commons.access.AccessDelegate;
 import org.infinispan.hibernate.cache.commons.access.LockingInterceptor;
 import org.infinispan.hibernate.cache.commons.access.PutFromLoadValidator;
+import org.infinispan.hibernate.cache.commons.access.SyncLocalExpirationManager;
 import org.infinispan.hibernate.cache.commons.access.UnorderedDistributionInterceptor;
 import org.infinispan.hibernate.cache.commons.access.UnorderedReplicationLogic;
 import org.infinispan.hibernate.cache.commons.util.InfinispanMessageLogger;
@@ -239,16 +240,21 @@ public class DomainDataRegionImpl
       // undesired overhead. When get() triggers a RemoteExpirationCommand executed in async executor
       // this locks the entry for the duration of RPC, and putFromLoad with ZERO_LOCK_ACQUISITION_TIMEOUT
       // fails as it finds the entry being blocked.
+      // Additionally, ExpirationManagerImpl.checkExpiredMaxIdle calls cache.touch() which goes
+      // through the distribution interceptor causing async RPC. SyncLocalExpirationManager avoids
+      // this by skipping the max-idle touch during write wrapping.
       ComponentRef<InternalExpirationManager> ref = registry.getComponent(InternalExpirationManager.class);
       InternalExpirationManager expirationManager = ref.running();
       if (expirationManager instanceof ClusterExpirationManager) {
-         registry.replaceComponent(InternalExpirationManager.class.getName(), new ExpirationManagerImpl<>(), true);
+         registry.replaceComponent(InternalExpirationManager.class.getName(), new SyncLocalExpirationManager<>(), true);
          registry.getComponent(InternalExpirationManager.class).running();
          registry.rewire();
          // re-registering component does not stop the old one
          ((ClusterExpirationManager) expirationManager).stop();
       } else if (expirationManager instanceof ExpirationManagerImpl) {
-         // do nothing
+         registry.replaceComponent(InternalExpirationManager.class.getName(), new SyncLocalExpirationManager<>(), true);
+         registry.getComponent(InternalExpirationManager.class).running();
+         registry.rewire();
       } else {
          throw new IllegalStateException("Expected clustered expiration manager, found " + expirationManager);
       }
