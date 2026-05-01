@@ -1,0 +1,597 @@
+package org.infinispan.util;
+
+import static org.testng.AssertJUnit.assertEquals;
+import static org.testng.AssertJUnit.assertNull;
+import static org.testng.AssertJUnit.assertTrue;
+
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
+import java.util.concurrent.ConcurrentHashMap;
+
+import org.testng.annotations.BeforeMethod;
+import org.testng.annotations.Test;
+
+@Test(groups = "unit", testName = "util.SoftBPlusTreeTest")
+public class SoftBPlusTreeTest {
+
+   private static final int MIN_NODE_SIZE = 15;
+   private static final int MAX_NODE_SIZE = 60;
+
+   private final ConcurrentHashMap<Integer, byte[]> keysByValue = new ConcurrentHashMap<>();
+
+   private final SoftBPlusTree.KeyLoader<Integer> keyLoader = value -> keysByValue.get(value);
+
+   @BeforeMethod
+   public void clearKeyMap() {
+      keysByValue.clear();
+   }
+
+   private void putTracked(SoftBPlusTree<Integer> tree, byte[] key, int value) throws IOException {
+      keysByValue.put(value, key.clone());
+      tree.put(key, value);
+   }
+
+   private static byte[] key(String s) {
+      return s.getBytes(StandardCharsets.UTF_8);
+   }
+
+   static final SoftBPlusTree.ValueSerializer<Integer> INT_SERIALIZER = new SoftBPlusTree.ValueSerializer<>() {
+      @Override
+      public void write(Integer value, ByteBuffer buffer) {
+         buffer.putInt(value);
+      }
+
+      @Override
+      public Integer read(ByteBuffer buffer) {
+         return buffer.getInt();
+      }
+
+      @Override
+      public int serializedSize(Integer value) {
+         return 4;
+      }
+   };
+
+   static class InMemoryNodeStore implements SoftBPlusTree.NodeStore {
+      private byte[] data = new byte[4096];
+      long nextOffset = 0;
+      int writeCount = 0;
+      private final NavigableMap<Short, List<SoftBPlusTree.NodeSpace>> freeBlocks = new TreeMap<>();
+
+      @Override
+      public SoftBPlusTree.NodeSpace allocate(short length) {
+         NavigableMap<Short, List<SoftBPlusTree.NodeSpace>> candidates = freeBlocks.tailMap(length, true);
+         for (var entry : candidates.entrySet()) {
+            if (entry.getKey() > length + (length >> 2)) break;
+            List<SoftBPlusTree.NodeSpace> list = entry.getValue();
+            if (!list.isEmpty()) {
+               SoftBPlusTree.NodeSpace space = list.remove(list.size() - 1);
+               if (list.isEmpty()) {
+                  freeBlocks.remove(entry.getKey());
+               }
+               return space;
+            }
+         }
+         long offset = nextOffset;
+         nextOffset += length;
+         return new SoftBPlusTree.NodeSpace(offset, length);
+      }
+
+      @Override
+      public void free(long offset, short occupiedSpace) {
+         if (offset + occupiedSpace == nextOffset) {
+            nextOffset = offset;
+         } else {
+            freeBlocks.computeIfAbsent(occupiedSpace, k -> new ArrayList<>())
+                  .add(new SoftBPlusTree.NodeSpace(offset, occupiedSpace));
+         }
+      }
+
+      @Override
+      public void write(ByteBuffer buf, long offset) {
+         writeCount++;
+         int length = buf.remaining();
+         ensureCapacity(offset + length);
+         buf.get(data, (int) offset, length);
+      }
+
+      @Override
+      public ByteBuffer read(long offset, int length) {
+         if (offset + length > nextOffset) {
+            throw new IllegalStateException("No data at offset " + offset);
+         }
+         byte[] result = new byte[length];
+         System.arraycopy(data, (int) offset, result, 0, length);
+         return ByteBuffer.wrap(result);
+      }
+
+      private void ensureCapacity(long required) {
+         if (required > data.length) {
+            int newLen = Math.max((int) required, data.length * 2);
+            byte[] newData = new byte[newLen];
+            System.arraycopy(data, 0, newData, 0, data.length);
+            data = newData;
+         }
+      }
+
+      InMemoryNodeStore snapshot() {
+         InMemoryNodeStore copy = new InMemoryNodeStore();
+         copy.data = new byte[(int) this.nextOffset];
+         System.arraycopy(this.data, 0, copy.data, 0, (int) this.nextOffset);
+         copy.nextOffset = this.nextOffset;
+         return copy;
+      }
+   }
+
+   public void testPerNodeSoftening() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      for (int i = 0; i < count; i++) {
+         assertEquals(Integer.valueOf(i), tree.get(key(String.format("key-%05d", i))));
+      }
+
+      BPlusTree.Node<Integer> rootNode = tree.getRoot();
+      if (rootNode instanceof BPlusTree.InnerNode<Integer> root) {
+         for (BPlusTree.Node<Integer> child : root.children) {
+            assertTrue("Child should be SoftNode after puts",
+                  child instanceof SoftBPlusTree.SoftNode);
+         }
+      }
+   }
+
+   public void testSerializeDeserializeNodeRoundTrip() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      BPlusTree.Node<Integer> root = tree.getRoot();
+      assertTrue("Root should be InnerNode for large tree", root instanceof BPlusTree.InnerNode);
+
+      ByteBuffer serialized = SoftBPlusTree.serializeNode(root, INT_SERIALIZER);
+      BPlusTree.Node<Integer> deserialized = tree.deserializeNode(serialized);
+
+      assertTrue("Deserialized root should be InnerNode", deserialized instanceof BPlusTree.InnerNode);
+      BPlusTree.InnerNode<Integer> innerDeserialized = (BPlusTree.InnerNode<Integer>) deserialized;
+      BPlusTree.InnerNode<Integer> innerOriginal = (BPlusTree.InnerNode<Integer>) root;
+      assertEquals(innerOriginal.children.length, innerDeserialized.children.length);
+
+      for (BPlusTree.Node<Integer> child : innerDeserialized.children) {
+         assertTrue("Deserialized children should be SoftNodes", child instanceof SoftBPlusTree.SoftNode);
+      }
+   }
+
+   public void testSoftenChildrenAndGet() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+
+      BPlusTree.InnerNode<Integer> root = (BPlusTree.InnerNode<Integer>) loaded.getRoot();
+      for (BPlusTree.Node<Integer> child : root.children) {
+         assertTrue("Child should be SoftNode after load", child instanceof SoftBPlusTree.SoftNode);
+      }
+
+      for (int i = 0; i < count; i++) {
+         assertEquals(Integer.valueOf(i), loaded.get(key(String.format("key-%05d", i))));
+      }
+   }
+
+   public void testSoftenChildrenAndPublish() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 100;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      List<Integer> values = tree.<Integer>publish((k, v) -> v).toList().blockingGet();
+      assertEquals(count, values.size());
+   }
+
+   public void testSoftNodeReloadAfterGC() throws Exception {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+
+      loaded.clearSoftReferences();
+
+      for (int i = 0; i < count; i++) {
+         assertEquals("Value for key-" + String.format("%05d", i) + " should reload from store",
+               Integer.valueOf(i), loaded.get(key(String.format("key-%05d", i))));
+      }
+   }
+
+   public void testRepeatedReclamationAndReload() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      for (int cycle = 0; cycle < 3; cycle++) {
+         tree.clearSoftReferences();
+         for (int i = 0; i < count; i++) {
+            assertEquals("Cycle " + cycle + ": value mismatch",
+                  Integer.valueOf(i), tree.get(key(String.format("key-%05d", i))));
+         }
+      }
+
+      tree.clearSoftReferences();
+      putTracked(tree, key("key-00050"), 9999);
+      tree.clearSoftReferences();
+      assertEquals(Integer.valueOf(9999), tree.get(key("key-00050")));
+      assertEquals(Integer.valueOf(0), tree.get(key("key-00000")));
+   }
+
+   public void testPublishAfterReclamation() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 100;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      tree.clearSoftReferences();
+
+      List<Integer> values = tree.<Integer>publish((k, v) -> v).toList().blockingGet();
+      assertEquals(count, values.size());
+      for (int i = 0; i < count; i++) {
+         assertEquals(Integer.valueOf(i), values.get(i));
+      }
+   }
+
+   public void testPutAfterSoften() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      putTracked(tree, key("key-00050"), 9999);
+
+      BPlusTree.Node<Integer> rootNode = tree.getRoot();
+      if (rootNode instanceof BPlusTree.InnerNode<Integer> root) {
+         for (BPlusTree.Node<Integer> child : root.children) {
+            assertTrue("All children should be SoftNodes", child instanceof SoftBPlusTree.SoftNode);
+         }
+      }
+
+      assertEquals(Integer.valueOf(9999), tree.get(key("key-00050")));
+      for (int i = 0; i < count; i++) {
+         if (i == 50) continue;
+         assertEquals(Integer.valueOf(i), tree.get(key(String.format("key-%05d", i))));
+      }
+   }
+
+   public void testRemoveAfterSoften() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      assertEquals(Integer.valueOf(100), tree.remove(key("key-00100")));
+      assertEquals(count - 1, tree.size());
+      assertNull(tree.get(key("key-00100")));
+
+      for (int i = 0; i < count; i++) {
+         if (i == 100) continue;
+         assertEquals(Integer.valueOf(i), tree.get(key(String.format("key-%05d", i))));
+      }
+   }
+
+   public void testReSoftenAfterModification() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      putTracked(tree, key("key-00050"), 9999);
+
+      BPlusTree.Node<Integer> rootNode = tree.getRoot();
+      if (rootNode instanceof BPlusTree.InnerNode<Integer> root) {
+         for (BPlusTree.Node<Integer> child : root.children) {
+            assertTrue("All children should be SoftNodes after auto re-softening",
+                  child instanceof SoftBPlusTree.SoftNode);
+         }
+      }
+
+      assertEquals(Integer.valueOf(9999), tree.get(key("key-00050")));
+   }
+
+   public void testSoftenOnSmallTree() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+
+      putTracked(tree, key("a"), 1);
+      putTracked(tree, key("b"), 2);
+
+      assertTrue("Root should still be LeafNode for small tree",
+            tree.getRoot() instanceof BPlusTree.LeafNode);
+
+      assertEquals(Integer.valueOf(1), tree.get(key("a")));
+      assertEquals(Integer.valueOf(2), tree.get(key("b")));
+   }
+
+   public void testSaveLoadAndModify() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+
+      BPlusTree.InnerNode<Integer> root = (BPlusTree.InnerNode<Integer>) loaded.getRoot();
+      for (BPlusTree.Node<Integer> child : root.children) {
+         assertTrue("Child should be SoftNode", child instanceof SoftBPlusTree.SoftNode);
+      }
+
+      putTracked(loaded, key("key-00050"), 9999);
+      root = (BPlusTree.InnerNode<Integer>) loaded.getRoot();
+      for (BPlusTree.Node<Integer> child : root.children) {
+         assertTrue("Child should be SoftNode after modify", child instanceof SoftBPlusTree.SoftNode);
+      }
+
+      assertEquals(Integer.valueOf(9999), loaded.get(key("key-00050")));
+      assertEquals(Integer.valueOf(0), loaded.get(key("key-00000")));
+   }
+
+   public void testMixedOperationsWithSoftening() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      TreeMap<String, Integer> reference = new TreeMap<>();
+      java.util.Random rng = new java.util.Random(42L);
+      int valueCounter = 10000;
+
+      for (int op = 0; op < 1000; op++) {
+         int action = rng.nextInt(4);
+         String k = "key-" + rng.nextInt(100);
+         switch (action) {
+            case 0: // put
+               int val = valueCounter++;
+               reference.put(k, val);
+               putTracked(tree, key(k), val);
+               break;
+            case 1: // get
+               Integer refVal = reference.get(k);
+               Integer treeVal = tree.get(key(k));
+               assertEquals("get(" + k + ") mismatch at op " + op, refVal, treeVal);
+               break;
+            case 2: // remove
+               reference.remove(k);
+               tree.remove(key(k));
+               break;
+            case 3: // clear
+               reference.clear();
+               tree.clear();
+               break;
+         }
+         assertEquals("size mismatch at op " + op, reference.size(), tree.size());
+      }
+
+      for (Map.Entry<String, Integer> entry : reference.entrySet()) {
+         assertEquals(entry.getValue(), tree.get(key(entry.getKey())));
+      }
+   }
+
+   public void testPublishWithTakeAndSoftNodes() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      List<Integer> values = tree.<Integer>publish((k, v) -> v).take(50).toList().blockingGet();
+
+      assertEquals(50, values.size());
+      assertEquals(Integer.valueOf(0), values.get(0));
+      assertEquals(Integer.valueOf(49), values.get(49));
+   }
+
+   public void testHeavyRemoveWithSoftening() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(15, 60, store, INT_SERIALIZER, keyLoader);
+      TreeMap<String, Integer> reference = new TreeMap<>();
+      java.util.Random rng = new java.util.Random(12345L);
+      int valueCounter = 10000;
+
+      for (int op = 0; op < 3000; op++) {
+         int action = rng.nextInt(10);
+         String k = String.format("seg/%03d/entry", rng.nextInt(200));
+         if (action < 4) {
+            int val = valueCounter++;
+            reference.put(k, val);
+            putTracked(tree, key(k), val);
+         } else if (action < 8) {
+            reference.remove(k);
+            tree.remove(key(k));
+         } else {
+            Integer refVal = reference.get(k);
+            Integer treeVal = tree.get(key(k));
+            assertEquals("get(" + k + ") mismatch at op " + op, refVal, treeVal);
+         }
+         assertEquals("size mismatch at op " + op, reference.size(), tree.size());
+      }
+
+      for (Map.Entry<String, Integer> entry : reference.entrySet()) {
+         assertEquals(entry.getValue(), tree.get(key(entry.getKey())));
+      }
+   }
+
+   // --- saveTree / loadTree round-trip tests ---
+
+   public void testSaveLoadTreeRoundTrip() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+
+      InMemoryNodeStore loadStore = store.snapshot();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, loadStore, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+
+      for (int i = 0; i < count; i++) {
+         assertEquals(Integer.valueOf(i), loaded.get(key(String.format("key-%05d", i))));
+      }
+
+      BPlusTree.Node<Integer> root = loaded.getRoot();
+      assertTrue("Root should be InnerNode", root instanceof BPlusTree.InnerNode);
+      BPlusTree.InnerNode<Integer> inner = (BPlusTree.InnerNode<Integer>) root;
+      for (BPlusTree.Node<Integer> child : inner.children) {
+         assertTrue("Child should be SoftNode after loadTree", child instanceof SoftBPlusTree.SoftNode);
+      }
+   }
+
+   public void testSaveLoadTreeSmallLeafRoot() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      putTracked(tree, key("a"), 1);
+      putTracked(tree, key("b"), 2);
+
+      assertTrue("Root should be LeafNode for small tree", tree.getRoot() instanceof BPlusTree.LeafNode);
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+
+      InMemoryNodeStore loadStore = store.snapshot();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, loadStore, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+
+      assertEquals(Integer.valueOf(1), loaded.get(key("a")));
+      assertEquals(Integer.valueOf(2), loaded.get(key("b")));
+   }
+
+   public void testSaveLoadTreeEmpty() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+      assertNull("Empty tree should return null space", rootSpace);
+
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+
+      assertEquals(0, loaded.size());
+      assertNull(loaded.get(key("anything")));
+
+      putTracked(loaded, key("hello"), 42);
+      assertEquals(1, loaded.size());
+      assertEquals(Integer.valueOf(42), loaded.get(key("hello")));
+   }
+
+   public void testSaveLoadTreeThenMutate() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+
+      InMemoryNodeStore loadStore = store.snapshot();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, loadStore, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+
+      putTracked(loaded, key("key-00050"), 9999);
+      assertEquals(Integer.valueOf(9999), loaded.get(key("key-00050")));
+      loaded.remove(key("key-00100"));
+      assertNull(loaded.get(key("key-00100")));
+
+      assertEquals(Integer.valueOf(0), loaded.get(key("key-00000")));
+      assertEquals(Integer.valueOf(199), loaded.get(key("key-00199")));
+   }
+
+   // --- Per-node efficiency tests ---
+
+   public void testWriteCountIsProportionalToHeight() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 1000;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      int totalWritesBuild = store.writeCount;
+
+      store.writeCount = 0;
+      putTracked(tree, key("key-00500"), 9999);
+      int writesForPut = store.writeCount;
+
+      store.writeCount = 0;
+      tree.remove(key("key-00300"));
+      int writesForRemove = store.writeCount;
+
+      assertTrue("Single put (" + writesForPut + ") should be much less than full build (" + totalWritesBuild + ")",
+            writesForPut < totalWritesBuild / 5);
+      assertTrue("Single remove (" + writesForRemove + ") should be much less than full build (" + totalWritesBuild + ")",
+            writesForRemove < totalWritesBuild / 5);
+   }
+
+   public void testFreeBlockReuse() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+
+      for (int i = 0; i < 500; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+      long sizeAfterInsert = store.nextOffset;
+
+      for (int i = 0; i < 250; i++) {
+         tree.remove(key(String.format("key-%05d", i)));
+      }
+
+      for (int i = 500; i < 750; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+      long sizeAfterReinsert = store.nextOffset;
+
+      long growth = sizeAfterReinsert - sizeAfterInsert;
+      assertTrue("Free block reuse should limit growth. Initial: " + sizeAfterInsert +
+            ", after reinsert: " + sizeAfterReinsert + ", growth: " + growth,
+            growth < sizeAfterInsert);
+   }
+}
