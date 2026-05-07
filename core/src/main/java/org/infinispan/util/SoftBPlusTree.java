@@ -315,28 +315,20 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
 
    public record NodeSpace(long offset, short occupiedSpace) { }
 
-   // --- Serialization (matches old IndexNode disk format) ---
+   // --- Serialization ---
 
    static <V> ByteBuffer serializeNode(Node<V> node, ValueSerializer<V> serializer) {
       int size;
-      PrefixAndKeyParts leafPrkp = null;
       if (node instanceof LeafNode<V> leaf) {
-         leafPrkp = computeLeafPrefixAndKeyParts(leaf.keys);
-         size = serializedSizeFromParts(leafPrkp.prefix(), leafPrkp.keyParts(),
-               serializer, leaf.values);
+         size = leafSerializedSize(serializer, leaf.values);
       } else {
          size = innerNodeSerializedSize((InnerNode<V>) node);
       }
       ByteBuffer buffer = ByteBuffer.allocate(size);
       if (node instanceof LeafNode<V> leaf) {
-         buffer.putShort((short) leafPrkp.prefix().length);
-         buffer.put(leafPrkp.prefix());
+         buffer.putShort((short) 0);
          buffer.put(HAS_LEAVES);
-         buffer.putShort((short) leafPrkp.keyParts().length);
-         for (byte[] keyPart : leafPrkp.keyParts()) {
-            buffer.putShort((short) keyPart.length);
-            buffer.put(keyPart);
-         }
+         buffer.putShort((short) leaf.values.length);
          for (int i = 0; i < leaf.values.length; i++) {
             serializer.write(leaf.values[i], buffer);
          }
@@ -371,12 +363,8 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
       return size;
    }
 
-   private static <V> int serializedSizeFromParts(byte[] prefix, byte[][] keyParts,
-         ValueSerializer<V> serializer, V[] values) {
-      int size = 2 + prefix.length + 1 + 2;
-      for (byte[] keyPart : keyParts) {
-         size += 2 + keyPart.length;
-      }
+   private static <V> int leafSerializedSize(ValueSerializer<V> serializer, V[] values) {
+      int size = INNER_NODE_HEADER_SIZE;
       for (V value : values) {
          size += serializer.serializedSize(value);
       }
@@ -385,30 +373,27 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
 
    @SuppressWarnings("unchecked")
    Node<V> deserializeNode(ByteBuffer buffer) throws IOException {
-      int startPosition = buffer.position();
       short prefixLen = buffer.getShort();
       byte[] prefix = new byte[prefixLen];
       buffer.get(prefix);
       byte flags = buffer.get();
-      short keyPartsCount = buffer.getShort();
-      byte[][] keyParts = new byte[keyPartsCount][];
-      for (int i = 0; i < keyPartsCount; i++) {
-         short kpLen = buffer.getShort();
-         keyParts[i] = new byte[kpLen];
-         buffer.get(keyParts[i]);
-      }
+      short count = buffer.getShort();
       if (flags == HAS_LEAVES) {
-         int valuesOffset = buffer.position() - startPosition;
-         int entryCount = keyPartsCount + 1;
-         V[] values = (V[]) new Object[entryCount];
-         byte[][] keys = new byte[entryCount][];
-         for (int i = 0; i < entryCount; i++) {
+         V[] values = (V[]) new Object[count];
+         byte[][] keys = new byte[count][];
+         for (int i = 0; i < count; i++) {
             values[i] = serializer.read(buffer);
             keys[i] = keyLoader.loadKey(values[i]);
          }
-         return new LeafNode<>(keys, values, valuesOffset);
+         return new LeafNode<>(keys, values, INNER_NODE_HEADER_SIZE);
       } else {
-         int childCount = keyPartsCount + 1;
+         byte[][] keyParts = new byte[count][];
+         for (int i = 0; i < count; i++) {
+            short kpLen = buffer.getShort();
+            keyParts[i] = new byte[kpLen];
+            buffer.get(keyParts[i]);
+         }
+         int childCount = count + 1;
          Node<V>[] children = new Node[childCount];
          for (int i = 0; i < childCount; i++) {
             long offset = buffer.getLong();

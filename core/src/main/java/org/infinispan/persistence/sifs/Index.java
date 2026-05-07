@@ -55,10 +55,10 @@ import io.reactivex.rxjava3.schedulers.Schedulers;
  */
 class Index {
    private static final Log log = Log.getLog(Index.class);
-   private static final int GRACEFULLY = 0x512ACEF2;
+   private static final int GRACEFULLY = 0x512ACEF3;
    private static final int DIRTY = 0xD112770C;
-   // magic(4) + segmentMax(4) + rootOffset(8) + rootOccupied(2) + freeBlocksOffset(8) + unused(8)
-   private static final int INDEX_FILE_HEADER_SIZE = 34;
+   // magic(4) + segmentMax(4) + rootOffset(8) + rootOccupied(2) + freeBlocksOffset(8)
+   private static final int INDEX_FILE_HEADER_SIZE = 26;
 
    private final NonBlockingManager nonBlockingManager;
    private final FileProvider dataFileProvider;

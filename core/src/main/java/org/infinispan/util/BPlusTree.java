@@ -608,7 +608,7 @@ public class BPlusTree<V> {
       }
 
       static <V> LeafNode<V> createLeaf(byte[][] keys, V[] values) {
-         return new LeafNode<>(keys, values, computeValuesOffset(keys));
+         return new LeafNode<>(keys, values, INNER_NODE_HEADER_SIZE);
       }
 
       @Override
@@ -657,50 +657,18 @@ public class BPlusTree<V> {
 
       @Override
       List<Node<V>> split(int maxNodeSize) {
-         int numSeps = keys.length - 1;
-         if (numSeps < 1) {
+         if (values.length <= 1) {
             return List.of(this);
          }
-
-         int contentLength = length() - INNER_NODE_HEADER_SIZE;
-         int targetParts = contentLength / Math.max(maxNodeSize - INNER_NODE_HEADER_SIZE, 1) + 1;
-         int targetLength = contentLength / targetParts + INNER_NODE_HEADER_SIZE;
-
-         List<Node<V>> result = new ArrayList<>();
-         int nodeFrom = 0;
-         byte[] sepPrefix = keys[1];
-         int currentSize = INNER_NODE_HEADER_SIZE + keys[1].length + 2 + 2 * LEAF_NODE_REFERENCE_SIZE;
-
-         for (int i = 1; i < numSeps; i++) {
-            byte[] newSepPrefix = commonPrefix(sepPrefix, keys[i + 1]);
-            int newSize;
-            if (newSepPrefix.length != sepPrefix.length) {
-               newSize = currentSize + (sepPrefix.length - newSepPrefix.length) * (i - nodeFrom - 1);
-            } else {
-               newSize = currentSize;
-            }
-            newSize += keys[i + 1].length - newSepPrefix.length + LEAF_NODE_REFERENCE_SIZE + 2;
-
-            if (newSize < targetLength) {
-               currentSize = newSize;
-            } else {
-               if (newSize > maxNodeSize) {
-                  result.add(createSubLeaf(nodeFrom, i + 1));
-                  ++i;
-               } else {
-                  result.add(createSubLeaf(nodeFrom, i + 2));
-                  i += 2;
-               }
-               if (i < numSeps) {
-                  newSepPrefix = keys[i + 1];
-               }
-               currentSize = INNER_NODE_HEADER_SIZE + newSepPrefix.length + 2 + 2 * LEAF_NODE_REFERENCE_SIZE;
-               nodeFrom = i;
-            }
-            sepPrefix = newSepPrefix;
+         int maxPerLeaf = (maxNodeSize - INNER_NODE_HEADER_SIZE) / LEAF_NODE_REFERENCE_SIZE;
+         if (maxPerLeaf < 1) maxPerLeaf = 1;
+         if (values.length <= maxPerLeaf) {
+            return List.of(this);
          }
-         if (nodeFrom <= numSeps) {
-            result.add(createSubLeaf(nodeFrom, keys.length));
+         List<Node<V>> result = new ArrayList<>();
+         for (int i = 0; i < values.length; i += maxPerLeaf) {
+            int end = Math.min(i + maxPerLeaf, values.length);
+            result.add(createSubLeaf(i, end));
          }
          return result;
       }
@@ -805,38 +773,6 @@ public class BPlusTree<V> {
             dest[destIndex + i] = newPart;
          }
       }
-   }
-
-   // --- Leaf prefix/keyParts computation ---
-
-   record PrefixAndKeyParts(byte[] prefix, byte[][] keyParts) {}
-
-   static PrefixAndKeyParts computeLeafPrefixAndKeyParts(byte[][] keys) {
-      if (keys.length <= 1) {
-         return new PrefixAndKeyParts(Util.EMPTY_BYTE_ARRAY, Util.EMPTY_BYTE_ARRAY_ARRAY);
-      }
-      byte[] prefix = keys[1];
-      for (int i = 2; i < keys.length; i++) {
-         prefix = commonPrefix(prefix, keys[i]);
-      }
-      byte[][] keyParts = new byte[keys.length - 1][];
-      for (int i = 0; i < keyParts.length; i++) {
-         keyParts[i] = substring(keys[i + 1], prefix.length, keys[i + 1].length);
-      }
-      return new PrefixAndKeyParts(prefix, keyParts);
-   }
-
-   static int computeValuesOffset(byte[] prefix, byte[][] keyParts) {
-      int offset = INNER_NODE_HEADER_SIZE + prefix.length;
-      for (byte[] kp : keyParts) {
-         offset += 2 + kp.length;
-      }
-      return offset;
-   }
-
-   static int computeValuesOffset(byte[][] keys) {
-      PrefixAndKeyParts prkp = computeLeafPrefixAndKeyParts(keys);
-      return computeValuesOffset(prkp.prefix, prkp.keyParts);
    }
 
    // --- Split algorithm ---
