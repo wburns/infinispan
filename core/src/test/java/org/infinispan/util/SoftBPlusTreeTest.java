@@ -571,6 +571,83 @@ public class SoftBPlusTreeTest {
             writesForRemove < totalWritesBuild / 5);
    }
 
+   public void testSoftNodeGetInsertionPoint() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+      loaded.clearSoftReferences();
+
+      BPlusTree.InnerNode<Integer> root = (BPlusTree.InnerNode<Integer>) loaded.getRoot();
+      SoftBPlusTree.SoftNode<Integer> softChild = (SoftBPlusTree.SoftNode<Integer>) root.children[0];
+
+      int point = softChild.getInsertionPoint(key("key-00000"));
+      assertTrue("Insertion point should be >= 0", point >= 0);
+   }
+
+   public void testSoftNodeRightmostKey() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+      loaded.clearSoftReferences();
+
+      BPlusTree.InnerNode<Integer> root = (BPlusTree.InnerNode<Integer>) loaded.getRoot();
+      int lastIdx = root.children.length - 1;
+      SoftBPlusTree.SoftNode<Integer> lastChild = (SoftBPlusTree.SoftNode<Integer>) root.children[lastIdx];
+
+      byte[] rightmost = lastChild.rightmostKey();
+      assertEquals("Rightmost key of last child should be the last key in the tree",
+            "key-00199", new String(rightmost, StandardCharsets.UTF_8));
+   }
+
+   public void testSoftNodeSplit() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+      loaded.clearSoftReferences();
+
+      BPlusTree.InnerNode<Integer> root = (BPlusTree.InnerNode<Integer>) loaded.getRoot();
+      SoftBPlusTree.SoftNode<Integer> softChild = (SoftBPlusTree.SoftNode<Integer>) root.children[0];
+
+      List<BPlusTree.Node<Integer>> splitResult = softChild.split(MAX_NODE_SIZE);
+      assertTrue("Split should return at least one node", splitResult.size() >= 1);
+   }
+
+   public void testLeafSerializedSize() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      putTracked(tree, key("a"), 1);
+      putTracked(tree, key("b"), 2);
+      putTracked(tree, key("c"), 3);
+
+      BPlusTree.Node<Integer> root = tree.getRoot();
+      assertTrue("Root should be LeafNode for small tree", root instanceof BPlusTree.LeafNode);
+
+      ByteBuffer serialized = SoftBPlusTree.serializeNode(root, INT_SERIALIZER);
+      int expectedSize = BPlusTree.INNER_NODE_HEADER_SIZE + 3 * INT_SERIALIZER.serializedSize(1);
+      assertEquals("Leaf serialized size should be header + values", expectedSize, serialized.remaining());
+   }
+
    public void testFreeBlockReuse() throws IOException {
       InMemoryNodeStore store = new InMemoryNodeStore();
       SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
