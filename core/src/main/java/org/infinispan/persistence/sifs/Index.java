@@ -11,9 +11,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableMap;
 import java.util.PrimitiveIterator;
-import java.util.TreeMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentMap;
@@ -740,10 +738,13 @@ class Index {
     * avoid unbounded index file growth.
     */
    static class IndexFileNodeStore implements SoftBPlusTree.NodeStore {
+      private static final int BLOCK_ALIGNMENT = 64;
+
       private final FileProvider indexFileProvider;
       private final int fileId;
       private long indexFileSize;
-      private final NavigableMap<Short, List<SoftBPlusTree.NodeSpace>> freeBlocks = new TreeMap<>();
+      @SuppressWarnings("unchecked")
+      private List<SoftBPlusTree.NodeSpace>[] freeBlocks = new List[0];
 
       IndexFileNodeStore(FileProvider indexFileProvider, int fileId) {
          this.indexFileProvider = indexFileProvider;
@@ -754,18 +755,20 @@ class Index {
          this.indexFileSize = size;
       }
 
+      private static int bucketIndex(short aligned) {
+         return (aligned / BLOCK_ALIGNMENT) - 1;
+      }
+
       @Override
       public SoftBPlusTree.NodeSpace allocate(short length) {
          short aligned = alignBlock(length);
-         NavigableMap<Short, List<SoftBPlusTree.NodeSpace>> candidates = freeBlocks.tailMap(aligned, true);
-         for (var entry : candidates.entrySet()) {
-            if (entry.getKey() > aligned + (aligned >> 2)) break;
-            List<SoftBPlusTree.NodeSpace> list = entry.getValue();
-            if (!list.isEmpty()) {
+         int idx = bucketIndex(aligned);
+         int maxIdx = bucketIndex((short) (aligned + (aligned >> 2)));
+         if (maxIdx >= freeBlocks.length) maxIdx = freeBlocks.length - 1;
+         for (int i = idx; i <= maxIdx; i++) {
+            List<SoftBPlusTree.NodeSpace> list = freeBlocks[i];
+            if (list != null && !list.isEmpty()) {
                SoftBPlusTree.NodeSpace space = list.remove(list.size() - 1);
-               if (list.isEmpty()) {
-                  freeBlocks.remove(entry.getKey());
-               }
                return space;
             }
          }
@@ -775,7 +778,7 @@ class Index {
       }
 
       private static short alignBlock(short length) {
-         return (short) ((length + 63) & ~63);
+         return (short) ((length + (BLOCK_ALIGNMENT - 1)) & ~(BLOCK_ALIGNMENT - 1));
       }
 
       @Override
@@ -783,9 +786,29 @@ class Index {
          if (offset + occupiedSpace == indexFileSize) {
             indexFileSize = offset;
          } else {
-            freeBlocks.computeIfAbsent(occupiedSpace, k -> new ArrayList<>())
-                  .add(new SoftBPlusTree.NodeSpace(offset, occupiedSpace));
+            int idx = bucketIndex(occupiedSpace);
+            ensureBucketCapacity(idx);
+            List<SoftBPlusTree.NodeSpace> list = freeBlocks[idx];
+            if (list == null) {
+               list = new ArrayList<>();
+               freeBlocks[idx] = list;
+            }
+            list.add(new SoftBPlusTree.NodeSpace(offset, occupiedSpace));
          }
+      }
+
+      @SuppressWarnings("unchecked")
+      private void ensureBucketCapacity(int idx) {
+         if (idx >= freeBlocks.length) {
+            List<SoftBPlusTree.NodeSpace>[] newArr = new List[idx + 1];
+            System.arraycopy(freeBlocks, 0, newArr, 0, freeBlocks.length);
+            freeBlocks = newArr;
+         }
+      }
+
+      @SuppressWarnings("unchecked")
+      void clearFreeBlocks() {
+         freeBlocks = new List[0];
       }
 
       @Override
@@ -819,38 +842,47 @@ class Index {
       }
 
       ByteBuffer serializeFreeBlocks() {
-         // numSizeClasses(4) + per class: blockLength(4) + listSize(4) + entries(10 each)
+         int numNonEmpty = 0;
          int size = 4;
-         for (var entry : freeBlocks.entrySet()) {
-            size += 8 + entry.getValue().size() * 10;
+         for (int i = 0; i < freeBlocks.length; i++) {
+            List<SoftBPlusTree.NodeSpace> list = freeBlocks[i];
+            if (list != null && !list.isEmpty()) {
+               numNonEmpty++;
+               size += 8 + list.size() * 10;
+            }
          }
          ByteBuffer buf = ByteBuffer.allocate(size);
-         buf.putInt(freeBlocks.size());
-         for (var entry : freeBlocks.entrySet()) {
-            List<SoftBPlusTree.NodeSpace> list = entry.getValue();
-            buf.putInt(entry.getKey());
-            buf.putInt(list.size());
-            for (SoftBPlusTree.NodeSpace ns : list) {
-               buf.putLong(ns.offset());
-               buf.putShort(ns.occupiedSpace());
+         buf.putInt(numNonEmpty);
+         for (int i = 0; i < freeBlocks.length; i++) {
+            List<SoftBPlusTree.NodeSpace> list = freeBlocks[i];
+            if (list != null && !list.isEmpty()) {
+               buf.putInt((i + 1) * BLOCK_ALIGNMENT);
+               buf.putInt(list.size());
+               for (SoftBPlusTree.NodeSpace ns : list) {
+                  buf.putLong(ns.offset());
+                  buf.putShort(ns.occupiedSpace());
+               }
             }
          }
          buf.flip();
          return buf;
       }
 
+      @SuppressWarnings("unchecked")
       void deserializeFreeBlocks(ByteBuffer buf) {
-         freeBlocks.clear();
+         freeBlocks = new List[0];
          int numLists = buf.getInt();
          for (int i = 0; i < numLists; i++) {
             int blockLength = buf.getInt();
             int listSize = buf.getInt();
             if (listSize > 0) {
+               int idx = bucketIndex((short) blockLength);
+               ensureBucketCapacity(idx);
                ArrayList<SoftBPlusTree.NodeSpace> list = new ArrayList<>(listSize);
                for (int j = 0; j < listSize; j++) {
                   list.add(new SoftBPlusTree.NodeSpace(buf.getLong(), buf.getShort()));
                }
-               freeBlocks.put((short) blockLength, list);
+               freeBlocks[idx] = list;
             }
          }
       }
@@ -935,7 +967,7 @@ class Index {
             handle.truncate(0);
          }
          nodeStore.setIndexFileSize(INDEX_FILE_HEADER_SIZE);
-         nodeStore.freeBlocks.clear();
+         nodeStore.clearFreeBlocks();
          tree = new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize, nodeStore, INDEX_ENTRY_SERIALIZER, keyLoader);
       }
 
@@ -950,7 +982,7 @@ class Index {
                   handle.truncate(0);
                }
                nodeStore.setIndexFileSize(INDEX_FILE_HEADER_SIZE);
-               nodeStore.freeBlocks.clear();
+               nodeStore.clearFreeBlocks();
                index.sizePerSegment.set(id, 0);
                index.nonBlockingManager.complete(request, null);
                return;
