@@ -73,7 +73,13 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
       if (!(childNode instanceof SoftNode<V> softNode)) return;
       int valueSize = serializer.serializedSize(leaf.values[entryIndex]);
       int valueOffset = leaf.valuesOffset + entryIndex * valueSize;
-      ByteBuffer data = ByteBuffer.allocate(valueSize);
+      ByteBuffer data;
+      if (valueSize <= serializeBuffer.capacity()) {
+         serializeBuffer.clear().limit(valueSize);
+         data = serializeBuffer;
+      } else {
+         data = ByteBuffer.allocate(valueSize);
+      }
       serializer.write(leaf.values[entryIndex], data);
       data.flip();
       store.write(data, softNode.diskOffset + valueOffset);
