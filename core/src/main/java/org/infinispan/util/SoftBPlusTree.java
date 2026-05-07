@@ -26,8 +26,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * external data source via the {@link KeyLoader} callback. This matches the
  * old {@code IndexNode} disk format exactly.
  * <p>
- * Disk space is managed via {@link NodeStore#allocate} and {@link NodeStore#free},
- * reusing freed blocks to avoid index file growth.
+ * Disk space is managed internally using a block-aligned free list. Freed
+ * blocks are pooled by size and reused for future allocations to avoid
+ * unbounded index file growth.
  *
  * @param <V> value type
  */
@@ -39,17 +40,136 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
    private final ValueSerializer<V> serializer;
    private final KeyLoader<V> keyLoader;
    private final List<NodeSpace> pendingFrees = new ArrayList<>();
-   // reused node buffer sized to the max node size to avoid allocations when saving a new node
    private final ByteBuffer serializeBuffer;
+   private final short blockAlignment;
+   private final long initialStoreSize;
+   private long storeSize;
+   @SuppressWarnings("unchecked")
+   private List<NodeSpace>[] freeBlocks = new List[0];
 
    public SoftBPlusTree(int minNodeSize, int maxNodeSize, NodeStore store,
-                        ValueSerializer<V> serializer, KeyLoader<V> keyLoader) {
+                        ValueSerializer<V> serializer, KeyLoader<V> keyLoader,
+                        short blockAlignment, long initialStoreSize) {
       super(minNodeSize, maxNodeSize);
       this.store = store;
       this.serializer = serializer;
       this.keyLoader = keyLoader;
       this.serializeBuffer = ByteBuffer.allocate(maxNodeSize);
+      this.blockAlignment = blockAlignment;
+      this.initialStoreSize = initialStoreSize;
+      this.storeSize = initialStoreSize;
    }
+
+   public SoftBPlusTree(int minNodeSize, int maxNodeSize, NodeStore store,
+                        ValueSerializer<V> serializer, KeyLoader<V> keyLoader) {
+      this(minNodeSize, maxNodeSize, store, serializer, keyLoader, (short) 1, 0);
+   }
+
+   // --- Space management ---
+
+   private short alignBlock(short length) {
+      if (blockAlignment <= 1) return length;
+      return (short) ((length + (blockAlignment - 1)) & -blockAlignment);
+   }
+
+   private int bucketIndex(short aligned) {
+      return (aligned / blockAlignment) - 1;
+   }
+
+   @SuppressWarnings("unchecked")
+   private void ensureBucketCapacity(int idx) {
+      if (idx >= freeBlocks.length) {
+         List<NodeSpace>[] newArr = new List[idx + 1];
+         System.arraycopy(freeBlocks, 0, newArr, 0, freeBlocks.length);
+         freeBlocks = newArr;
+      }
+   }
+
+   private NodeSpace allocate(short length) {
+      short aligned = alignBlock(length);
+      int idx = bucketIndex(aligned);
+      int maxIdx = bucketIndex((short) (aligned + (aligned >> 2)));
+      if (maxIdx >= freeBlocks.length) maxIdx = freeBlocks.length - 1;
+      for (int i = idx; i <= maxIdx; i++) {
+         List<NodeSpace> list = freeBlocks[i];
+         if (list != null && !list.isEmpty()) {
+            return list.remove(list.size() - 1);
+         }
+      }
+      long offset = storeSize;
+      storeSize += aligned;
+      return new NodeSpace(offset, aligned);
+   }
+
+   private void freeBlock(long offset, short occupiedSpace) {
+      if (offset + occupiedSpace == storeSize) {
+         storeSize = offset;
+      } else {
+         int idx = bucketIndex(occupiedSpace);
+         ensureBucketCapacity(idx);
+         List<NodeSpace> list = freeBlocks[idx];
+         if (list == null) {
+            list = new ArrayList<>();
+            freeBlocks[idx] = list;
+         }
+         list.add(new NodeSpace(offset, occupiedSpace));
+      }
+   }
+
+   public long getStoreSize() {
+      return storeSize;
+   }
+
+   public void setStoreSize(long size) {
+      this.storeSize = size;
+   }
+
+   public ByteBuffer serializeFreeBlocks() {
+      int numNonEmpty = 0;
+      int size = 4;
+      for (List<NodeSpace> list : freeBlocks) {
+         if (list != null && !list.isEmpty()) {
+            numNonEmpty++;
+            size += 8 + list.size() * 10;
+         }
+      }
+      ByteBuffer buf = ByteBuffer.allocate(size);
+      buf.putInt(numNonEmpty);
+      for (int i = 0; i < freeBlocks.length; i++) {
+         List<NodeSpace> list = freeBlocks[i];
+         if (list != null && !list.isEmpty()) {
+            buf.putInt((i + 1) * blockAlignment);
+            buf.putInt(list.size());
+            for (NodeSpace ns : list) {
+               buf.putLong(ns.offset());
+               buf.putShort(ns.occupiedSpace());
+            }
+         }
+      }
+      buf.flip();
+      return buf;
+   }
+
+   @SuppressWarnings("unchecked")
+   public void deserializeFreeBlocks(ByteBuffer buf) {
+      freeBlocks = new List[0];
+      int numLists = buf.getInt();
+      for (int i = 0; i < numLists; i++) {
+         int blockLength = buf.getInt();
+         int listSize = buf.getInt();
+         if (listSize > 0) {
+            int idx = bucketIndex((short) blockLength);
+            ensureBucketCapacity(idx);
+            ArrayList<NodeSpace> list = new ArrayList<>(listSize);
+            for (int j = 0; j < listSize; j++) {
+               list.add(new NodeSpace(buf.getLong(), buf.getShort()));
+            }
+            freeBlocks[idx] = list;
+         }
+      }
+   }
+
+   // --- Tree hooks ---
 
    @Override
    protected void onChildrenReplaced(Node<V>[] oldChildren, int from, int to) {
@@ -147,8 +267,17 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
    }
 
    @Override
+   @SuppressWarnings("unchecked")
    public void clear() {
       super.clear();
+      pendingFrees.clear();
+      freeBlocks = new List[0];
+      storeSize = initialStoreSize;
+      try {
+         store.truncate(0);
+      } catch (IOException e) {
+         throw new UncheckedIOException(e);
+      }
    }
 
    /**
@@ -157,8 +286,8 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
     * serializes the root node itself and returns a descriptor that the caller can
     * write into the file header for {@link #loadTree} to find on restart.
     * <p>
-    * The free-block state must be persisted separately by the caller via the
-    * {@link NodeStore} implementation.
+    * The free-block state must be persisted separately by the caller via
+    * {@link #serializeFreeBlocks()}.
     *
     * @return the root's disk location, or null if the tree is empty
     */
@@ -189,7 +318,7 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
 
    private void afterMutation() throws IOException {
       for (NodeSpace ns : pendingFrees) {
-         store.free(ns.offset, ns.occupiedSpace);
+         freeBlock(ns.offset, ns.occupiedSpace);
       }
       pendingFrees.clear();
       Node<V> r = getRoot();
@@ -210,17 +339,16 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
       }
    }
 
+   // Clearing the top-level SoftNode references is sufficient: when re-resolved from disk,
+   // the deserialized InnerNode children are new SoftNodes with null references, so deeper
+   // levels are effectively cleared lazily without needing to load them all from disk.
    void clearSoftReferences() {
       Node<V> r = getRoot();
       if (r instanceof InnerNode<V> inner) {
-         clearSoftReferencesRecursive(inner);
-      }
-   }
-
-   private void clearSoftReferencesRecursive(InnerNode<V> inner) {
-      for (Node<V> child : inner.children) {
-         if (child instanceof SoftNode<V> soft) {
-            soft.clearReference();
+         for (Node<V> child : inner.children) {
+            if (child instanceof SoftNode<V> soft) {
+               soft.clearReference();
+            }
          }
       }
    }
@@ -287,23 +415,10 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
    }
 
    /**
-    * Block-allocated storage backend for individual serialized nodes. Each node
-    * is written independently at an allocated position and can be freed for reuse
-    * when the node is replaced or deleted.
+    * Storage backend for serialized nodes. Provides raw I/O operations;
+    * space allocation and free block management are handled by the tree.
     */
    public interface NodeStore {
-      /**
-       * Allocates a block of at least {@code length} bytes and returns its
-       * location. The returned {@link NodeSpace#occupiedSpace()} may be larger
-       * than {@code length} if a suitable free block was reused.
-       */
-      NodeSpace allocate(short length);
-
-      /**
-       * Frees a previously allocated block for future reuse.
-       */
-      void free(long offset, short occupiedSpace);
-
       /**
        * Writes {@code data} (from position to limit) at the given offset.
        */
@@ -313,6 +428,11 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
        * Reads {@code length} bytes from {@code offset}.
        */
       ByteBuffer read(long offset, int length) throws IOException;
+
+      /**
+       * Truncates the backing storage to the given size.
+       */
+      void truncate(long size) throws IOException;
    }
 
    public record NodeSpace(long offset, short occupiedSpace) { }
@@ -323,7 +443,7 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
       serializeBuffer.clear();
       writeNode(node, serializer, serializeBuffer);
       serializeBuffer.flip();
-      NodeSpace space = store.allocate((short) serializeBuffer.remaining());
+      NodeSpace space = allocate((short) serializeBuffer.remaining());
       store.write(serializeBuffer, space.offset);
       return space;
    }
@@ -399,6 +519,9 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
          for (int i = 0; i < count; i++) {
             values[i] = serializer.read(buffer);
             keys[i] = keyLoader.loadKey(values[i]);
+            if (keys[i] == null) {
+               throw new IndexNodeOutdatedException("KeyLoader returned null for value at index " + i);
+            }
          }
          return new LeafNode<>(keys, values, INNER_NODE_HEADER_SIZE);
       } else {

@@ -7,10 +7,8 @@ import static org.testng.AssertJUnit.assertTrue;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.NavigableMap;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -60,38 +58,7 @@ public class SoftBPlusTreeTest {
 
    static class InMemoryNodeStore implements SoftBPlusTree.NodeStore {
       private byte[] data = new byte[4096];
-      long nextOffset = 0;
       int writeCount = 0;
-      private final NavigableMap<Short, List<SoftBPlusTree.NodeSpace>> freeBlocks = new TreeMap<>();
-
-      @Override
-      public SoftBPlusTree.NodeSpace allocate(short length) {
-         NavigableMap<Short, List<SoftBPlusTree.NodeSpace>> candidates = freeBlocks.tailMap(length, true);
-         for (var entry : candidates.entrySet()) {
-            if (entry.getKey() > length + (length >> 2)) break;
-            List<SoftBPlusTree.NodeSpace> list = entry.getValue();
-            if (!list.isEmpty()) {
-               SoftBPlusTree.NodeSpace space = list.remove(list.size() - 1);
-               if (list.isEmpty()) {
-                  freeBlocks.remove(entry.getKey());
-               }
-               return space;
-            }
-         }
-         long offset = nextOffset;
-         nextOffset += length;
-         return new SoftBPlusTree.NodeSpace(offset, length);
-      }
-
-      @Override
-      public void free(long offset, short occupiedSpace) {
-         if (offset + occupiedSpace == nextOffset) {
-            nextOffset = offset;
-         } else {
-            freeBlocks.computeIfAbsent(occupiedSpace, k -> new ArrayList<>())
-                  .add(new SoftBPlusTree.NodeSpace(offset, occupiedSpace));
-         }
-      }
 
       @Override
       public void write(ByteBuffer buf, long offset) {
@@ -103,12 +70,13 @@ public class SoftBPlusTreeTest {
 
       @Override
       public ByteBuffer read(long offset, int length) {
-         if (offset + length > nextOffset) {
-            throw new IllegalStateException("No data at offset " + offset);
-         }
          byte[] result = new byte[length];
          System.arraycopy(data, (int) offset, result, 0, length);
          return ByteBuffer.wrap(result);
+      }
+
+      @Override
+      public void truncate(long size) {
       }
 
       private void ensureCapacity(long required) {
@@ -122,9 +90,7 @@ public class SoftBPlusTreeTest {
 
       InMemoryNodeStore snapshot() {
          InMemoryNodeStore copy = new InMemoryNodeStore();
-         copy.data = new byte[(int) this.nextOffset];
-         System.arraycopy(this.data, 0, copy.data, 0, (int) this.nextOffset);
-         copy.nextOffset = this.nextOffset;
+         copy.data = this.data.clone();
          return copy;
       }
    }
@@ -655,7 +621,7 @@ public class SoftBPlusTreeTest {
       for (int i = 0; i < 500; i++) {
          putTracked(tree, key(String.format("key-%05d", i)), i);
       }
-      long sizeAfterInsert = store.nextOffset;
+      long sizeAfterInsert = tree.getStoreSize();
 
       for (int i = 0; i < 250; i++) {
          tree.remove(key(String.format("key-%05d", i)));
@@ -664,7 +630,7 @@ public class SoftBPlusTreeTest {
       for (int i = 500; i < 750; i++) {
          putTracked(tree, key(String.format("key-%05d", i)), i);
       }
-      long sizeAfterReinsert = store.nextOffset;
+      long sizeAfterReinsert = tree.getStoreSize();
 
       long growth = sizeAfterReinsert - sizeAfterInsert;
       assertTrue("Free block reuse should limit growth. Initial: " + sizeAfterInsert +

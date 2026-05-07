@@ -738,77 +738,12 @@ class Index {
     * avoid unbounded index file growth.
     */
    static class IndexFileNodeStore implements SoftBPlusTree.NodeStore {
-      private static final int BLOCK_ALIGNMENT = 64;
-
       private final FileProvider indexFileProvider;
       private final int fileId;
-      private long indexFileSize;
-      @SuppressWarnings("unchecked")
-      private List<SoftBPlusTree.NodeSpace>[] freeBlocks = new List[0];
 
       IndexFileNodeStore(FileProvider indexFileProvider, int fileId) {
          this.indexFileProvider = indexFileProvider;
          this.fileId = fileId;
-      }
-
-      void setIndexFileSize(long size) {
-         this.indexFileSize = size;
-      }
-
-      private static int bucketIndex(short aligned) {
-         return (aligned / BLOCK_ALIGNMENT) - 1;
-      }
-
-      @Override
-      public SoftBPlusTree.NodeSpace allocate(short length) {
-         short aligned = alignBlock(length);
-         int idx = bucketIndex(aligned);
-         int maxIdx = bucketIndex((short) (aligned + (aligned >> 2)));
-         if (maxIdx >= freeBlocks.length) maxIdx = freeBlocks.length - 1;
-         for (int i = idx; i <= maxIdx; i++) {
-            List<SoftBPlusTree.NodeSpace> list = freeBlocks[i];
-            if (list != null && !list.isEmpty()) {
-               SoftBPlusTree.NodeSpace space = list.remove(list.size() - 1);
-               return space;
-            }
-         }
-         long offset = indexFileSize;
-         indexFileSize += aligned;
-         return new SoftBPlusTree.NodeSpace(offset, aligned);
-      }
-
-      private static short alignBlock(short length) {
-         return (short) ((length + (BLOCK_ALIGNMENT - 1)) & ~(BLOCK_ALIGNMENT - 1));
-      }
-
-      @Override
-      public void free(long offset, short occupiedSpace) {
-         if (offset + occupiedSpace == indexFileSize) {
-            indexFileSize = offset;
-         } else {
-            int idx = bucketIndex(occupiedSpace);
-            ensureBucketCapacity(idx);
-            List<SoftBPlusTree.NodeSpace> list = freeBlocks[idx];
-            if (list == null) {
-               list = new ArrayList<>();
-               freeBlocks[idx] = list;
-            }
-            list.add(new SoftBPlusTree.NodeSpace(offset, occupiedSpace));
-         }
-      }
-
-      @SuppressWarnings("unchecked")
-      private void ensureBucketCapacity(int idx) {
-         if (idx >= freeBlocks.length) {
-            List<SoftBPlusTree.NodeSpace>[] newArr = new List[idx + 1];
-            System.arraycopy(freeBlocks, 0, newArr, 0, freeBlocks.length);
-            freeBlocks = newArr;
-         }
-      }
-
-      @SuppressWarnings("unchecked")
-      void clearFreeBlocks() {
-         freeBlocks = new List[0];
       }
 
       @Override
@@ -841,54 +776,17 @@ class Index {
          return buffer;
       }
 
-      ByteBuffer serializeFreeBlocks() {
-         int numNonEmpty = 0;
-         int size = 4;
-         for (int i = 0; i < freeBlocks.length; i++) {
-            List<SoftBPlusTree.NodeSpace> list = freeBlocks[i];
-            if (list != null && !list.isEmpty()) {
-               numNonEmpty++;
-               size += 8 + list.size() * 10;
-            }
-         }
-         ByteBuffer buf = ByteBuffer.allocate(size);
-         buf.putInt(numNonEmpty);
-         for (int i = 0; i < freeBlocks.length; i++) {
-            List<SoftBPlusTree.NodeSpace> list = freeBlocks[i];
-            if (list != null && !list.isEmpty()) {
-               buf.putInt((i + 1) * BLOCK_ALIGNMENT);
-               buf.putInt(list.size());
-               for (SoftBPlusTree.NodeSpace ns : list) {
-                  buf.putLong(ns.offset());
-                  buf.putShort(ns.occupiedSpace());
-               }
-            }
-         }
-         buf.flip();
-         return buf;
-      }
-
-      @SuppressWarnings("unchecked")
-      void deserializeFreeBlocks(ByteBuffer buf) {
-         freeBlocks = new List[0];
-         int numLists = buf.getInt();
-         for (int i = 0; i < numLists; i++) {
-            int blockLength = buf.getInt();
-            int listSize = buf.getInt();
-            if (listSize > 0) {
-               int idx = bucketIndex((short) blockLength);
-               ensureBucketCapacity(idx);
-               ArrayList<SoftBPlusTree.NodeSpace> list = new ArrayList<>(listSize);
-               for (int j = 0; j < listSize; j++) {
-                  list.add(new SoftBPlusTree.NodeSpace(buf.getLong(), buf.getShort()));
-               }
-               freeBlocks[idx] = list;
-            }
+      @Override
+      public void truncate(long size) throws IOException {
+         try (FileProvider.Handle handle = indexFileProvider.getFile(fileId)) {
+            handle.truncate(size);
          }
       }
    }
 
    static class Segment extends CompletableFuture<Void> implements Consumer<IndexRequest>, Action {
+      private static final short BLOCK_ALIGNMENT = 64;
+
       final Index index;
       private final TemporaryTable temporaryTable;
       private final int id;
@@ -902,9 +800,9 @@ class Index {
          this.temporaryTable = temporaryTable;
          this.id = id;
          this.nodeStore = new IndexFileNodeStore(index.indexFileProvider, id);
-         this.nodeStore.setIndexFileSize(INDEX_FILE_HEADER_SIZE);
          this.keyLoader = value -> (value).loadKey(index.dataFileProvider);
-         this.tree = new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize, nodeStore, INDEX_ENTRY_SERIALIZER, keyLoader);
+         this.tree = new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize, nodeStore,
+               INDEX_ENTRY_SERIALIZER, keyLoader, BLOCK_ALIGNMENT, INDEX_FILE_HEADER_SIZE);
       }
 
       public int getId() {
@@ -934,21 +832,21 @@ class Index {
             ByteBuffer dirty = ByteBuffer.allocate(4);
             dirty.putInt(0, DIRTY);
             write(handle, dirty, 0);
-            nodeStore.setIndexFileSize(freeBlocksOffset);
             if (rootOffset == 0) {
                return true;
             }
+            SoftBPlusTree<IndexEntry> softTree = new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize,
+                  nodeStore, INDEX_ENTRY_SERIALIZER, keyLoader, BLOCK_ALIGNMENT, INDEX_FILE_HEADER_SIZE);
+            softTree.setStoreSize(freeBlocksOffset);
             // Restore free-block state from freeBlocksOffset
             int freeBlocksLen = (int) (handle.getFileSize() - freeBlocksOffset);
             if (freeBlocksLen > 0) {
                ByteBuffer freeBlocksBuf = ByteBuffer.allocate(freeBlocksLen);
                read(handle, freeBlocksBuf, freeBlocksOffset);
                freeBlocksBuf.flip();
-               nodeStore.deserializeFreeBlocks(freeBlocksBuf);
+               softTree.deserializeFreeBlocks(freeBlocksBuf);
             }
             SoftBPlusTree.NodeSpace rootSpace = new SoftBPlusTree.NodeSpace(rootOffset, rootOccupiedSpace);
-            SoftBPlusTree<IndexEntry> softTree = new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize,
-                  nodeStore, INDEX_ENTRY_SERIALIZER, keyLoader);
             softTree.loadTree(rootSpace);
             tree = softTree;
             return true;
@@ -963,12 +861,7 @@ class Index {
       }
 
       void reset() throws IOException {
-         try (FileProvider.Handle handle = index.indexFileProvider.getFile(id)) {
-            handle.truncate(0);
-         }
-         nodeStore.setIndexFileSize(INDEX_FILE_HEADER_SIZE);
-         nodeStore.clearFreeBlocks();
-         tree = new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize, nodeStore, INDEX_ENTRY_SERIALIZER, keyLoader);
+         tree.clear();
       }
 
       @Override
@@ -978,11 +871,6 @@ class Index {
          switch (request.getType()) {
             case CLEAR:
                tree.clear();
-               try (FileProvider.Handle handle = index.indexFileProvider.getFile(id)) {
-                  handle.truncate(0);
-               }
-               nodeStore.setIndexFileSize(INDEX_FILE_HEADER_SIZE);
-               nodeStore.clearFreeBlocks();
                index.sizePerSegment.set(id, 0);
                index.nonBlockingManager.complete(request, null);
                return;
@@ -1111,11 +999,12 @@ class Index {
       @Override
       public void run() throws IOException {
          try {
-            SoftBPlusTree.NodeSpace rootSpace = ((SoftBPlusTree<IndexEntry>) tree).saveTree();
+            SoftBPlusTree<IndexEntry> softTree = (SoftBPlusTree<IndexEntry>) tree;
+            SoftBPlusTree.NodeSpace rootSpace = softTree.saveTree();
             try (FileProvider.Handle handle = index.indexFileProvider.getFile(id)) {
                // Write free blocks at current end of node data
-               ByteBuffer freeBlocksBuf = nodeStore.serializeFreeBlocks();
-               long freeBlocksOffset = nodeStore.indexFileSize;
+               ByteBuffer freeBlocksBuf = softTree.serializeFreeBlocks();
+               long freeBlocksOffset = softTree.getStoreSize();
                write(handle, freeBlocksBuf, freeBlocksOffset);
 
                // Write header bytes 4-25 (segmentMax, rootOffset, rootOccupied, freeBlocksOffset)

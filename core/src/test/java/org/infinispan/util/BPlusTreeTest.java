@@ -646,4 +646,48 @@ public class BPlusTreeTest {
       assertEquals(Integer.valueOf(9), values.get(9));
       assertTrue("Should have retried at least twice", attempts.get() >= 3);
    }
+
+   public void testPublishExceedsMaxRetries() throws IOException {
+      BPlusTree<Integer> tree = new BPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE);
+      for (int i = 0; i < 10; i++) {
+         tree.put(key(String.format("key-%05d", i)), i);
+      }
+
+      try {
+         tree.<Integer>publish((k, v) -> {
+            throw new BPlusTree.IndexNodeOutdatedException("always outdated");
+         }).toList().blockingGet();
+         throw new AssertionError("Should have thrown");
+      } catch (RuntimeException e) {
+         Throwable cause = e;
+         while (cause.getCause() != null) {
+            cause = cause.getCause();
+         }
+         assertTrue("Root cause should be IllegalStateException, got: " + cause.getClass().getSimpleName(),
+               cause instanceof IllegalStateException);
+         assertTrue("Message should mention retry attempts",
+               cause.getMessage().contains("retry attempts"));
+      }
+   }
+
+   public void testPublishSkipOnOutdated() throws IOException {
+      BPlusTree<Integer> tree = new BPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE);
+      for (int i = 0; i < 10; i++) {
+         tree.put(key(String.format("key-%05d", i)), i);
+      }
+
+      java.util.concurrent.atomic.AtomicInteger outdatedCount = new java.util.concurrent.atomic.AtomicInteger(0);
+      List<Integer> values = tree.<Integer>publish((k, v) -> {
+         if (v == 3 || v == 7) {
+            outdatedCount.incrementAndGet();
+            throw new BPlusTree.IndexNodeOutdatedException("outdated");
+         }
+         return v;
+      }, true).toList().blockingGet();
+
+      assertEquals("Should skip outdated entries", 8, values.size());
+      assertTrue("Should not contain skipped value 3", !values.contains(3));
+      assertTrue("Should not contain skipped value 7", !values.contains(7));
+      assertEquals("Each outdated entry should be encountered once", 2, outdatedCount.get());
+   }
 }

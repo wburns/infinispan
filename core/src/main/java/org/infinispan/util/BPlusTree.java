@@ -51,7 +51,6 @@ public class BPlusTree<V> {
 
    private volatile Node<V> root;
    private volatile int size;
-   int lastModifiedRootChild = -1;
 
    public BPlusTree(int minNodeSize, int maxNodeSize) {
       this.minNodeSize = minNodeSize;
@@ -111,11 +110,8 @@ public class BPlusTree<V> {
    public V put(byte[] key, V value) throws IOException {
       Deque<PathEntry<V>> stack = new ArrayDeque<>();
       Node<V> node = root;
-      Node<V> rootBefore = root;
-      int rootChildIndex = -1;
       while (node instanceof InnerNode<V> inner) {
          int idx = inner.getInsertionPoint(key);
-         if (rootChildIndex == -1) rootChildIndex = idx;
          stack.push(new PathEntry<>(inner, idx));
          node = inner.children[idx].resolve();
       }
@@ -127,7 +123,6 @@ public class BPlusTree<V> {
          V old = leaf.values[insertPart];
          leaf.values[insertPart] = value;
          onValueOverwritten(stack, leaf, insertPart);
-         lastModifiedRootChild = rootChildIndex;
          return old;
       }
       insertPart = ~insertPart;
@@ -137,7 +132,6 @@ public class BPlusTree<V> {
       if (!tryInPlaceLeafUpdate(stack, leaf, newLeaf)) {
          applyModification(stack, leaf, newLeaf);
       }
-      lastModifiedRootChild = (root == rootBefore) ? rootChildIndex : -1;
       return null;
    }
 
@@ -147,11 +141,8 @@ public class BPlusTree<V> {
    public V remove(byte[] key) throws IOException {
       Deque<PathEntry<V>> stack = new ArrayDeque<>();
       Node<V> node = root;
-      Node<V> rootBefore = root;
-      int rootChildIndex = -1;
       while (node instanceof InnerNode<V> inner) {
          int idx = inner.getInsertionPoint(key);
-         if (rootChildIndex == -1) rootChildIndex = idx;
          stack.push(new PathEntry<>(inner, idx));
          node = inner.children[idx].resolve();
       }
@@ -168,7 +159,6 @@ public class BPlusTree<V> {
       if (!tryInPlaceLeafUpdate(stack, leaf, newLeaf)) {
          applyModification(stack, leaf, newLeaf);
       }
-      lastModifiedRootChild = (root == rootBefore) ? rootChildIndex : -1;
       return old;
    }
 
@@ -215,27 +205,28 @@ public class BPlusTree<V> {
     * entry, returning {@code null} to skip. Items are emitted respecting backpressure via
     * {@link FlowableCreate}.
     *
-    * @param continueOnOutdated when {@code false}, a
+    * @param skipOnOutdated when {@code false}, a
     *        {@link IndexNodeOutdatedException} causes the iteration to retry from
     *        the last successfully processed key (up to 10 retries); when {@code true}, outdated
     *        entries are silently skipped with no retry
     */
-   public <R> Flowable<R> publish(PublishFunction<V, R> function, boolean continueOnOutdated) {
+   public <R> Flowable<R> publish(PublishFunction<V, R> function, boolean skipOnOutdated) {
       return Flowable.defer(() -> {
          ByRef<byte[]> lastRetrievedKey = new ByRef<>(null);
          return new FlowableCreate<>(emitter -> {
-            ByRef.Boolean done = new ByRef.Boolean(false);
+            ByRef.Boolean retryNeeded = new ByRef.Boolean(false);
             int retries = 0;
             do {
-               done.set(false);
-               publishNode(root, lastRetrievedKey, emitter, function, done, continueOnOutdated);
+               retryNeeded.set(false);
+               publishNode(root, lastRetrievedKey, emitter, function, retryNeeded, skipOnOutdated);
                if (emitter.requested() == 0 || emitter.isCancelled()) {
                   return;
                }
-               if (done.get() && ++retries > 10) {
-                  throw new IllegalStateException("Exceeded maximum retry attempts (10) during publish");
+               if (retryNeeded.get() && ++retries > 10) {
+                  emitter.onError(new IllegalStateException("Exceeded maximum retry attempts (10) during publish"));
+                  return;
                }
-            } while (done.get());
+            } while (retryNeeded.get());
             emitter.onComplete();
          }, BackpressureStrategy.ERROR);
       });
@@ -243,12 +234,12 @@ public class BPlusTree<V> {
 
    private <R> void publishNode(Node<V> node, ByRef<byte[]> lastRetrievedKey,
          FlowableEmitter<R> emitter, PublishFunction<V, R> function,
-         ByRef.Boolean done, boolean continueOnOutdated) throws IOException {
+         ByRef.Boolean retryNeeded, boolean skipOnOutdated) throws IOException {
       try {
          node = node.resolve();
       } catch (IndexNodeOutdatedException e) {
-         if (!continueOnOutdated) {
-            done.set(true);
+         if (!skipOnOutdated) {
+            retryNeeded.set(true);
          }
          return;
       }
@@ -272,19 +263,19 @@ public class BPlusTree<V> {
                   emitter.onNext(result);
                   if (emitter.requested() == 0 || emitter.isCancelled()) {
                      lastRetrievedKey.set(leaf.keys[i]);
-                     done.set(true);
+                     retryNeeded.set(true);
                      return;
                   }
                }
                previousKey = leaf.keys[i];
             } catch (IndexNodeOutdatedException e) {
-               if (continueOnOutdated) {
+               if (skipOnOutdated) {
                   continue;
                }
                if (previousKey != null) {
                   lastRetrievedKey.set(previousKey);
                }
-               done.set(true);
+               retryNeeded.set(true);
                return;
             }
          }
@@ -297,8 +288,8 @@ public class BPlusTree<V> {
       InnerNode<V> inner = (InnerNode<V>) node;
       byte[] lastKey = lastRetrievedKey.get();
       int startChild = lastKey != null ? inner.getInsertionPoint(lastKey) : 0;
-      for (int i = startChild; i < inner.children.length && !done.get(); i++) {
-         publishNode(inner.children[i], lastRetrievedKey, emitter, function, done, continueOnOutdated);
+      for (int i = startChild; i < inner.children.length && !retryNeeded.get(); i++) {
+         publishNode(inner.children[i], lastRetrievedKey, emitter, function, retryNeeded, skipOnOutdated);
       }
    }
 
