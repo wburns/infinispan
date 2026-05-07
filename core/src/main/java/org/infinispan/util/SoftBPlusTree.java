@@ -39,6 +39,8 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
    private final ValueSerializer<V> serializer;
    private final KeyLoader<V> keyLoader;
    private final List<NodeSpace> pendingFrees = new ArrayList<>();
+   // reused node buffer sized to the max node size to avoid allocations when saving a new node
+   private final ByteBuffer serializeBuffer;
 
    public SoftBPlusTree(int minNodeSize, int maxNodeSize, NodeStore store,
                         ValueSerializer<V> serializer, KeyLoader<V> keyLoader) {
@@ -46,6 +48,7 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
       this.store = store;
       this.serializer = serializer;
       this.keyLoader = keyLoader;
+      this.serializeBuffer = ByteBuffer.allocate(maxNodeSize);
    }
 
    @Override
@@ -99,9 +102,7 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
          }
       }
 
-      ByteBuffer data = serializeNode(newLeaf, serializer);
-      NodeSpace newSpace = store.allocate((short) data.remaining());
-      store.write(data, newSpace.offset);
+      NodeSpace newSpace = writeNodeToStore(newLeaf);
 
       pendingFrees.add(new NodeSpace(oldSoftNode.diskOffset, oldSoftNode.occupiedSpace));
 
@@ -163,10 +164,7 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
       if (r instanceof InnerNode<V> inner) {
          persistNewNodes(inner);
       }
-      ByteBuffer data = serializeNode(r, serializer);
-      NodeSpace space = store.allocate((short) data.remaining());
-      store.write(data, space.offset);
-      return space;
+      return writeNodeToStore(r);
    }
 
    /**
@@ -201,9 +199,7 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
          if (child instanceof InnerNode<V> childInner) {
             persistNewNodes(childInner);
          }
-         ByteBuffer data = serializeNode(child, serializer);
-         NodeSpace space = store.allocate((short) data.remaining());
-         store.write(data, space.offset);
+         NodeSpace space = writeNodeToStore(child);
          inner.children[i] = new SoftNode<>(child, space.offset, space.occupiedSpace, this);
       }
    }
@@ -317,6 +313,15 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
 
    // --- Serialization ---
 
+   private NodeSpace writeNodeToStore(Node<V> node) throws IOException {
+      serializeBuffer.clear();
+      writeNode(node, serializer, serializeBuffer);
+      serializeBuffer.flip();
+      NodeSpace space = store.allocate((short) serializeBuffer.remaining());
+      store.write(serializeBuffer, space.offset);
+      return space;
+   }
+
    static <V> ByteBuffer serializeNode(Node<V> node, ValueSerializer<V> serializer) {
       int size;
       if (node instanceof LeafNode<V> leaf) {
@@ -325,6 +330,12 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
          size = innerNodeSerializedSize((InnerNode<V>) node);
       }
       ByteBuffer buffer = ByteBuffer.allocate(size);
+      writeNode(node, serializer, buffer);
+      buffer.flip();
+      return buffer;
+   }
+
+   private static <V> void writeNode(Node<V> node, ValueSerializer<V> serializer, ByteBuffer buffer) {
       if (node instanceof LeafNode<V> leaf) {
          buffer.putShort((short) 0);
          buffer.put(HAS_LEAVES);
@@ -350,8 +361,6 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
             }
          }
       }
-      buffer.flip();
-      return buffer;
    }
 
    private static <V> int innerNodeSerializedSize(InnerNode<V> inner) {
