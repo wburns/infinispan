@@ -756,10 +756,10 @@ class Index {
 
       @Override
       public SoftBPlusTree.NodeSpace allocate(short length) {
-         NavigableMap<Short, List<SoftBPlusTree.NodeSpace>> candidates = freeBlocks.tailMap(length, true);
+         short aligned = alignBlock(length);
+         NavigableMap<Short, List<SoftBPlusTree.NodeSpace>> candidates = freeBlocks.tailMap(aligned, true);
          for (var entry : candidates.entrySet()) {
-            // Only reuse if the block isn't more than 25% larger
-            if (entry.getKey() > length + (length >> 2)) break;
+            if (entry.getKey() > aligned + (aligned >> 2)) break;
             List<SoftBPlusTree.NodeSpace> list = entry.getValue();
             if (!list.isEmpty()) {
                SoftBPlusTree.NodeSpace space = list.remove(list.size() - 1);
@@ -770,8 +770,12 @@ class Index {
             }
          }
          long offset = indexFileSize;
-         indexFileSize += length;
-         return new SoftBPlusTree.NodeSpace(offset, length);
+         indexFileSize += aligned;
+         return new SoftBPlusTree.NodeSpace(offset, aligned);
+      }
+
+      private static short alignBlock(short length) {
+         return (short) ((length + 63) & ~63);
       }
 
       @Override

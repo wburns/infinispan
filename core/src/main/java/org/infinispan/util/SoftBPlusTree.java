@@ -184,14 +184,14 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
    }
 
    private void afterMutation() throws IOException {
-      Node<V> r = getRoot();
-      if (r instanceof InnerNode<V> inner) {
-         persistNewNodes(inner);
-      }
       for (NodeSpace ns : pendingFrees) {
          store.free(ns.offset, ns.occupiedSpace);
       }
       pendingFrees.clear();
+      Node<V> r = getRoot();
+      if (r instanceof InnerNode<V> inner) {
+         persistNewNodes(inner);
+      }
    }
 
    private void persistNewNodes(InnerNode<V> inner) throws IOException {
