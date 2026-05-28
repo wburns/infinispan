@@ -4,11 +4,12 @@ import static org.infinispan.server.core.logging.Log.SERVER;
 
 import java.util.concurrent.ThreadFactory;
 
+import io.netty.channel.MultiThreadIoEventLoopGroup;
 import io.netty.channel.MultithreadEventLoopGroup;
 import io.netty.channel.epoll.Epoll;
-import io.netty.channel.epoll.EpollEventLoopGroup;
+import io.netty.channel.epoll.EpollIoHandler;
 import io.netty.channel.epoll.EpollServerSocketChannel;
-import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.ServerSocketChannel;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 
@@ -33,7 +34,7 @@ public final class NativeTransport {
    private static Type transportType() {
       if (useNativeEpoll()) {
          return Type.EPOLL;
-      } else if (useNativeIOUring()) {
+      } else if (useNativeIoUring()) {
          return Type.IOURING;
       } else {
          return Type.NIO;
@@ -58,14 +59,14 @@ public final class NativeTransport {
       return false;
    }
 
-   private static boolean useNativeIOUring() {
+   private static boolean useNativeIoUring() {
       try {
-         Class.forName("io.netty.incubator.channel.uring.IOUring", true, NativeTransport.class.getClassLoader());
-         if (IOURingNativeTransport.isAvailable()) {
+         Class.forName("io.netty.channel.uring.IoUring", true, NativeTransport.class.getClassLoader());
+         if (IoURingNativeTransport.isAvailable()) {
             return !IOURING_DISABLED && IS_LINUX;
          } else {
             if (IS_LINUX) {
-               SERVER.ioUringNotAvailable(IOURingNativeTransport.unavailableCause());
+               SERVER.ioUringNotAvailable(IoURingNativeTransport.unavailableCause());
             }
          }
       } catch (ClassNotFoundException e) {
@@ -84,7 +85,7 @@ public final class NativeTransport {
          }
          case IOURING ->  {
             SERVER.usingTransport("IOURING");
-            return IOURingNativeTransport.serverSocketChannelClass();
+            return IoURingNativeTransport.serverSocketChannelClass();
          }
          default ->  {
             SERVER.usingTransport("NIO");
@@ -95,9 +96,9 @@ public final class NativeTransport {
 
    public static MultithreadEventLoopGroup createEventLoopGroup(int maxExecutors, ThreadFactory threadFactory) {
       return switch (TYPE) {
-         case EPOLL -> new EpollEventLoopGroup(maxExecutors, threadFactory);
-         case IOURING -> IOURingNativeTransport.createEventLoopGroup(maxExecutors, threadFactory);
-         default -> new NioEventLoopGroup(maxExecutors, threadFactory);
+         case EPOLL -> new MultiThreadIoEventLoopGroup(maxExecutors, threadFactory, EpollIoHandler.newFactory());
+         case IOURING -> IoURingNativeTransport.createEventLoopGroup(maxExecutors, threadFactory);
+         default -> new MultiThreadIoEventLoopGroup(maxExecutors, threadFactory, NioIoHandler.newFactory());
       };
    }
 }

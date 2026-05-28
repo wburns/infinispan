@@ -255,7 +255,7 @@
          </dependency>
          <dependency>
             <groupId>org.bouncycastle</groupId>
-            <artifactId>bcpkix-jdk15to18</artifactId>
+            <artifactId>bcpkix-jdk18on</artifactId>
             <version>${version.bouncycastle}</version>
          </dependency>
          <dependency>
@@ -572,20 +572,20 @@
             <version>${version.netty}</version>
          </dependency>
          <dependency>
-            <groupId>io.netty.incubator</groupId>
-            <artifactId>netty-incubator-transport-native-io_uring</artifactId>
-            <version>${version.netty.incubator.iouring}</version>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-transport-native-io_uring</artifactId>
+            <version>${version.netty}</version>
          </dependency>
          <dependency>
-            <groupId>io.netty.incubator</groupId>
-            <artifactId>netty-incubator-transport-native-io_uring</artifactId>
-            <version>${version.netty.incubator.iouring}</version>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-transport-native-io_uring</artifactId>
+            <version>${version.netty}</version>
             <classifier>linux-x86_64</classifier>
          </dependency>
          <dependency>
-            <groupId>io.netty.incubator</groupId>
-            <artifactId>netty-incubator-transport-native-io_uring</artifactId>
-            <version>${version.netty.incubator.iouring}</version>
+            <groupId>io.netty</groupId>
+            <artifactId>netty-transport-native-io_uring</artifactId>
+            <version>${version.netty}</version>
             <classifier>linux-aarch_64</classifier>
          </dependency>
          <dependency>

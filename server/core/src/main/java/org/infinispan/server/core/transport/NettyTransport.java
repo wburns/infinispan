@@ -24,7 +24,7 @@ import org.infinispan.server.core.logging.Log;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.buffer.PooledByteBufAllocator;
+import io.netty.buffer.AdaptiveByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelInitializer;
 import io.netty.channel.ChannelOption;
@@ -134,7 +134,7 @@ public class NettyTransport implements Transport {
       bootstrap.group(masterGroup, ioGroup);
       bootstrap.channel(getServerSocketChannel());
       bootstrap.childHandler(handler);
-      bootstrap.childOption(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT);
+      bootstrap.childOption(ChannelOption.ALLOCATOR, AdaptiveByteBufAllocator.DEFAULT);
       bootstrap.childOption(ChannelOption.TCP_NODELAY, configuration.tcpNoDelay()); // Sets server side tcpNoDelay
       if (configuration.sendBufSize() > 0)
          bootstrap.childOption(ChannelOption.SO_SNDBUF, configuration.sendBufSize()); // Sets server side send buffer

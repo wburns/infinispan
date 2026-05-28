@@ -11,10 +11,11 @@ import org.infinispan.server.router.router.EndpointRouter;
 import org.infinispan.server.router.router.impl.hotrod.handlers.SniHandlerInitializer;
 
 import io.netty.bootstrap.ServerBootstrap;
-import io.netty.buffer.PooledByteBufAllocator;
+import io.netty.buffer.AdaptiveByteBufAllocator;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelOption;
-import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.MultiThreadIoEventLoopGroup;
+import io.netty.channel.nio.NioIoHandler;
 import io.netty.channel.socket.nio.NioServerSocketChannel;
 import io.netty.util.concurrent.DefaultThreadFactory;
 import io.netty.util.concurrent.Future;
@@ -22,8 +23,8 @@ import io.netty.util.concurrent.Future;
 public class HotRodEndpointRouter implements EndpointRouter {
    private static final String THREAD_NAME_PREFIX = "EndpointRouter";
 
-   private final NioEventLoopGroup masterGroup = new NioEventLoopGroup(1, new DefaultThreadFactory(THREAD_NAME_PREFIX + "-ServerMaster"));
-   private final NioEventLoopGroup workerGroup = new NioEventLoopGroup(0, new DefaultThreadFactory(THREAD_NAME_PREFIX + "-ServerWorker"));
+   private final MultiThreadIoEventLoopGroup masterGroup = new MultiThreadIoEventLoopGroup(1, new DefaultThreadFactory(THREAD_NAME_PREFIX + "-ServerMaster"), NioIoHandler.newFactory());
+   private final MultiThreadIoEventLoopGroup workerGroup = new MultiThreadIoEventLoopGroup(0, new DefaultThreadFactory(THREAD_NAME_PREFIX + "-ServerWorker"), NioIoHandler.newFactory());
    private final HotRodRouterConfiguration configuration;
    private Integer port = null;
    private InetAddress ip = null;
@@ -37,7 +38,7 @@ public class HotRodEndpointRouter implements EndpointRouter {
       try {
          ServerBootstrap bootstrap = new ServerBootstrap();
          bootstrap.group(masterGroup, workerGroup)
-               .childOption(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
+               .childOption(ChannelOption.ALLOCATOR, AdaptiveByteBufAllocator.DEFAULT)
                .childOption(ChannelOption.TCP_NODELAY, configuration.tcpNoDelay())
                .childOption(ChannelOption.SO_KEEPALIVE, configuration.tcpKeepAlive())
                .childHandler(new SniHandlerInitializer(routingTable))
