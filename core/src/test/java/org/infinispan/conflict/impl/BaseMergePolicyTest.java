@@ -31,6 +31,8 @@ import org.infinispan.topology.ManagerStatusResponse;
 import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 
+import io.reactivex.rxjava3.core.Flowable;
+
 public abstract class BaseMergePolicyTest extends BasePartitionHandlingTest {
 
    private static final Log log = LogFactory.getLog(BaseMergePolicyTest.class);
@@ -118,7 +120,7 @@ public abstract class BaseMergePolicyTest extends BasePartitionHandlingTest {
             assertNull(icv, message);
          }
       }
-      assertEquals(0, cm.getConflicts().count());
+      assertEquals(0L, (long) Flowable.fromPublisher(cm.getConflictsPublisher()).count().blockingGet());
    }
 
    public void testPartitionMergePolicy() throws Exception {

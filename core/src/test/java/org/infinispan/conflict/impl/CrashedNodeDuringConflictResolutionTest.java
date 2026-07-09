@@ -34,6 +34,7 @@ import org.infinispan.util.logging.Log;
 import org.infinispan.util.logging.LogFactory;
 import org.testng.annotations.Test;
 
+import io.reactivex.rxjava3.core.Flowable;
 
 /**
  * 1. Partition cluster
@@ -128,7 +129,10 @@ public class CrashedNodeDuringConflictResolutionTest extends BaseMergePolicyTest
             assertEquals(valueAfterMerge, icv.getValue(), message);
          }
       }
-      assertEquals(0, cm.getConflicts().peek(m -> log.errorf("Conflict: " + m)).count());
+      assertEquals(0L, (long) Flowable.fromPublisher(cm.getConflictsPublisher())
+                  .doOnNext(m -> log.errorf("Conflict: " + m))
+                  .count()
+                  .blockingGet());
    }
 
    private CompletableFuture<ConflictResolutionStartCommand> createStateRequestFuture() {

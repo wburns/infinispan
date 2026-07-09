@@ -5,9 +5,9 @@ ConflictManager<Integer, String> crm = ConflictManagerFactory.get(cache.getAdvan
 // Get all versions of a key
 Map<Address, InternalCacheValue<String>> versions = crm.getAllVersions(1);
 
-// Process conflicts stream and perform some operation on the cache
-Stream<Map<Address, CacheEntry<Integer, String>>> conflicts = crm.getConflicts();
-conflicts.forEach(map -> {
+// Process conflicts and perform some operation on the cache
+Publisher<Map<Address, CacheEntry<Integer, String>>> conflicts = crm.getConflictsPublisher();
+Flowable.fromPublisher(conflicts).blockingForEach(map -> {
    CacheEntry<Integer, String> entry = map.values().iterator().next();
    Object conflictKey = entry.getKey();
    cache.remove(conflictKey);

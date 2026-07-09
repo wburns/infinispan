@@ -9,6 +9,7 @@ import org.infinispan.distribution.DistributionInfo;
 import org.infinispan.factories.scopes.Scope;
 import org.infinispan.factories.scopes.Scopes;
 import org.infinispan.remoting.transport.Address;
+import org.reactivestreams.Publisher;
 
 /**
  * @author Ryan Emerson
@@ -35,13 +36,25 @@ public interface ConflictManager<K, V> {
 
    /**
     * Returns a stream of conflicts detected in the cluster. This is a lazily-loaded stream which searches for conflicts
-    * by sequentially fetching cache segments from their respective owner nodes.  If a rebalance is initiated whilst the
+    * by sequentially fetching cache segments from their respective owner nodes. If a rebalance is initiated whilst the
     * stream is fetching a cache segment, then a CacheException is thrown when executing the stream.
     *
     * @return a stream of Map&lt;Address, CacheEntry&gt; for all conflicts detected throughout this cache.
     * @throws IllegalStateException if called whilst a previous conflicts stream is still executing or state transfer is in progress.
+    * @deprecated Use {@link #getConflictsPublisher()} instead for non-blocking conflict detection.
     */
+   @Deprecated(forRemoval = true)
    Stream<Map<Address, CacheEntry<K, V>>> getConflicts();
+
+   /**
+    * Returns a publisher of conflicts detected in the cluster. Conflicts are lazily loaded by sequentially fetching
+    * cache segments from their respective owner nodes. If a rebalance is initiated whilst the publisher is fetching
+    * a cache segment, then a CacheException is emitted.
+    *
+    * @return a publisher of Map&lt;Address, CacheEntry&gt; for all conflicts detected throughout this cache.
+    * @throws IllegalStateException if called whilst a previous conflict resolution is still executing or state transfer is in progress.
+    */
+   Publisher<Map<Address, CacheEntry<K, V>>> getConflictsPublisher();
 
    /**
     * Utilises {@link ConflictManager#getConflicts()} to discover conflicts between Key replicas and utilises the configured

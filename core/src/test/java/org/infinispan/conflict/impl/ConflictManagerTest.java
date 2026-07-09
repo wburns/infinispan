@@ -22,7 +22,6 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.IntConsumer;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
-import java.util.stream.Stream;
 
 import org.infinispan.AdvancedCache;
 import org.infinispan.commands.remote.CacheRpcCommand;
@@ -61,6 +60,8 @@ import org.infinispan.test.TestException;
 import org.infinispan.test.TestingUtil;
 import org.infinispan.testing.Exceptions;
 import org.testng.annotations.Test;
+
+import io.reactivex.rxjava3.core.Flowable;
 
 @Test(groups = "functional", testName = "conflict.resolution.ConflictManagerTest")
 public class ConflictManagerTest extends BasePartitionHandlingTest {
@@ -142,7 +143,7 @@ public class ConflictManagerTest extends BasePartitionHandlingTest {
       waitForClusterToForm(CACHE_NAME);
       CountDownLatch latch = new CountDownLatch(1);
       cancelStateTransfer(latch);
-      Future<Long> f = fork(() -> getConflicts(0).count());
+      Future<Long> f = fork(() -> countConflicts(0));
       if (!latch.await(10, TimeUnit.SECONDS)) {
          throw new TestException("No state transfer cancelled");
       }
@@ -174,9 +175,9 @@ public class ConflictManagerTest extends BasePartitionHandlingTest {
       waitForClusterToForm(CACHE_NAME);
       IntStream.range(0, NUMBER_OF_CACHE_ENTRIES).forEach(i -> getCache(0).put(i, "v" + i));
       final int cacheIndex = numMembersInCluster - 1;
-      assertEquals(0, getConflicts(cacheIndex).count());
+      assertEquals(0, countConflicts(cacheIndex));
       introduceCacheConflicts();
-      List<Map<Address, CacheEntry<Object, Object>>> conflicts = getConflicts(cacheIndex).collect(Collectors.toList());
+      List<Map<Address, CacheEntry<Object, Object>>> conflicts = getConflicts(cacheIndex).toList().blockingGet();
 
       assertEquals(INCONSISTENT_VALUE_INCREMENT, conflicts.size());
       for (Map<Address, CacheEntry<Object, Object>> map : conflicts) {
@@ -201,9 +202,9 @@ public class ConflictManagerTest extends BasePartitionHandlingTest {
       MagicKey key = new MagicKey(cache(0), cache(1));
       cache.put(key, 1);
       cache.withFlags(Flag.CACHE_MODE_LOCAL).put(key, 2);
-      assertEquals(1, getConflicts(0).count());
+      assertEquals(1, countConflicts(0));
       cm.resolveConflicts(((preferredEntry, otherEntries) -> preferredEntry));
-      assertEquals(0, getConflicts(0).count());
+      assertEquals(0, countConflicts(0));
    }
 
    public void testCacheOperationOnConflictStream() {
@@ -213,11 +214,12 @@ public class ConflictManagerTest extends BasePartitionHandlingTest {
       MagicKey key = new MagicKey(cache(0), cache(1));
       cache.put(key, 1);
       cache.withFlags(Flag.CACHE_MODE_LOCAL).put(key, 2);
-      cm.getConflicts().forEach(map -> {
-         CacheEntry<Object, Object> entry = map.values().iterator().next();
-         Object conflictKey = entry.getKey();
-         cache.remove(conflictKey);
-      });
+      Flowable.fromPublisher(cm.getConflictsPublisher())
+            .blockingForEach(map -> {
+               CacheEntry<Object, Object> entry = map.values().iterator().next();
+               Object conflictKey = entry.getKey();
+               cache.remove(conflictKey);
+            });
       assertTrue(cache.isEmpty());
    }
 
@@ -284,8 +286,12 @@ public class ConflictManagerTest extends BasePartitionHandlingTest {
       return advancedCache(index, CACHE_NAME);
    }
 
-   private Stream<Map<Address, CacheEntry<Object, Object>>> getConflicts(int index) {
-      return ConflictManagerFactory.get(getCache(index)).getConflicts();
+   private Flowable<Map<Address, CacheEntry<Object, Object>>> getConflicts(int index) {
+      return Flowable.fromPublisher(ConflictManagerFactory.get(getCache(index)).getConflictsPublisher());
+   }
+
+   private long countConflicts(int index) {
+      return getConflicts(index).count().blockingGet();
    }
 
    private Map<Address, InternalCacheValue<Object>> getAllVersions(int index, Object key) {
