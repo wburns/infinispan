@@ -230,10 +230,8 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
 
    private static final Log log = LogFactory.getLog(DefaultConflictManager.class);
 
-   private static final int BUCKET_COUNT = SegmentHasher.DEFAULT_BUCKET_COUNT;
    private static final int SMALL_SEGMENT_THRESHOLD = 64;
    private static final int SEGMENT_CONCURRENCY = 4;
-   private static final IntSet ALL_BUCKETS = IntSets.immutableRangeSet(BUCKET_COUNT);
    private static final long localFlags = FlagBitSets.CACHE_MODE_LOCAL | FlagBitSets.SKIP_OWNERSHIP_CHECK | FlagBitSets.SKIP_LOCKING;
    private static final long userMergeFlags = FlagBitSets.IGNORE_RETURN_VALUES;
    private static final long autoMergeFlags = FlagBitSets.IGNORE_RETURN_VALUES | FlagBitSets.PUT_FOR_STATE_TRANSFER | FlagBitSets.SKIP_REMOTE_LOOKUP;
@@ -274,9 +272,13 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
    Marshaller internalMarshaller;
    @Inject
    InternalDataContainer<K, V> dataContainer;
+   @Inject
+   SegmentHashTracker segmentHashTracker;
 
    private Address localAddress;
    private long conflictTimeout;
+   private int bucketCount;
+   private IntSet allBuckets;
    private EntryMergePolicy<K, V> entryMergePolicy;
    private final AtomicBoolean streamInProgress = new AtomicBoolean();
    private final Map<K, VersionRequest> versionRequestMap = new HashMap<>();
@@ -290,6 +292,8 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
 
       PartitionHandlingConfiguration config = cacheConfiguration.clustering().partitionHandling();
       this.entryMergePolicy = mergePolicyRegistry.createInstance(config);
+      this.bucketCount = config.hashBuckets();
+      this.allBuckets = IntSets.immutableRangeSet(bucketCount);
 
       // TODO make this an explicit configuration param in PartitionHandlingConfiguration
       this.conflictTimeout = cacheConfiguration.clustering().stateTransfer().timeout();
@@ -738,7 +742,7 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
          LocalizedCacheTopology topology) {
       try {
          int totalSegments = topology.getWriteConsistentHash().getNumSegments();
-         SegmentHasher hasher = new SegmentHasher(dataContainer, internalMarshaller);
+         boolean useTracker = segmentHashTracker != null && segmentHashTracker.isEnabled();
          Map<Integer, Map<Address, List<BucketHash>>> result = new HashMap<>();
 
          Map<Address, IntSet> remoteOwnerSegments = new HashMap<>();
@@ -760,7 +764,9 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
          }
 
          if (!localSegments.isEmpty()) {
-            List<BucketHash> localHashes = hasher.computeAllBucketHashes(localSegments, BUCKET_COUNT);
+            List<BucketHash> localHashes = useTracker
+                  ? segmentHashTracker.getAllBucketHashes(localSegments)
+                  : new SegmentHasher(dataContainer, internalMarshaller).computeAllBucketHashes(localSegments, bucketCount);
             for (BucketHash bh : localHashes) {
                result.computeIfAbsent(bh.segmentId(), s -> new HashMap<>())
                      .computeIfAbsent(localAddress, a -> new ArrayList<>())
@@ -776,7 +782,7 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
          for (Map.Entry<Address, IntSet> entry : remoteOwnerSegments.entrySet()) {
             Address remoteAddr = entry.getKey();
             GetBucketHashesCommand cmd = commandsFactory.buildGetBucketHashesCommand(
-                  topology.getTopologyId(), entry.getValue(), BUCKET_COUNT);
+                  topology.getTopologyId(), entry.getValue(), bucketCount);
             CompletableFuture<Void> rpcFuture = rpcManager.invokeCommand(
                         List.of(remoteAddr), cmd,
                         MapResponseCollector.ignoreLeavers(1),
@@ -807,8 +813,8 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
                   return result;
                })
                .exceptionally(t -> {
-                  if (log.isTraceEnabled())
-                     log.tracef("Cache %s bucket hash prefetch failed: %s", cacheName, t.getMessage());
+                  if (log.isDebugEnabled())
+                     log.debugf("Cache %s bucket hash prefetch failed: %s", cacheName, t.getMessage());
                   return Collections.emptyMap();
                });
       } catch (Exception e) {
@@ -840,7 +846,7 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
 
       // Validate bucket counts
       for (List<BucketHash> buckets : segmentHashes.values()) {
-         if (buckets.size() != BUCKET_COUNT) return null;
+         if (buckets.size() != bucketCount) return null;
       }
 
       // Compare segment-level hashes (derived from bucket hashes) and track max entry count
@@ -869,13 +875,13 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
          if (log.isTraceEnabled())
             log.tracef("Cache %s segment %s is small (%d entries max), fetching all entries",
                   cacheName, segmentId, maxEntries);
-         return ALL_BUCKETS;
+         return allBuckets;
       }
 
       // Large segment — identify which buckets differ
       List<List<BucketHash>> allBucketLists = new ArrayList<>(segmentHashes.values());
-      IntSet mismatched = IntSets.mutableEmptySet(BUCKET_COUNT);
-      for (int b = 0; b < BUCKET_COUNT; b++) {
+      IntSet mismatched = IntSets.mutableEmptySet(bucketCount);
+      for (int b = 0; b < bucketCount; b++) {
          BucketHash ref = allBucketLists.get(0).get(b);
          for (int i = 1; i < allBucketLists.size(); i++) {
             if (!ref.matches(allBucketLists.get(i).get(b))) {
@@ -887,7 +893,7 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
 
       if (log.isTraceEnabled())
          log.tracef("Cache %s segment %s bucket hash comparison: %d of %d buckets mismatched",
-               cacheName, segmentId, mismatched.size(), BUCKET_COUNT);
+               cacheName, segmentId, mismatched.size(), bucketCount);
 
       return mismatched;
    }
@@ -900,7 +906,7 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
    private CompletionStage<List<Map<Address, CacheEntry<K, V>>>> getReplicasForBucketsAsync(
          int segmentId, IntSet bucketIds, LocalizedCacheTopology topology) {
       List<Address> writeOwners = topology.getSegmentDistribution(segmentId).writeOwners();
-      boolean allBuckets = bucketIds.size() >= BUCKET_COUNT;
+      boolean allBuckets = bucketIds.size() >= bucketCount;
       Map<K, Map<Address, CacheEntry<K, V>>> keyReplicaMap = new HashMap<>();
 
       if (writeOwners.contains(localAddress)) {
@@ -908,7 +914,7 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
          Iterator<InternalCacheEntry<K, V>> it = dataContainer.iterator(IntSets.immutableSet(segmentId));
          while (it.hasNext()) {
             InternalCacheEntry<K, V> entry = it.next();
-            if (allBuckets || bucketIds.contains(hasher.bucketForKey(entry.getKey(), BUCKET_COUNT))) {
+            if (allBuckets || bucketIds.contains(hasher.bucketForKey(entry.getKey(), bucketCount))) {
                addToReplicaMap(keyReplicaMap, localAddress, entry, writeOwners);
             }
          }
@@ -921,7 +927,7 @@ public class DefaultConflictManager<K, V> implements InternalConflictManager<K, 
       }
 
       GetBucketEntriesCommand cmd = commandsFactory.buildGetBucketEntriesCommand(
-            topology.getTopologyId(), segmentId, bucketIds, BUCKET_COUNT);
+            topology.getTopologyId(), segmentId, bucketIds, bucketCount);
       MapResponseCollector collector = MapResponseCollector.ignoreLeavers(remoteOwners.size());
       return rpcManager.invokeCommand(remoteOwners, cmd, collector, rpcManager.getSyncRpcOptions())
             .thenApply(responseMap -> {

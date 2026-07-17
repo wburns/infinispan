@@ -23,7 +23,7 @@ import org.infinispan.container.impl.InternalDataContainer;
 public class SegmentHasher {
 
    public static final int DEFAULT_BUCKET_COUNT = 32;
-   private static final int HASH_SEED = 9001;
+   static final int HASH_SEED = 9001;
 
    private final InternalDataContainer<?, ?> dataContainer;
    private final Marshaller marshaller;
@@ -115,18 +115,53 @@ public class SegmentHasher {
       }
    }
 
-   private long hashEntry(InternalCacheEntry<?, ?> entry) {
+   public record HashAndBucket(long hash, int bucket) {}
+
+   public static long computeEntryHash(Object key, Object value, Marshaller marshaller) {
       try {
-         byte[] keyBytes = marshaller.objectToByteBuffer(entry.getKey());
-         byte[] valueBytes = marshaller.objectToByteBuffer(entry.getValue());
+         byte[] keyBytes = marshaller.objectToByteBuffer(key);
+         byte[] valueBytes = marshaller.objectToByteBuffer(value);
          return MurmurHash3.MurmurHash3_x64_64(keyBytes, HASH_SEED)
                ^ MurmurHash3.MurmurHash3_x64_64(valueBytes, HASH_SEED);
       } catch (IOException | InterruptedException e) {
          if (e instanceof InterruptedException) {
             Thread.currentThread().interrupt();
          }
-         throw new RuntimeException("Failed to marshal entry for segment hashing", e);
+         throw new RuntimeException("Failed to marshal entry for hashing", e);
       }
+   }
+
+   public static int computeBucket(Object key, int bucketCount, Marshaller marshaller) {
+      try {
+         byte[] keyBytes = marshaller.objectToByteBuffer(key);
+         long keyHash = MurmurHash3.MurmurHash3_x64_64(keyBytes, HASH_SEED);
+         return (int) (keyHash & (bucketCount - 1));
+      } catch (IOException | InterruptedException e) {
+         if (e instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+         }
+         throw new RuntimeException("Failed to marshal key for bucket assignment", e);
+      }
+   }
+
+   public static HashAndBucket computeHashAndBucket(Object key, Object value, int bucketCount, Marshaller marshaller) {
+      try {
+         byte[] keyBytes = marshaller.objectToByteBuffer(key);
+         byte[] valueBytes = marshaller.objectToByteBuffer(value);
+         long keyHash = MurmurHash3.MurmurHash3_x64_64(keyBytes, HASH_SEED);
+         int bucket = (int) (keyHash & (bucketCount - 1));
+         long entryHash = keyHash ^ MurmurHash3.MurmurHash3_x64_64(valueBytes, HASH_SEED);
+         return new HashAndBucket(entryHash, bucket);
+      } catch (IOException | InterruptedException e) {
+         if (e instanceof InterruptedException) {
+            Thread.currentThread().interrupt();
+         }
+         throw new RuntimeException("Failed to marshal entry for hashing", e);
+      }
+   }
+
+   private long hashEntry(InternalCacheEntry<?, ?> entry) {
+      return computeEntryHash(entry.getKey(), entry.getValue(), marshaller);
    }
 
    @SuppressWarnings("unchecked")
