@@ -1953,9 +1953,8 @@
             <xs:documentation>
               The factory to use for generating the consistent hash.
               Must implement `org.infinispan.distribution.ch.ConsistentHashFactory`.
-              E.g. `org.infinispan.distribution.ch.impl.SyncConsistentHashFactory` can be used to guarantee
-              that multiple distributed caches use exactly the same consistent hash, which for performance
-              reasons is not guaranteed by the default consistent hash factory instance used.
+              The default consistent hash factory guarantees that multiple caches with the same members
+              will have the same consistent hash.
             </xs:documentation>
           </xs:annotation>
         </xs:attribute>

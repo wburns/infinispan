@@ -48,7 +48,7 @@ public class MixedModeTest extends MultipleCacheManagersTest {
       localCache1 = cache(0, "local").getAdvancedCache();
       localCache2 = cache(1, "local").getAdvancedCache();
 
-      // With the default SyncConsistentHashFactory, the same key will work for all caches
+      // With the default consistent hash factory, the same key will work for all caches
       MagicKey key = new MagicKey("k", replAsyncCache1);
       invalSyncCache2.withFlags(CACHE_MODE_LOCAL).put(key, "v");
       assertEquals("v", invalSyncCache2.get(key));

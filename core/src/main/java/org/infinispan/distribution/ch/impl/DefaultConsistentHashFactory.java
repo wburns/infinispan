@@ -165,7 +165,6 @@ public class DefaultConsistentHashFactory extends AbstractConsistentHashFactory<
       // Find the node with the worst primary-owned-segments-to-capacity ratio W.
       // Iterate over all the segments primary-owned by W, and if possible replace it with another node.
       // After replacing, check that W is still the worst node. If not, repeat with the new worst node.
-      // Keep track of the segments where we already replaced the primary owner, so we don't do it twice. ???
       boolean primaryOwnerReplaced = true;
       while (primaryOwnerReplaced) {
          Address worstNode = findWorstPrimaryOwner(builder, builder.getMembers());
@@ -259,9 +258,10 @@ public class DefaultConsistentHashFactory extends AbstractConsistentHashFactory<
       float maxSegmentsPerCapacity = -1;
       for (Address owner : nodes) {
          float capacityFactor = builder.getCapacityFactor(owner);
-         if (worst == null || builder.getOwned(owner) - 1 >= capacityFactor * maxSegmentsPerCapacity) {
+         float ratio = capacityFactor != 0 ? (builder.getOwned(owner) - 1) / capacityFactor : 0;
+         if (ratio > maxSegmentsPerCapacity || (ratio == maxSegmentsPerCapacity && isLowerUUID(owner, worst))) {
             worst = owner;
-            maxSegmentsPerCapacity = capacityFactor != 0 ? (builder.getOwned(owner) - 1) / capacityFactor : 0;
+            maxSegmentsPerCapacity = ratio;
          }
       }
       return worst;
@@ -324,15 +324,16 @@ public class DefaultConsistentHashFactory extends AbstractConsistentHashFactory<
       // won't try to switch them back.
       Address best = null;
       float initialCapacityFactor = owner != null ? builder.getCapacityFactor(owner) : 0;
-      float bestSegmentsPerCapacity = initialCapacityFactor != 0 ? (builder.getOwned(owner) - 1 ) / initialCapacityFactor :
+      float bestSegmentsPerCapacity = initialCapacityFactor != 0 ? (builder.getOwned(owner) - 1) / initialCapacityFactor :
             Float.MAX_VALUE;
       for (Address candidate : builder.getMembers()) {
          if (excludes == null || !excludes.contains(candidate)) {
             int owned = builder.getOwned(candidate);
             float capacityFactor = builder.getCapacityFactor(candidate);
-            if ((owned + 1) <= capacityFactor * bestSegmentsPerCapacity) {
+            float ratio = capacityFactor != 0 ? (owned + 1) / capacityFactor : Float.MAX_VALUE;
+            if (ratio < bestSegmentsPerCapacity || (ratio == bestSegmentsPerCapacity && isLowerUUID(candidate, best))) {
                best = candidate;
-               bestSegmentsPerCapacity = (owned + 1) / capacityFactor;
+               bestSegmentsPerCapacity = ratio;
             }
          }
       }

@@ -33,9 +33,10 @@ public abstract class AbstractConsistentHashFactory<CH extends ConsistentHash> i
       float maxSegmentsPerCapacity = -1;
       for (Address owner : nodes) {
          float capacityFactor = builder.getCapacityFactor(owner);
-         if (builder.getPrimaryOwned(owner) - 1 >= capacityFactor * maxSegmentsPerCapacity) {
+         float ratio = capacityFactor != 0 ? (builder.getPrimaryOwned(owner) - 1) / capacityFactor : 0;
+         if (ratio > maxSegmentsPerCapacity || (ratio == maxSegmentsPerCapacity && isLowerUUID(owner, worst))) {
             worst = owner;
-            maxSegmentsPerCapacity = capacityFactor != 0 ? (builder.getPrimaryOwned(owner) - 1) / capacityFactor : 0;
+            maxSegmentsPerCapacity = ratio;
          }
       }
       return worst;
@@ -57,12 +58,25 @@ public abstract class AbstractConsistentHashFactory<CH extends ConsistentHash> i
       for (Address candidate : candidates) {
          int primaryOwned = builder.getPrimaryOwned(candidate);
          float capacityFactor = builder.getCapacityFactor(candidate);
-         if ((primaryOwned + 1) <= capacityFactor * bestSegmentsPerCapacity) {
+         float ratio = capacityFactor != 0 ? (primaryOwned + 1) / capacityFactor : Float.MAX_VALUE;
+         if (ratio < bestSegmentsPerCapacity || (ratio == bestSegmentsPerCapacity && isLowerUUID(candidate, best))) {
             best = candidate;
-            bestSegmentsPerCapacity = (primaryOwned + 1) / capacityFactor;
+            bestSegmentsPerCapacity = ratio;
          }
       }
       return best;
+   }
+
+   /**
+    * Stable UUID-based tiebreaker: returns true if {@code a} should be preferred over {@code b}
+    * when their load ratios are equal. Uses MSB first, then LSB, so the result is independent
+    * of member list order and therefore independent of join order across caches.
+    */
+   static boolean isLowerUUID(Address a, Address b) {
+      if (b == null) return true;
+      int msbCmp = Long.compare(a.getMostSignificantBits(), b.getMostSignificantBits());
+      if (msbCmp != 0) return msbCmp < 0;
+      return Long.compare(a.getLeastSignificantBits(), b.getLeastSignificantBits()) < 0;
    }
 
    abstract static class Builder {

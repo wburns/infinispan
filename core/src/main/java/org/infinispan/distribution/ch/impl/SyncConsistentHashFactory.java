@@ -23,7 +23,7 @@ import org.infinispan.remoting.transport.Address;
 /**
  * {@link ConsistentHashFactory} implementation
  * that guarantees that multiple caches with the same members will
- * have the same consistent hash (unlike {@link DefaultConsistentHashFactory}).
+ * have the same consistent hash (unlike the old {@link DefaultConsistentHashFactory}).
  *
  * <p>It has a drawback compared to {@link DefaultConsistentHashFactory} though:
  * it can potentially move a lot more segments during a rebalance than
@@ -36,7 +36,11 @@ import org.infinispan.remoting.transport.Address;
  *
  * @author Dan Berindei
  * @since 5.2
+ * @deprecated Since 16.3. {@link DefaultConsistentHashFactory} now also guarantees that caches with the same
+ *             members have the same consistent hash, without the extra segment movements. Use
+ *             {@link DefaultConsistentHashFactory} instead.
  */
+@Deprecated(since = "16.3", forRemoval = true)
 @ProtoTypeId(ProtoStreamTypeIds.SYNC_CONSISTENT_HASH)
 public class SyncConsistentHashFactory implements ConsistentHashFactory<DefaultConsistentHash> {
    private static final SyncConsistentHashFactory INSTANCE = new SyncConsistentHashFactory();

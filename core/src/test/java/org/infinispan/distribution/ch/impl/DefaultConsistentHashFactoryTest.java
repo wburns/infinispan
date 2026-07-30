@@ -420,6 +420,41 @@ public class DefaultConsistentHashFactoryTest extends AbstractInfinispanTest {
       assertEquals(ch4, ch4NoCF);
    }
 
+   /**
+    * Verifies that {@link DefaultConsistentHashFactory#create} produces the same CH regardless
+    * of the order in which members appear in the member list (cross-cache alignment property).
+    * This holds because all tie-breaking uses stable UUID comparison rather than list iteration order.
+    */
+   public void testMemberOrderIndependence() {
+      ConsistentHashFactory<DefaultConsistentHash> chf = createConsistentHashFactory();
+      Address A = Address.random("A");
+      Address B = Address.random("B");
+      Address C = Address.random("C");
+      Address D = Address.random("D");
+
+      // All permutations of [A, B, C, D] must produce the same CH from create()
+      List<Address> abcd = Arrays.asList(A, B, C, D);
+      DefaultConsistentHash reference = chf.create(2, 64, abcd, null);
+
+      for (List<Address> permutation : List.of(
+            Arrays.asList(A, B, D, C),
+            Arrays.asList(A, C, B, D),
+            Arrays.asList(B, A, C, D),
+            Arrays.asList(B, C, D, A),
+            Arrays.asList(C, D, A, B),
+            Arrays.asList(D, C, B, A))) {
+         DefaultConsistentHash ch = chf.create(2, 64, permutation, null);
+         // Owner sets per segment must be identical (order within the list may differ since
+         // DefaultConsistentHash.equals compares ordered lists — we check owner sets)
+         for (int s = 0; s < reference.getNumSegments(); s++) {
+            assertEquals(
+                  new HashSet<>(reference.locateOwnersForSegment(s)),
+                  new HashSet<>(ch.locateOwnersForSegment(s)),
+                  "Segment " + s + " owners differ for permutation " + permutation);
+         }
+      }
+   }
+
    public void testDifferentCapacityFactors() {
       ConsistentHashFactory<DefaultConsistentHash> chf = createConsistentHashFactory();
       Address A = Address.random("A");

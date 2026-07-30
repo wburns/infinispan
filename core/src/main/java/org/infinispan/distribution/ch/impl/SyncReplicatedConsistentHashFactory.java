@@ -22,7 +22,9 @@ import org.infinispan.remoting.transport.Address;
  *
  * @author Dan Berindei
  * @since 8.2
+ * @deprecated Since 16.3. Use {@link ReplicatedConsistentHashFactory} instead.
  */
+@Deprecated(since = "16.3", forRemoval = true)
 @ProtoTypeId(ProtoStreamTypeIds.SYNC_REPLICATED_CONSISTENT_HASH)
 public class SyncReplicatedConsistentHashFactory implements ConsistentHashFactory<ReplicatedConsistentHash> {
    private static final SyncReplicatedConsistentHashFactory INSTANCE = new SyncReplicatedConsistentHashFactory();
