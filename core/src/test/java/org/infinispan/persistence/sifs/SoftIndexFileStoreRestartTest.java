@@ -289,6 +289,43 @@ public class SoftIndexFileStoreRestartTest extends BaseDistStoreTest<Integer, St
       createCacheManagers();
    }
 
+   public void testGracefulRestartPreservesBufferedUpdates() throws Throwable {
+      Cache<Integer, String> cache = cache(0, cacheName);
+      // Keep the number of distinct keys per segment below the default flush-mutation-count so the index
+      // updates stay buffered in memory and are only persisted by the flush that saveTree performs on a
+      // graceful stop. A graceful restart loads the persisted B+ tree rather than rebuilding it from the data
+      // log, so a missing stop-time flush would leave these entries absent from the reloaded index.
+      int size = 50;
+      for (int i = 0; i < size; i++) {
+         cache.put(i, "value-" + i);
+      }
+      // Repeatedly overwrite one key so its index update is a coalesced in-place value overwrite, exercising
+      // the buffered dirty-overwrite path in addition to the structural inserts above.
+      int hot = 7;
+      for (int v = 0; v < 30; v++) {
+         cache.put(hot, "hot-" + v);
+      }
+      assertEquals(size, cache.size());
+
+      killMember(0, cacheName);
+
+      // A graceful stop must have written the index stats file, so the restart loads the persisted index
+      // instead of rebuilding it from the data log.
+      long actualSize = SoftIndexFileStoreTestUtils.dataDirectorySize(tmpDirectory, cacheName);
+      SoftIndexFileStoreTestUtils.StatsValue stats =
+            SoftIndexFileStoreTestUtils.readStatsFile(tmpDirectory, cacheName, log);
+      assertEquals(actualSize, stats.getStatsSize());
+
+      createCacheManagers();
+
+      cache = cache(0, cacheName);
+      assertEquals(size, cache.size());
+      for (int i = 0; i < size; i++) {
+         String expected = i == hot ? "hot-29" : "value-" + i;
+         assertEquals(expected, cache.get(i), "Wrong value for key " + i + " after graceful restart");
+      }
+   }
+
    public void testRestartCompactorNotComplete() throws Throwable {
       if (fileSize > 320_000) {
          // Don't test larger as tests take way too long
