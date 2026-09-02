@@ -7,10 +7,8 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Deque;
-import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
-import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.infinispan.commons.util.ByRef;
@@ -48,25 +46,18 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
    private final NodeStore store;
    private final ValueSerializer<V> serializer;
    private final KeyLoader<V> keyLoader;
-   private final List<NodeSpace> pendingFrees = new ArrayList<>();
+   /**
+    * Blocks vacated by structural mutations, pending reclamation. In eager mode {@link #afterMutation()}
+    * frees them immediately; {@link BufferedSoftBPlusTree} instead defers reclamation until its flush so a
+    * replaced block is never reused while the on-disk tree still references it.
+    */
+   protected final List<NodeSpace> pendingFrees = new ArrayList<>();
    private final ByteBuffer serializeBuffer;
    private final short blockAlignment;
    private final long initialStoreSize;
    private long storeSize;
    @SuppressWarnings("unchecked")
    private List<NodeSpace>[] freeBlocks = new List[0];
-   /** When true, mutations buffer their writes until {@link #flush()} instead of persisting eagerly. */
-   private boolean deferWrites;
-   /** True when buffered mutations have not yet been persisted via {@link #flush()}. */
-   private boolean dirty;
-   /** SoftNodes whose backing leaf received in-place value overwrites that are pending a flush. */
-   private final Set<SoftNode<V>> dirtyOverwrites = new HashSet<>();
-   /**
-    * Every SoftNode currently pinned on the path(s) to a buffered overwrite. The whole path from
-    * the top-level child down to the leaf must be pinned: pinning only the leaf would let GC clear
-    * an ancestor SoftReference, reload the ancestor, and orphan the pinned leaf (serving stale bytes).
-    */
-   private final Set<SoftNode<V>> pinnedNodes = new HashSet<>();
 
    /**
     * Creates a disk-backed B+ tree with block-aligned free space management.
@@ -141,7 +132,7 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
       return new NodeSpace(offset, aligned);
    }
 
-   private void freeBlock(long offset, short occupiedSpace) {
+   protected void freeBlock(long offset, short occupiedSpace) {
       if (offset + occupiedSpace == storeSize) {
          storeSize = offset;
       } else {
@@ -164,25 +155,6 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
    /** Sets the logical size of the backing store, typically restored from a persisted header. */
    public void setStoreSize(long size) {
       this.storeSize = size;
-   }
-
-   /**
-    * Enables or disables write buffering. When enabled, {@link #put} and {@link #remove}
-    * defer all node writes until {@link #flush()} (or {@link #saveTree()}) is called, so
-    * repeated mutations of the same nodes coalesce into a single write. When disabled
-    * (the default) every mutation persists its modified path immediately.
-    */
-   public void setDeferWrites(boolean deferWrites) {
-      this.deferWrites = deferWrites;
-   }
-
-   public boolean isDeferWrites() {
-      return deferWrites;
-   }
-
-   /** @return true if there are buffered mutations not yet persisted via {@link #flush()}. */
-   public boolean isDirty() {
-      return dirty;
    }
 
    /**
@@ -246,26 +218,9 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
    @Override
    protected void onChildrenReplaced(Node<V>[] oldChildren, int from, int to) {
       for (int i = from; i <= to; i++) {
-         collectFreedNodes(oldChildren[i]);
-      }
-   }
-
-   private void collectFreedNodes(Node<V> node) {
-      if (node instanceof SoftNode<V> soft) {
-         pendingFrees.add(new NodeSpace(soft.diskOffset, soft.occupiedSpace));
-         // This node is being replaced structurally; the replacement carries any overwritten value
-         // forward, so drop the now-stale buffered write and release the pin.
-         dirtyOverwrites.remove(soft);
-         if (pinnedNodes.remove(soft)) {
-            soft.clearPin();
+         if (oldChildren[i] instanceof SoftNode<V> soft) {
+            pendingFrees.add(new NodeSpace(soft.diskOffset, soft.occupiedSpace));
          }
-      }
-   }
-
-   /** Pins a SoftNode with a strong reference to its resolved node until the next {@link #flush()}. */
-   private void pin(SoftNode<V> node) {
-      if (pinnedNodes.add(node)) {
-         node.markDirtyPinned(node.resolve());
       }
    }
 
@@ -276,19 +231,6 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
       PathEntry<V> parent = stack.peek();
       Node<V> childNode = parent.node().children[parent.index()];
       if (!(childNode instanceof SoftNode<V> softNode)) return;
-      if (deferWrites) {
-         // Pin every SoftNode on the path (top-level child down to the leaf) so no ancestor can be
-         // reloaded and orphan the mutated leaf, then record the leaf for a single coalesced
-         // in-place write at flush time. Plain (non-Soft) ancestors are already GC-safe.
-         for (PathEntry<V> pathEntry : stack) {
-            if (pathEntry.node().children[pathEntry.index()] instanceof SoftNode<V> pathNode) {
-               pin(pathNode);
-            }
-         }
-         dirtyOverwrites.add(softNode);
-         dirty = true;
-         return;
-      }
       int valueSize = serializer.serializedSize(leaf.values[entryIndex]);
       int valueOffset = leaf.valuesOffset + entryIndex * valueSize;
       ByteBuffer data;
@@ -310,9 +252,6 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
    @Override
    protected boolean tryInPlaceLeafUpdate(Deque<PathEntry<V>> stack, LeafNode<V> oldLeaf,
          LeafNode<V> newLeaf) {
-      // In buffered mode structural leaf changes fall back to path-copy so the new nodes
-      // accumulate as strongly-referenced dirty nodes and coalesce until flush.
-      if (deferWrites) return false;
       if (stack.isEmpty()) return false;
 
       if (newLeaf.keys.length == 0) return false;
@@ -340,7 +279,7 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
 
          pendingFrees.add(new NodeSpace(oldSoftNode.diskOffset, oldSoftNode.occupiedSpace));
 
-         SoftNode<V> newSoftNode = new SoftNode<>(newLeaf, newSpace.offset, newSpace.occupiedSpace, this);
+         SoftNode<V> newSoftNode = newSoftNode(newLeaf, newSpace.offset, newSpace.occupiedSpace);
          parentEntry.node().children[parentEntry.index()] = newSoftNode;
 
          Iterator<PathEntry<V>> it = stack.iterator();
@@ -475,12 +414,6 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
    public void clear() {
       super.clear();
       pendingFrees.clear();
-      dirtyOverwrites.clear();
-      for (SoftNode<V> pinned : pinnedNodes) {
-         pinned.clearPin();
-      }
-      pinnedNodes.clear();
-      dirty = false;
       freeBlocks = new List[0];
       storeSize = initialStoreSize;
       try {
@@ -502,7 +435,6 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
     * @return the root's disk location, or null if the tree is empty
     */
    public NodeSpace saveTree() throws IOException {
-      flush();
       Node<V> r = getRoot();
       if (r instanceof LeafNode<V> leaf && leaf.values.length == 0) {
          return null;
@@ -527,14 +459,12 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
       setRoot(root);
    }
 
-   private void afterMutation() throws IOException {
-      if (deferWrites) {
-         // Defer both the writes and the frees: a replaced block must not be reclaimed (or, worse,
-         // truncate storeSize) while the on-disk tree still references it and its replacement has not
-         // yet been written. The accumulated frees are applied by flush() once the new nodes are on disk.
-         dirty = true;
-         return;
-      }
+   /**
+    * Applies the side effects of a completed {@link #put}/{@link #remove}. In eager mode this reclaims the
+    * blocks vacated by the mutation and persists any newly created nodes immediately. {@link
+    * BufferedSoftBPlusTree} overrides this to buffer both instead, coalescing them until its flush.
+    */
+   protected void afterMutation() throws IOException {
       for (NodeSpace ns : pendingFrees) {
          freeBlock(ns.offset, ns.occupiedSpace);
       }
@@ -545,7 +475,11 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
       }
    }
 
-   private void persistNewNodes(InnerNode<V> inner) throws IOException {
+   /**
+    * Persists every not-yet-persisted (plain, non-{@link SoftNode}) descendant of {@code inner}, converting
+    * each to a {@link SoftNode} pointing at its freshly written disk location. The root itself is not written.
+    */
+   protected void persistNewNodes(InnerNode<V> inner) throws IOException {
       for (int i = 0; i < inner.children.length; i++) {
          Node<V> child = inner.children[i];
          if (child instanceof SoftNode) continue;
@@ -553,42 +487,8 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
             persistNewNodes(childInner);
          }
          NodeSpace space = writeNodeToStore(child);
-         inner.children[i] = new SoftNode<>(child, space.offset, space.occupiedSpace, this);
+         inner.children[i] = newSoftNode(child, space.offset, space.occupiedSpace);
       }
-   }
-
-   /**
-    * Persists all buffered mutations to the store. Newly created nodes on modified paths are
-    * written and converted to {@link SoftNode}s; leaves that received in-place value overwrites
-    * are re-serialized once at their existing offset. The root itself is not written here — it is
-    * persisted separately by {@link #saveTree()}. After this returns every descendant of the root
-    * is a persisted {@link SoftNode} and the store reflects every mutation applied so far.
-    * <p>
-    * A no-op when nothing is buffered (including when write buffering is disabled).
-    */
-   public void flush() throws IOException {
-      if (!dirty) {
-         return;
-      }
-      Node<V> r = getRoot();
-      if (r instanceof InnerNode<V> inner) {
-         persistNewNodes(inner);
-      }
-      for (SoftNode<V> soft : dirtyOverwrites) {
-         writeNodeInPlace(soft.resolve(), soft.diskOffset, soft.occupiedSpace);
-      }
-      dirtyOverwrites.clear();
-      // The buffered overwrites are now on disk, so the pinned paths can be released for GC.
-      for (SoftNode<V> pinned : pinnedNodes) {
-         pinned.clearPin();
-      }
-      pinnedNodes.clear();
-      // Reclaim the blocks replaced during this batch only now that their replacements are on disk.
-      for (NodeSpace ns : pendingFrees) {
-         freeBlock(ns.offset, ns.occupiedSpace);
-      }
-      pendingFrees.clear();
-      dirty = false;
    }
 
    // Clearing the top-level SoftNode references is sufficient: when re-resolved from disk,
@@ -745,7 +645,7 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
     * originally allocated for the node (guaranteed for value overwrites, which keep every value's
     * fixed size and therefore the node's serialized length unchanged).
     */
-   private void writeNodeInPlace(Node<V> node, long offset, short occupiedSpace) throws IOException {
+   protected void writeNodeInPlace(Node<V> node, long offset, short occupiedSpace) throws IOException {
       serializeBuffer.clear();
       writeNode(node, serializer, serializeBuffer);
       serializeBuffer.flip();
@@ -848,7 +748,7 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
          for (int i = 0; i < childCount; i++) {
             long offset = buffer.getLong();
             short occupiedSpace = buffer.getShort();
-            children[i] = new SoftNode<>(offset, occupiedSpace, this);
+            children[i] = newSoftNode(offset, occupiedSpace);
          }
          return new InnerNode<>(prefix, keyParts, children);
       }
@@ -856,11 +756,24 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
 
    // --- SoftNode ---
 
-   static final class SoftNode<V> extends Node<V> {
+   /**
+    * Factory for the {@link SoftNode} handle wrapping an already-resolved node. Overridable so a subclass
+    * (e.g. {@link BufferedSoftBPlusTree}) can substitute a specialized handle type.
+    */
+   protected SoftNode<V> newSoftNode(Node<V> actual, long diskOffset, short occupiedSpace) {
+      return new SoftNode<>(actual, diskOffset, occupiedSpace, this);
+   }
+
+   /**
+    * Factory for the {@link SoftNode} handle for a node that is only known by its disk location (resolved
+    * lazily). Overridable so a subclass can substitute a specialized handle type.
+    */
+   protected SoftNode<V> newSoftNode(long diskOffset, short occupiedSpace) {
+      return new SoftNode<>(diskOffset, occupiedSpace, this);
+   }
+
+   static class SoftNode<V> extends Node<V> {
       private volatile SoftReference<Node<V>> reference;
-      // Strong reference that pins a mutated node whose buffered value overwrite has not yet been
-      // flushed, preventing the SoftReference from being cleared and reloaded with stale bytes.
-      private volatile Node<V> pin;
       final long diskOffset;
       final short occupiedSpace;
       private final SoftBPlusTree<V> tree;
@@ -886,10 +799,6 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
 
       @Override
       Node<V> resolve() {
-         Node<V> pinned = this.pin;
-         if (pinned != null) {
-            return pinned;
-         }
          Node<V> node;
          SoftReference<Node<V>> ref = this.reference;
          if (ref == null || (node = ref.get()) == null) {
@@ -927,18 +836,6 @@ public class SoftBPlusTree<V> extends BPlusTree<V> {
 
       void clearReference() {
          this.reference = null;
-      }
-
-      /**
-       * Pins {@code resolved} with a strong reference so it cannot be reclaimed and reloaded
-       * (stale) before a buffered value overwrite is flushed. See {@link #resolve()}.
-       */
-      void markDirtyPinned(Node<V> resolved) {
-         this.pin = resolved;
-      }
-
-      void clearPin() {
-         this.pin = null;
       }
 
       @Override

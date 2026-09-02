@@ -19,7 +19,6 @@ class IndexRequest extends CompletableFuture<Object> {
       FOUND_OLD,
       CLEAR,
       SYNC_REQUEST,
-      FLUSH,
    }
 
    private final Type type;
@@ -67,15 +66,6 @@ class IndexRequest extends CompletableFuture<Object> {
 
    public static IndexRequest clearRequest() {
       return new IndexRequest(Type.CLEAR, -1, null, null, -1, -1, -1, -1, -1);
-   }
-
-   /**
-    * Requests that any buffered index updates for the segment be persisted to disk. It is a no-op when the
-    * segment's tree has no buffered changes.
-    * @return the request
-    */
-   public static IndexRequest flushRequest() {
-      return new IndexRequest(Type.FLUSH, -1, null, null, -1, -1, -1, -1, -1);
    }
 
    /**

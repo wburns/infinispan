@@ -30,6 +30,7 @@ import org.infinispan.commons.util.concurrent.AggregateCompletionStage;
 import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.commons.util.concurrent.CompletionStages;
 import org.infinispan.executors.LimitedExecutor;
+import org.infinispan.util.BufferedSoftBPlusTree;
 import org.infinispan.util.SoftBPlusTree;
 import org.infinispan.util.SoftBPlusTree.IndexNodeOutdatedException;
 import org.infinispan.util.concurrent.NonBlockingManager;
@@ -156,8 +157,7 @@ class Index {
             break;
          case CLEAR:
          case DROPPED:
-         case FLUSH:
-            // Drop, clear and flush do nothing as we are already removing the index
+            // Drop and clear do nothing as we are already removing the index
       }
       ir.complete(null);
    }
@@ -803,10 +803,6 @@ class Index {
 
       volatile SoftBPlusTree<IndexEntry> tree;
 
-      // Number of mutating requests applied since the last flush. Only accessed from the segment's
-      // serialized request stream (accept), so it needs no synchronization.
-      private int mutationCount;
-
       private Segment(Index index, int id, TemporaryTable temporaryTable) {
          this.index = index;
          this.temporaryTable = temporaryTable;
@@ -817,12 +813,13 @@ class Index {
       }
 
       private SoftBPlusTree<IndexEntry> newTree() {
-         SoftBPlusTree<IndexEntry> newTree = new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize, nodeStore,
-               INDEX_ENTRY_SERIALIZER, keyLoader, BLOCK_ALIGNMENT, INDEX_FILE_HEADER_SIZE);
          if (index.bufferWrites) {
-            newTree.setDeferWrites(true);
+            // Buffers index updates, self-flushing every flushMutationCount mutations and on saveTree().
+            return new BufferedSoftBPlusTree<>(index.minNodeSize, index.maxNodeSize, nodeStore,
+                  INDEX_ENTRY_SERIALIZER, keyLoader, BLOCK_ALIGNMENT, INDEX_FILE_HEADER_SIZE, index.flushMutationCount);
          }
-         return newTree;
+         return new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize, nodeStore,
+               INDEX_ENTRY_SERIALIZER, keyLoader, BLOCK_ALIGNMENT, INDEX_FILE_HEADER_SIZE);
       }
 
       public int getId() {
@@ -890,12 +887,7 @@ class Index {
          switch (request.getType()) {
             case CLEAR:
                tree.clear();
-               mutationCount = 0;
                index.sizePerSegment.set(id, 0);
-               index.nonBlockingManager.complete(request, null);
-               return;
-            case FLUSH:
-               flushTree();
                index.nonBlockingManager.complete(request, null);
                return;
             case SYNC_REQUEST:
@@ -922,20 +914,8 @@ class Index {
          if (request.getType() != IndexRequest.Type.UPDATE) {
             index.nonBlockingManager.complete(request, null);
          }
-         // Complete the request before the (potentially blocking) flush so callers aren't delayed by the flush I/O.
-         if (index.bufferWrites && ++mutationCount >= index.flushMutationCount) {
-            flushTree();
-         }
-      }
-
-      /**
-       * Persists any buffered index updates and resets the mutation counter. A no-op when nothing is buffered.
-       */
-      private void flushTree() throws IOException {
-         if (tree.isDirty()) {
-            tree.flush();
-         }
-         mutationCount = 0;
+         // When buffering is enabled the tree coalesces writes and self-flushes every flushMutationCount
+         // mutations; nothing more to do here.
       }
 
       private void handleUpdate(IndexRequest request, int cacheSegment) throws IOException {

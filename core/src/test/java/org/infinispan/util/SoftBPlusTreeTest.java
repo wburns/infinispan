@@ -550,11 +550,27 @@ public class SoftBPlusTreeTest {
       return tree;
    }
 
+   // Flush count high enough that the buffered tree never auto-flushes mid-test, so tests keep full control
+   // over when a flush happens (asserting the pre-flush buffered state and driving flush() manually).
+   private static final int NO_AUTO_FLUSH = Integer.MAX_VALUE;
+
+   private BufferedSoftBPlusTree<Integer> newBufferedTree(InMemoryNodeStore store) {
+      return new BufferedSoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader, NO_AUTO_FLUSH);
+   }
+
+   private BufferedSoftBPlusTree<Integer> buildBufferedTree(InMemoryNodeStore store, int count) throws IOException {
+      BufferedSoftBPlusTree<Integer> tree = newBufferedTree(store);
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+      tree.flush();
+      return tree;
+   }
+
    public void testDeferredValueOverwriteInPlaceRoundTrip() throws IOException {
       InMemoryNodeStore store = new InMemoryNodeStore();
-      SoftBPlusTree<Integer> tree = buildTree(store, 200);
+      BufferedSoftBPlusTree<Integer> tree = buildBufferedTree(store, 200);
 
-      tree.setDeferWrites(true);
       store.writeCount = 0;
       byte[] hot = key("key-00100");
       for (int v = 1000; v < 1050; v++) {
@@ -581,9 +597,8 @@ public class SoftBPlusTreeTest {
       InMemoryNodeStore store = new InMemoryNodeStore();
       SoftBPlusTree.NodeSpace rootSpace = buildTree(store, 200).saveTree();
 
-      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      BufferedSoftBPlusTree<Integer> tree = newBufferedTree(store);
       tree.loadTree(rootSpace);
-      tree.setDeferWrites(true);
 
       byte[] hot = key("key-00100");
       putTracked(tree, hot, 987654);
@@ -603,8 +618,7 @@ public class SoftBPlusTreeTest {
 
    public void testDeferredStructuralInsertsRoundTrip() throws IOException {
       InMemoryNodeStore store = new InMemoryNodeStore();
-      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
-      tree.setDeferWrites(true);
+      BufferedSoftBPlusTree<Integer> tree = newBufferedTree(store);
 
       int count = 200;
       for (int i = 0; i < count; i++) {
@@ -639,8 +653,7 @@ public class SoftBPlusTreeTest {
       int eagerWrites = eagerStore.writeCount;
 
       InMemoryNodeStore deferredStore = new InMemoryNodeStore();
-      SoftBPlusTree<Integer> deferred = buildTree(deferredStore, count);
-      deferred.setDeferWrites(true);
+      BufferedSoftBPlusTree<Integer> deferred = buildBufferedTree(deferredStore, count);
       deferredStore.writeCount = 0;
       for (int n = 0; n < overwrites; n++) {
          putTracked(deferred, key(String.format("key-%05d", n % hotKeys)), 100000 + n);
@@ -661,9 +674,8 @@ public class SoftBPlusTreeTest {
 
    public void testDeferredFreedOverwriteLeafDropsBufferedWrite() throws IOException {
       InMemoryNodeStore store = new InMemoryNodeStore();
-      SoftBPlusTree<Integer> tree = buildTree(store, 200);
+      BufferedSoftBPlusTree<Integer> tree = buildBufferedTree(store, 200);
 
-      tree.setDeferWrites(true);
       byte[] hot = key("key-00100");
       putTracked(tree, hot, 555);           // buffered value overwrite (pins path, marks leaf dirty)
       assertEquals(555, tree.remove(hot).intValue()); // structural removal frees that leaf
@@ -682,8 +694,7 @@ public class SoftBPlusTreeTest {
 
    public void testDeferredMixedDifferentialAgainstModel() throws IOException {
       InMemoryNodeStore store = new InMemoryNodeStore();
-      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
-      tree.setDeferWrites(true);
+      BufferedSoftBPlusTree<Integer> tree = newBufferedTree(store);
 
       Map<String, Integer> model = new TreeMap<>();
       int value = 1;
@@ -729,7 +740,7 @@ public class SoftBPlusTreeTest {
     */
    public void testDeferredStructuralChurnSurvivesReloadFromSnapshot() throws IOException {
       InMemoryNodeStore store = new InMemoryNodeStore();
-      SoftBPlusTree<Integer> tree = buildTree(store, 500);
+      BufferedSoftBPlusTree<Integer> tree = buildBufferedTree(store, 500);
       tree.saveTree();
 
       Map<String, Integer> model = new TreeMap<>();
@@ -737,7 +748,6 @@ public class SoftBPlusTreeTest {
          model.put(String.format("key-%05d", i), i);
       }
 
-      tree.setDeferWrites(true);
       int value = 100000;
       // Heavy interleaved churn with periodic flush + save, mirroring SIFS operation followed by a graceful
       // restart. After each flush the on-disk tree (root + persisted nodes) must be self-consistent, so a
@@ -778,6 +788,34 @@ public class SoftBPlusTreeTest {
       loaded.clearSoftReferences();
       for (Map.Entry<String, Integer> e : model.entrySet()) {
          assertEquals(e.getValue(), loaded.get(key(e.getKey())), "Mismatch after final reload for key " + e.getKey());
+      }
+   }
+
+   public void testBufferedAutoFlushesAtMutationCount() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      int flushCount = 50;
+      BufferedSoftBPlusTree<Integer> tree =
+            new BufferedSoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader, flushCount);
+
+      // Below the threshold nothing is written and the tree stays dirty.
+      for (int i = 0; i < flushCount - 1; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+      assertEquals(0, store.writeCount, "No writes before the mutation count reaches the flush threshold");
+      assertTrue(tree.isDirty(), "Tree should be dirty with buffered mutations");
+
+      // The Nth mutation trips the auto-flush.
+      putTracked(tree, key(String.format("key-%05d", flushCount - 1)), flushCount - 1);
+      assertTrue(store.writeCount > 0, "Reaching the flush threshold must trigger an automatic flush");
+      assertFalse(tree.isDirty(), "Tree should be clean right after an automatic flush");
+
+      // Buffered then auto-flushed values must all round-trip through a reload.
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+      loaded.clearSoftReferences();
+      for (int i = 0; i < flushCount; i++) {
+         assertEquals(Integer.valueOf(i), loaded.get(key(String.format("key-%05d", i))));
       }
    }
 
