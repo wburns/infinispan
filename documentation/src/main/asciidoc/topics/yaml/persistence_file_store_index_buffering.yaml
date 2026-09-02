@@ -1,0 +1,9 @@
+distributedCache:
+  persistence:
+    fileStore:
+      shared: "false"
+      data:
+        path: "data"
+      index:
+        path: "index"
+        flushMutationCount: "100"

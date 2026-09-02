@@ -17,6 +17,7 @@ File-based cache stores should always be unique to each {brandname} instance.
 If you want to use the same persistent across a cluster, configure shared storage such as a JDBC string-based cache store .
 +
 . Configure the `index` and `data` elements to specify the location where {brandname} creates indexes and stores data.
+. Optionally set the `flush-mutation-count` attribute on the `index` element to tune how many buffered index updates {brandname} accumulates before flushing them to disk.
 . Include the `write-behind` element if you want to configure the cache store with write-behind mode.
 
 [discrete]
@@ -44,4 +45,28 @@ include::yaml/persistence_file_store.yaml[]
 [source,java,options="nowrap",subs=attributes+,role="secondary"]
 ----
 include::code_examples/PersistenceFileStore.java[]
+----
+
+[discrete]
+== Buffering index updates
+
+Set the `flush-mutation-count` attribute to control how many buffered index updates {brandname} accumulates before flushing them to disk.
+Increasing this value coalesces more updates for better write throughput, while a value of `1` disables buffering so that each mutation is written immediately.
+
+.XML
+[source,xml,options="nowrap",subs=attributes+,role="primary"]
+----
+include::xml/persistence_file_store_index_buffering.xml[]
+----
+
+.JSON
+[source,json,options="nowrap",subs=attributes+,role="secondary"]
+----
+include::json/persistence_file_store_index_buffering.json[]
+----
+
+.YAML
+[source,yaml,options="nowrap",subs=attributes+,role="secondary"]
+----
+include::yaml/persistence_file_store_index_buffering.yaml[]
 ----

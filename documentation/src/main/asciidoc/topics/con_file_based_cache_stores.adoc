@@ -41,6 +41,24 @@ Each entry in the B+ tree is a node.
 By default, the size of each node is limited to 4096 bytes.
 `SoftIndexFileStore` throws an exception if keys are longer after serialization occurs.
 
+.Index buffering
+
+Updating the on-disk B+ tree for every cache modification is expensive because a single change can rewrite
+several index nodes.
+To reduce this cost, `SoftIndexFileStore` buffers index updates in memory and coalesces them, then persists
+the accumulated changes in a single flush instead of writing the affected nodes on each modification.
+
+The `flush-mutation-count` attribute of the `index` element controls how much buffered work accumulates
+before {brandname} flushes it to disk, and defaults to `100`.
+Each new or removed key counts as one unit, while repeatedly overwriting the same key coalesces into a single
+write and counts once.
+A higher value coalesces more updates for better write throughput at the cost of holding more index state in
+memory, whereas a value of `1` disables buffering so that each mutation is written immediately.
+
+Buffered index updates that are not yet flushed are not a data-loss risk.
+The append-only data files remain the source of truth, so any buffered updates lost on an unclean shutdown are
+rebuilt from the data log when {brandname} restarts.
+
 .File limits
 
 `SoftIndexFileStore` will use two plus the configured openFilesLimit amount of files at a given time.

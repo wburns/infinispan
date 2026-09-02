@@ -1,0 +1,16 @@
+{
+  "distributed-cache": {
+    "persistence": {
+      "file-store" : {
+        "shared": false,
+        "data": {
+          "path": "data"
+        },
+        "index": {
+          "path": "index",
+          "flush-mutation-count": "100"
+        }
+      }
+    }
+  }
+}
