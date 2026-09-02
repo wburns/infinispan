@@ -54,6 +54,9 @@ class Index {
    private static final Log log = Log.getLog(Index.class);
    private static final int GRACEFULLY = 0x512ACEF3;
    private static final int DIRTY = 0xD112770C;
+   // Default number of mutating index requests buffered before the segment's tree is flushed to disk.
+   // TODO wire flush-mutation-count configuration attribute here (P3.6).
+   static final int DEFAULT_FLUSH_MUTATION_COUNT = 100;
    // magic(4) + segmentMax(4) + rootOffset(8) + rootOccupied(2) + freeBlocksOffset(8)
    private static final int INDEX_FILE_HEADER_SIZE = 26;
 
@@ -64,6 +67,10 @@ class Index {
    private final Compactor compactor;
    private final int minNodeSize;
    private final int maxNodeSize;
+   // Number of mutating index requests buffered before a segment flushes its tree; <= 1 disables buffering (eager).
+   private final int flushMutationCount;
+   // Whether index-update buffering is enabled (derived from flushMutationCount).
+   final boolean bufferWrites;
    // Lock is to protect the flowableProcessors, thus it should be held only to read them
    // and unlock as soon as possible to avoid other locking issues
    private final StampedLock lock = new StampedLock();
@@ -95,7 +102,7 @@ class Index {
    public Index(NonBlockingManager nonBlockingManager, FileProvider dataFileProvider, Path indexDir, int cacheSegments,
                 int minNodeSize, int maxNodeSize, TemporaryTable temporaryTable, Compactor compactor,
                 TimeService timeService, Executor executor, int maxOpenFiles,
-                double compactionThreshold) throws IOException {
+                double compactionThreshold, int flushMutationCount) throws IOException {
       this.nonBlockingManager = nonBlockingManager;
       this.dataFileProvider = dataFileProvider;
       this.compactor = compactor;
@@ -103,6 +110,8 @@ class Index {
       this.indexDir = indexDir;
       this.minNodeSize = minNodeSize;
       this.maxNodeSize = maxNodeSize;
+      this.flushMutationCount = flushMutationCount;
+      this.bufferWrites = flushMutationCount > 1;
       this.sizePerSegment = new AtomicLongArray(cacheSegments);
       this.indexFileProvider = new FileProvider(indexDir, maxOpenFiles, "index.", Integer.MAX_VALUE, true);
       this.indexSizeFile = new File(indexDir.toFile(), "index-count");
@@ -147,7 +156,8 @@ class Index {
             break;
          case CLEAR:
          case DROPPED:
-            // Both drop and clear do nothing as we are already removing the index
+         case FLUSH:
+            // Drop, clear and flush do nothing as we are already removing the index
       }
       ir.complete(null);
    }
@@ -793,14 +803,26 @@ class Index {
 
       volatile SoftBPlusTree<IndexEntry> tree;
 
+      // Number of mutating requests applied since the last flush. Only accessed from the segment's
+      // serialized request stream (accept), so it needs no synchronization.
+      private int mutationCount;
+
       private Segment(Index index, int id, TemporaryTable temporaryTable) {
          this.index = index;
          this.temporaryTable = temporaryTable;
          this.id = id;
          this.nodeStore = new IndexFileNodeStore(index.indexFileProvider, id);
          this.keyLoader = value -> (value).loadKey(index.dataFileProvider);
-         this.tree = new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize, nodeStore,
+         this.tree = newTree();
+      }
+
+      private SoftBPlusTree<IndexEntry> newTree() {
+         SoftBPlusTree<IndexEntry> newTree = new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize, nodeStore,
                INDEX_ENTRY_SERIALIZER, keyLoader, BLOCK_ALIGNMENT, INDEX_FILE_HEADER_SIZE);
+         if (index.bufferWrites) {
+            newTree.setDeferWrites(true);
+         }
+         return newTree;
       }
 
       public int getId() {
@@ -820,8 +842,7 @@ class Index {
             }
             if (header.getInt(0) != GRACEFULLY || header.getInt(4) != segmentMax) {
                handle.truncate(0);
-               tree = new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize, nodeStore,
-                     INDEX_ENTRY_SERIALIZER, keyLoader, BLOCK_ALIGNMENT, INDEX_FILE_HEADER_SIZE);
+               tree = newTree();
                return false;
             }
             long rootOffset = header.getLong(8);
@@ -834,8 +855,7 @@ class Index {
             if (rootOffset == 0) {
                return true;
             }
-            SoftBPlusTree<IndexEntry> softTree = new SoftBPlusTree<>(index.minNodeSize, index.maxNodeSize,
-                  nodeStore, INDEX_ENTRY_SERIALIZER, keyLoader, BLOCK_ALIGNMENT, INDEX_FILE_HEADER_SIZE);
+            SoftBPlusTree<IndexEntry> softTree = newTree();
             softTree.setStoreSize(freeBlocksOffset);
             // Restore free-block state from freeBlocksOffset
             int freeBlocksLen = (int) (handle.getFileSize() - freeBlocksOffset);
@@ -870,7 +890,12 @@ class Index {
          switch (request.getType()) {
             case CLEAR:
                tree.clear();
+               mutationCount = 0;
                index.sizePerSegment.set(id, 0);
+               index.nonBlockingManager.complete(request, null);
+               return;
+            case FLUSH:
+               flushTree();
                index.nonBlockingManager.complete(request, null);
                return;
             case SYNC_REQUEST:
@@ -897,6 +922,20 @@ class Index {
          if (request.getType() != IndexRequest.Type.UPDATE) {
             index.nonBlockingManager.complete(request, null);
          }
+         // Complete the request before the (potentially blocking) flush so callers aren't delayed by the flush I/O.
+         if (index.bufferWrites && ++mutationCount >= index.flushMutationCount) {
+            flushTree();
+         }
+      }
+
+      /**
+       * Persists any buffered index updates and resets the mutation counter. A no-op when nothing is buffered.
+       */
+      private void flushTree() throws IOException {
+         if (tree.isDirty()) {
+            tree.flush();
+         }
+         mutationCount = 0;
       }
 
       private void handleUpdate(IndexRequest request, int cacheSegment) throws IOException {

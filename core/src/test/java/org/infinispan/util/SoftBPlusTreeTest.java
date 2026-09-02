@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -80,6 +81,12 @@ public class SoftBPlusTreeTest {
 
       @Override
       public void truncate(long size) {
+         // A real file drops everything at/after size; space that is later regrown reads back as zeros
+         // until rewritten. Model that so truncating past a still-referenced block surfaces as corruption
+         // rather than returning stale-but-valid bytes.
+         if (size < data.length) {
+            Arrays.fill(data, (int) size, data.length, (byte) 0);
+         }
       }
 
       private void ensureCapacity(long required) {
@@ -531,6 +538,247 @@ public class SoftBPlusTreeTest {
 
       assertTrue(writesForPut < totalWritesBuild / 5, "Single put (" + writesForPut + ") should be much less than full build (" + totalWritesBuild + ")");
       assertTrue(writesForRemove < totalWritesBuild / 5, "Single remove (" + writesForRemove + ") should be much less than full build (" + totalWritesBuild + ")");
+   }
+
+   // --- Buffered (deferred) write tests ---
+
+   private SoftBPlusTree<Integer> buildTree(InMemoryNodeStore store, int count) throws IOException {
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+      return tree;
+   }
+
+   public void testDeferredValueOverwriteInPlaceRoundTrip() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = buildTree(store, 200);
+
+      tree.setDeferWrites(true);
+      store.writeCount = 0;
+      byte[] hot = key("key-00100");
+      for (int v = 1000; v < 1050; v++) {
+         putTracked(tree, hot, v);
+      }
+
+      assertEquals(0, store.writeCount, "Buffered overwrites must not write before flush");
+      assertTrue(tree.isDirty(), "Tree should be dirty with buffered overwrites");
+      assertEquals(Integer.valueOf(1049), tree.get(hot), "Reads must see the latest buffered value");
+
+      tree.flush();
+      assertFalse(tree.isDirty(), "Tree should be clean after flush");
+      assertTrue(store.writeCount <= 2, "Coalesced overwrite should flush in ~1 in-place write, was " + store.writeCount);
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+      assertEquals(Integer.valueOf(1049), loaded.get(hot), "Flushed overwrite must survive reload");
+      assertEquals(Integer.valueOf(0), loaded.get(key("key-00000")));
+      assertEquals(Integer.valueOf(199), loaded.get(key("key-00199")));
+   }
+
+   public void testDeferredOverwriteSurvivesGcClear() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree.NodeSpace rootSpace = buildTree(store, 200).saveTree();
+
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      tree.loadTree(rootSpace);
+      tree.setDeferWrites(true);
+
+      byte[] hot = key("key-00100");
+      putTracked(tree, hot, 987654);
+
+      // Simulate GC clearing soft references BEFORE the buffered write is flushed. The pinned path
+      // must keep the mutated leaf reachable so reads do not see the stale on-disk value.
+      tree.clearSoftReferences();
+      assertEquals(Integer.valueOf(987654), tree.get(hot),
+            "Pinned dirty node must not be reloaded stale before flush");
+
+      tree.flush();
+      tree.clearSoftReferences();
+      assertEquals(Integer.valueOf(987654), tree.get(hot),
+            "After flush the overwrite must be persisted and survive reload");
+      assertEquals(Integer.valueOf(101), tree.get(key("key-00101")), "Neighbour value must be intact");
+   }
+
+   public void testDeferredStructuralInsertsRoundTrip() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      tree.setDeferWrites(true);
+
+      int count = 200;
+      for (int i = 0; i < count; i++) {
+         putTracked(tree, key(String.format("key-%05d", i)), i);
+      }
+      assertEquals(0, store.writeCount, "Buffered structural inserts must not write before flush");
+      assertTrue(tree.isDirty());
+
+      tree.flush();
+      assertFalse(tree.isDirty());
+      assertTrue(store.writeCount > 0, "Flush must persist the buffered nodes");
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+      for (int i = 0; i < count; i++) {
+         assertEquals(Integer.valueOf(i), loaded.get(key(String.format("key-%05d", i))));
+      }
+   }
+
+   public void testDeferredCoalescingReducesWritesVsEager() throws IOException {
+      int count = 200;
+      int overwrites = 500;
+      int hotKeys = 20;
+
+      InMemoryNodeStore eagerStore = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> eager = buildTree(eagerStore, count);
+      eagerStore.writeCount = 0;
+      for (int n = 0; n < overwrites; n++) {
+         putTracked(eager, key(String.format("key-%05d", n % hotKeys)), 100000 + n);
+      }
+      int eagerWrites = eagerStore.writeCount;
+
+      InMemoryNodeStore deferredStore = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> deferred = buildTree(deferredStore, count);
+      deferred.setDeferWrites(true);
+      deferredStore.writeCount = 0;
+      for (int n = 0; n < overwrites; n++) {
+         putTracked(deferred, key(String.format("key-%05d", n % hotKeys)), 100000 + n);
+      }
+      assertEquals(0, deferredStore.writeCount, "No writes before flush");
+      deferred.flush();
+      int deferredWrites = deferredStore.writeCount;
+
+      assertTrue(deferredWrites < eagerWrites / 5,
+            "Deferred coalesced writes (" + deferredWrites + ") should be far fewer than eager (" + eagerWrites + ")");
+
+      // Latest value for hot key j is the largest n < overwrites with n % hotKeys == j.
+      for (int j = 0; j < hotKeys; j++) {
+         int lastN = overwrites - hotKeys + j;
+         assertEquals(Integer.valueOf(100000 + lastN), deferred.get(key(String.format("key-%05d", j))));
+      }
+   }
+
+   public void testDeferredFreedOverwriteLeafDropsBufferedWrite() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = buildTree(store, 200);
+
+      tree.setDeferWrites(true);
+      byte[] hot = key("key-00100");
+      putTracked(tree, hot, 555);           // buffered value overwrite (pins path, marks leaf dirty)
+      assertEquals(555, tree.remove(hot).intValue()); // structural removal frees that leaf
+
+      tree.flush();
+      assertNull(tree.get(hot), "Removed key must be gone despite the earlier buffered overwrite");
+      assertEquals(Integer.valueOf(99), tree.get(key("key-00099")));
+      assertEquals(Integer.valueOf(101), tree.get(key("key-00101")));
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+      assertNull(loaded.get(hot));
+      assertEquals(Integer.valueOf(101), loaded.get(key("key-00101")));
+   }
+
+   public void testDeferredMixedDifferentialAgainstModel() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      tree.setDeferWrites(true);
+
+      Map<String, Integer> model = new TreeMap<>();
+      int value = 1;
+      // Interleave inserts, overwrites, removes and periodic flushes against a small key space.
+      for (int round = 0; round < 40; round++) {
+         for (int k = 0; k < 32; k++) {
+            String ks = String.format("key-%05d", k);
+            byte[] kb = key(ks);
+            if ((round + k) % 5 == 0 && model.containsKey(ks)) {
+               tree.remove(kb);
+               model.remove(ks);
+            } else {
+               int v = value++;
+               putTracked(tree, kb, v);
+               model.put(ks, v);
+            }
+         }
+         if (round % 7 == 0) {
+            tree.flush();
+            tree.clearSoftReferences();
+         }
+         for (Map.Entry<String, Integer> e : model.entrySet()) {
+            assertEquals(e.getValue(), tree.get(key(e.getKey())), "Mismatch at round " + round + " key " + e.getKey());
+         }
+      }
+
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(rootSpace);
+      loaded.clearSoftReferences();
+      for (Map.Entry<String, Integer> e : model.entrySet()) {
+         assertEquals(e.getValue(), loaded.get(key(e.getKey())), "Mismatch after reload for key " + e.getKey());
+      }
+   }
+
+   /**
+    * Exercises heavy deferred-mode structural churn (removes freeing blocks, inserts reusing/extending them)
+    * with periodic flush + save, mirroring SIFS operation followed by a graceful restart. After each flush the
+    * persisted tree must be self-consistent, so a fresh reload over a store snapshot (disk-only reads, no
+    * in-memory SoftReferences to mask corruption) must match the model exactly. The deferred-free ordering bug
+    * that motivated the deferred {@code pendingFrees} handling is caught at the SIFS level by the restart suites;
+    * this keeps broad tree-level coverage of the free/reuse/reload interaction.
+    */
+   public void testDeferredStructuralChurnSurvivesReloadFromSnapshot() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      SoftBPlusTree<Integer> tree = buildTree(store, 500);
+      tree.saveTree();
+
+      Map<String, Integer> model = new TreeMap<>();
+      for (int i = 0; i < 500; i++) {
+         model.put(String.format("key-%05d", i), i);
+      }
+
+      tree.setDeferWrites(true);
+      int value = 100000;
+      // Heavy interleaved churn with periodic flush + save, mirroring SIFS operation followed by a graceful
+      // restart. After each flush the on-disk tree (root + persisted nodes) must be self-consistent, so a
+      // fresh reload over a snapshot at that point must match the model exactly.
+      for (int round = 0; round < 30; round++) {
+         for (int k = 0; k < 500; k += 3) {
+            String ks = String.format("key-%05d", k);
+            if (tree.remove(key(ks)) != null) {
+               model.remove(ks);
+            }
+         }
+         for (int k = 0; k < 500; k += 2) {
+            String ks = String.format("key-%05d", k);
+            int v = value++;
+            putTracked(tree, key(ks), v);
+            model.put(ks, v);
+         }
+         if (round % 5 == 0) {
+            tree.flush();
+            SoftBPlusTree.NodeSpace saved = tree.saveTree();
+            // Reload from a snapshot so every read must come from disk, not surviving in-memory nodes.
+            SoftBPlusTree<Integer> reloaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store.snapshot(),
+                  INT_SERIALIZER, keyLoader);
+            reloaded.loadTree(saved);
+            reloaded.clearSoftReferences();
+            for (Map.Entry<String, Integer> e : model.entrySet()) {
+               assertEquals(e.getValue(), reloaded.get(key(e.getKey())),
+                     "Mismatch after reload at round " + round + " for key " + e.getKey());
+            }
+         }
+      }
+
+      tree.flush();
+      SoftBPlusTree.NodeSpace rootSpace = tree.saveTree();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store.snapshot(), INT_SERIALIZER,
+            keyLoader);
+      loaded.loadTree(rootSpace);
+      loaded.clearSoftReferences();
+      for (Map.Entry<String, Integer> e : model.entrySet()) {
+         assertEquals(e.getValue(), loaded.get(key(e.getKey())), "Mismatch after final reload for key " + e.getKey());
+      }
    }
 
    public void testSoftNodeGetInsertionPoint() throws IOException {
