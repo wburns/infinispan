@@ -139,6 +139,12 @@
       </dependency>
 
       <dependency>
+         <groupId>com.code-intelligence</groupId>
+         <artifactId>jazzer-junit</artifactId>
+         <scope>test</scope>
+      </dependency>
+
+      <dependency>
          <groupId>org.awaitility</groupId>
          <artifactId>awaitility</artifactId>
       </dependency>
