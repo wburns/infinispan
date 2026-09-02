@@ -107,4 +107,7 @@ public interface Log extends BasicLogger {
 
    @Message(value = "Failed acquiring lock '%s' for SIFS", id = 29025)
    PersistenceException failedAcquiringLockFile(@Cause Throwable cause, FileSystemLock lock);
+
+   @Message(value = "Flush mutation count (%d) must be greater or equal to 1.", id = 29026)
+   CacheConfigurationException flushMutationCountMustBePositive(int flushMutationCount);
 }

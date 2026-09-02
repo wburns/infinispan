@@ -67,6 +67,10 @@ public class SoftIndexFileStoreConfiguration extends AbstractStoreConfiguration<
       return index.indexQueueLength();
    }
 
+   public int flushMutationCount() {
+      return index.flushMutationCount();
+   }
+
    public boolean syncWrites() {
       return data.syncWrites();
    }

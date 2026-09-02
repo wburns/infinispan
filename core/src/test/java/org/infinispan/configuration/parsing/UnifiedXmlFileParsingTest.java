@@ -121,6 +121,12 @@ public class UnifiedXmlFileParsingTest extends AbstractInfinispanTest {
          public void check(ConfigurationBuilderHolder cm, int schemaMajor, int schemaMinor) {
             Configuration distTemplate = getConfiguration(cm, "dist");
             assertTrue(distTemplate.clustering().stateTransfer().awaitLeaveTransfer());
+
+            Configuration local = getConfiguration(cm, "local");
+            SoftIndexFileStoreConfiguration sifs = getStoreConfiguration(local, SoftIndexFileStoreConfiguration.class);
+            assertEquals(4096, sifs.maxNodeSize());
+            assertEquals(10, sifs.minNodeSize());
+            assertEquals(50, sifs.flushMutationCount());
          }
       },
       INFINISPAN_162(16, 2) {

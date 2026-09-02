@@ -145,6 +145,7 @@
          <expiration interval="10000" lifespan="10" max-idle="5"/>
          <persistence passivation="false" availability-interval="2000" connection-attempts="5">
             <file-store path="path" shared="false" preload="true" purge="false">
+               <index path="index-path" max-node-size="4096" min-node-size="10" flush-mutation-count="50"/>
                <write-behind modification-queue-size="2048" fail-silently="true"/>
                <property name="test_property">foo_bar</property>
             </file-store>

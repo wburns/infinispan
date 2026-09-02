@@ -768,7 +768,8 @@ public class CoreConfigurationSerializer extends AbstractStoreSerializer impleme
             IndexConfiguration.INDEX_QUEUE_LENGTH,
             IndexConfiguration.INDEX_SEGMENTS,
             IndexConfiguration.MIN_NODE_SIZE,
-            IndexConfiguration.MAX_NODE_SIZE);
+            IndexConfiguration.MAX_NODE_SIZE,
+            IndexConfiguration.FLUSH_MUTATION_COUNT);
    }
 
    private void writeCustomStore(ConfigurationWriter writer, CustomStoreConfiguration configuration) {

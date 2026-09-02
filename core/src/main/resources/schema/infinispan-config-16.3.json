@@ -1243,6 +1243,11 @@
           "type": "integer",
           "description": "Min size of node in bytes.",
           "default": "${Index.min-node-size}"
+        },
+        "flush-mutation-count": {
+          "type": "integer",
+          "description": "Number of mutating index operations buffered per segment before its index is flushed to disk. A value of 1 disables buffering.",
+          "default": "${Index.flush-mutation-count}"
         }
       },
       "additionalProperties": false

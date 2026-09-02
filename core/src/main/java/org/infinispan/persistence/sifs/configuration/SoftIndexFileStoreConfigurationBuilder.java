@@ -108,6 +108,18 @@ public class SoftIndexFileStoreConfigurationBuilder extends AbstractStoreConfigu
    }
 
    /**
+    * Sets the number of mutating index operations buffered per segment before its B+ tree is flushed to disk.
+    * Coalescing these writes reduces the heavy per-operation index node writes. A value of <code>1</code>
+    * disables buffering (each mutation is flushed eagerly).
+    * <p>
+    * Defaults to <code>100</code>.
+    */
+   public SoftIndexFileStoreConfigurationBuilder flushMutationCount(int flushMutationCount) {
+      index.flushMutationCount(flushMutationCount);
+      return this;
+   }
+
+   /**
     * Sets whether writes shoud wait to be fsynced to disk.
     * <p>
     * Defaults to <code>false</code>.

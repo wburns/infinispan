@@ -1,5 +1,6 @@
 package org.infinispan.persistence.sifs.configuration;
 
+import static org.infinispan.persistence.sifs.configuration.IndexConfiguration.FLUSH_MUTATION_COUNT;
 import static org.infinispan.persistence.sifs.configuration.IndexConfiguration.INDEX_LOCATION;
 import static org.infinispan.persistence.sifs.configuration.IndexConfiguration.INDEX_QUEUE_LENGTH;
 import static org.infinispan.persistence.sifs.configuration.IndexConfiguration.INDEX_SEGMENTS;
@@ -55,6 +56,11 @@ public class IndexConfigurationBuilder implements Builder<IndexConfiguration> {
       return this;
    }
 
+   public IndexConfigurationBuilder flushMutationCount(int flushMutationCount) {
+      attributes.attribute(FLUSH_MUTATION_COUNT).set(flushMutationCount);
+      return this;
+   }
+
    @Override
    public IndexConfiguration create() {
       return new IndexConfiguration(attributes.protect());
@@ -74,6 +80,10 @@ public class IndexConfigurationBuilder implements Builder<IndexConfiguration> {
          throw log.maxNodeSizeLimitedToShort(maxNodeSize);
       } else if (minNodeSize < 0 || minNodeSize > maxNodeSize) {
          throw log.minNodeSizeMustBeLessOrEqualToMax(minNodeSize, maxNodeSize);
+      }
+      int flushMutationCount = attributes.attribute(FLUSH_MUTATION_COUNT).get();
+      if (flushMutationCount < 1) {
+         throw log.flushMutationCountMustBePositive(flushMutationCount);
       }
    }
 

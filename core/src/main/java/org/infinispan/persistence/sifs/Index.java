@@ -55,9 +55,6 @@ class Index {
    private static final Log log = Log.getLog(Index.class);
    private static final int GRACEFULLY = 0x512ACEF3;
    private static final int DIRTY = 0xD112770C;
-   // Default number of mutating index requests buffered before the segment's tree is flushed to disk.
-   // TODO wire flush-mutation-count configuration attribute here (P3.6).
-   static final int DEFAULT_FLUSH_MUTATION_COUNT = 100;
    // magic(4) + segmentMax(4) + rootOffset(8) + rootOccupied(2) + freeBlocksOffset(8)
    private static final int INDEX_FILE_HEADER_SIZE = 26;
 

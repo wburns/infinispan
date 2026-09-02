@@ -1039,6 +1039,9 @@ public class CacheParser implements ConfigurationParser {
             case MAX_NODE_SIZE:
                builder.maxNodeSize(ParseUtils.parseInt(reader, i, value));
                break;
+            case FLUSH_MUTATION_COUNT:
+               builder.flushMutationCount(ParseUtils.parseInt(reader, i, value));
+               break;
             default:
                throw ParseUtils.unexpectedAttribute(reader, i);
          }

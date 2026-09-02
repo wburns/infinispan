@@ -241,7 +241,7 @@ public class NonBlockingSoftIndexFileStore<K, V> implements NonBlockingStore<K, 
          index = new Index(ctx.getNonBlockingManager(), fileProvider, getIndexLocation(), cacheSegments,
                configuration.minNodeSize(), configuration.maxNodeSize(), temporaryTable, compactor,
                timeService, blockingManager.asExecutor("sifs-index"), maxOpenIndexFiles,
-               configuration.compactionThreshold(), Index.DEFAULT_FLUSH_MUTATION_COUNT);
+               configuration.compactionThreshold(), configuration.flushMutationCount());
       } catch (IOException e) {
          throw log.cannotOpenIndex(configuration.indexLocation(), e);
       }
