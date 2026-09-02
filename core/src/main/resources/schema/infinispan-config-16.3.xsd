@@ -2269,7 +2269,7 @@
     <xs:attribute name="flush-mutation-count" type="xs:int" default="${Index.flush-mutation-count}">
       <xs:annotation>
         <xs:documentation>
-          Number of mutating index operations buffered per segment before its index is flushed to disk. Coalescing these writes reduces the heavy per-operation index node writes. A value of 1 disables buffering (each mutation is flushed eagerly).
+          How many units of buffered index work may accumulate per segment before its index is flushed to disk. Each structural change (a new or removed key) counts one unit; overwriting an existing key counts one unit per distinct index node, so repeatedly overwriting the same key coalesces into a single write and counts once. Buffering reduces the heavy per-operation index node writes. A value of 1 disables buffering (each mutation is flushed eagerly).
         </xs:documentation>
       </xs:annotation>
     </xs:attribute>

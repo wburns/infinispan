@@ -819,6 +819,39 @@ public class SoftBPlusTreeTest {
       }
    }
 
+   public void testBufferedSameKeyOverwritesDoNotAdvanceFlushThreshold() throws IOException {
+      InMemoryNodeStore store = new InMemoryNodeStore();
+      // Persist a multi-node tree then load it so its children are SoftNodes (the real overwrite path).
+      SoftBPlusTree.NodeSpace rootSpace = buildTree(store, 200).saveTree();
+
+      int flushCount = 5;
+      BufferedSoftBPlusTree<Integer> tree =
+            new BufferedSoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader, flushCount);
+      tree.loadTree(rootSpace);
+
+      store.writeCount = 0;
+      byte[] hot = key("key-00100");
+      // Overwrite the SAME key far more than flushCount times. Each coalesces into the same dirty leaf, which
+      // counts as a single unit, so the threshold is never reached and no automatic flush happens.
+      for (int v = 0; v < flushCount * 10; v++) {
+         putTracked(tree, hot, v);
+      }
+      assertEquals(0, store.writeCount, "Repeated same-key overwrites must not trigger an auto-flush");
+      assertTrue(tree.isDirty(), "Repeated same-key overwrites should remain buffered");
+      assertEquals(Integer.valueOf(flushCount * 10 - 1), tree.get(hot), "Reads must see the latest buffered value");
+
+      // A manual flush writes the single coalesced leaf, and the latest value survives a reload.
+      tree.flush();
+      assertFalse(tree.isDirty(), "Tree should be clean after flush");
+      assertTrue(store.writeCount > 0 && store.writeCount <= 2,
+            "Coalesced overwrite should flush in ~1 in-place write, was " + store.writeCount);
+
+      SoftBPlusTree.NodeSpace newRoot = tree.saveTree();
+      SoftBPlusTree<Integer> loaded = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);
+      loaded.loadTree(newRoot);
+      assertEquals(Integer.valueOf(flushCount * 10 - 1), loaded.get(hot), "Latest coalesced value must survive reload");
+   }
+
    public void testSoftNodeGetInsertionPoint() throws IOException {
       InMemoryNodeStore store = new InMemoryNodeStore();
       SoftBPlusTree<Integer> tree = new SoftBPlusTree<>(MIN_NODE_SIZE, MAX_NODE_SIZE, store, INT_SERIALIZER, keyLoader);

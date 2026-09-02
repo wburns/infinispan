@@ -108,8 +108,10 @@ public class SoftIndexFileStoreConfigurationBuilder extends AbstractStoreConfigu
    }
 
    /**
-    * Sets the number of mutating index operations buffered per segment before its B+ tree is flushed to disk.
-    * Coalescing these writes reduces the heavy per-operation index node writes. A value of <code>1</code>
+    * Sets how many units of buffered index work may accumulate per segment before its B+ tree is flushed to
+    * disk. Each structural change (a new or removed key) counts one unit; overwriting an existing key counts
+    * one unit per distinct index node, so repeatedly overwriting the same key coalesces into a single write
+    * and counts once. Buffering reduces the heavy per-operation index node writes. A value of <code>1</code>
     * disables buffering (each mutation is flushed eagerly).
     * <p>
     * Defaults to <code>100</code>.

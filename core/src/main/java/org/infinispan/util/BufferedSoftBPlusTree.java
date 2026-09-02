@@ -9,7 +9,10 @@ import java.util.Set;
  * A {@link SoftBPlusTree} that buffers the writes produced by mutations instead of persisting them
  * eagerly, coalescing repeated mutations of the same nodes into a single write. Buffered state is
  * persisted by {@link #flush()}, which is also invoked automatically once {@code flushMutationCount}
- * mutations have accumulated and unconditionally by {@link #saveTree()}.
+ * units of buffered work have accumulated and unconditionally by {@link #saveTree()}. Each structural
+ * mutation (new-key insert / existing-key remove) counts one unit; value overwrites count one unit per
+ * distinct leaf, so repeatedly overwriting the same key (which coalesces into a single write) advances the
+ * threshold by at most one, and a remove that changed nothing does not advance it at all.
  * <p>
  * Two kinds of buffered change are tracked:
  * <ul>
@@ -32,16 +35,21 @@ public class BufferedSoftBPlusTree<V> extends SoftBPlusTree<V> {
    private final int flushMutationCount;
    /** True when buffered mutations have not yet been persisted via {@link #flush()}. */
    private boolean dirty;
-   /** Mutations applied since the last flush; when it reaches {@link #flushMutationCount} a flush is triggered. */
-   private int mutationCount;
+   /**
+    * Structural mutations (inserts of a new key, removes of an existing key) applied since the last flush.
+    * Each creates at least one new node to persist, so it counts toward the flush threshold; value overwrites
+    * and no-op removes do not, and are counted (deduplicated) via {@link #dirtyOverwrites} instead.
+    */
+   private int structuralMutations;
    /** SoftNodes whose backing leaf received in-place value overwrites that are pending a flush. */
    private final Set<PinnableSoftNode<V>> dirtyOverwrites = new HashSet<>();
    /** Every SoftNode currently pinned on the path(s) to a buffered overwrite (see {@link PinnableSoftNode}). */
    private final Set<PinnableSoftNode<V>> pinnedNodes = new HashSet<>();
 
    /**
-    * @param flushMutationCount number of mutations to buffer before an automatic {@link #flush()};
-    *                           the remaining parameters are as in
+    * @param flushMutationCount units of buffered work (structural mutations plus distinct leaves pending an
+    *                           overwrite) to accumulate before an automatic {@link #flush()}; the remaining
+    *                           parameters are as in
     *                           {@link SoftBPlusTree#SoftBPlusTree(int, int, NodeStore, ValueSerializer, KeyLoader, short, long)}
     */
    public BufferedSoftBPlusTree(int minNodeSize, int maxNodeSize, NodeStore store,
@@ -96,6 +104,9 @@ public class BufferedSoftBPlusTree<V> extends SoftBPlusTree<V> {
 
    @Override
    protected boolean tryInPlaceLeafUpdate(Deque<PathEntry<V>> stack, LeafNode<V> oldLeaf, LeafNode<V> newLeaf) {
+      // Fires once per structural mutation (new-key insert / existing-key remove) and never for a value
+      // overwrite or a no-op remove, so it is the counting point for structural buffered work.
+      structuralMutations++;
       // Structural leaf changes fall back to path-copy so the new nodes accumulate as strongly-referenced
       // dirty nodes and coalesce until flush, rather than being written in place immediately.
       return false;
@@ -120,9 +131,18 @@ public class BufferedSoftBPlusTree<V> extends SoftBPlusTree<V> {
    protected void afterMutation() throws IOException {
       // Defer both the writes and the frees; flush() applies them once the replacements are on disk.
       dirty = true;
-      if (++mutationCount >= flushMutationCount) {
+      // Trigger on the amount of DISTINCT buffered work rather than the raw operation count: one per structural
+      // mutation (each adds new nodes to persist) plus one per distinct leaf pending an in-place overwrite
+      // (dirtyOverwrites is a set). Repeatedly overwriting the same key - or a remove that changed nothing -
+      // therefore does not advance the threshold.
+      if (bufferedWorkUnits() >= flushMutationCount) {
          flush();
       }
+   }
+
+   /** Amount of distinct buffered, unflushed work: structural mutations plus leaves pending an overwrite. */
+   private int bufferedWorkUnits() {
+      return structuralMutations + dirtyOverwrites.size();
    }
 
    @Override
@@ -139,8 +159,8 @@ public class BufferedSoftBPlusTree<V> extends SoftBPlusTree<V> {
          pinned.clearPin();
       }
       pinnedNodes.clear();
+      structuralMutations = 0;
       dirty = false;
-      mutationCount = 0;
    }
 
    /**
@@ -151,7 +171,6 @@ public class BufferedSoftBPlusTree<V> extends SoftBPlusTree<V> {
     * {@link #saveTree()}. A no-op when nothing is buffered.
     */
    public void flush() throws IOException {
-      mutationCount = 0;
       if (!dirty) {
          return;
       }
@@ -173,6 +192,7 @@ public class BufferedSoftBPlusTree<V> extends SoftBPlusTree<V> {
          freeBlock(ns.offset(), ns.occupiedSpace());
       }
       pendingFrees.clear();
+      structuralMutations = 0;
       dirty = false;
    }
 

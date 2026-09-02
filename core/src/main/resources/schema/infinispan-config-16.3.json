@@ -1246,7 +1246,7 @@
         },
         "flush-mutation-count": {
           "type": "integer",
-          "description": "Number of mutating index operations buffered per segment before its index is flushed to disk. A value of 1 disables buffering.",
+          "description": "How many units of buffered index work may accumulate per segment before its index is flushed to disk. Each structural change counts one unit; repeatedly overwriting the same key coalesces into a single write and counts once. A value of 1 disables buffering.",
           "default": "${Index.flush-mutation-count}"
         }
       },
