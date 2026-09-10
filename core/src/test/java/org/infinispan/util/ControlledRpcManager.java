@@ -76,6 +76,7 @@ public class ControlledRpcManager extends AbstractDelegatingRpcManager {
 
    private volatile boolean stopped;
    private final Set<Class<? extends ReplicableCommand>> excludedCommands = ConcurrentHashMap.newKeySet();
+   private final Set<Class<? extends ReplicableCommand>> interceptOnlyCommands = ConcurrentHashMap.newKeySet();
    private final BlockingQueue<CompletableFuture<ControlledRequest<?>>> waiters = new LinkedBlockingDeque<>();
    private RuntimeException globalError;
 
@@ -119,6 +120,23 @@ public class ControlledRpcManager extends AbstractDelegatingRpcManager {
          throw new IllegalStateException("Trying to exclude commands but we already stopped intercepting");
       }
       excludedCommands.add(excluded);
+   }
+
+   /**
+    * Configures the manager to intercept <em>only</em> the listed command classes, passing all
+    * others through without blocking.  This is the inverse of {@link #excludeCommands}: instead
+    * of listing what to skip, you list what to capture.
+    * <p>
+    * Replaces any previously set intercept-only list.  Cannot be combined with
+    * {@link #excludeCommands} — whichever was called last wins.
+    */
+   @SafeVarargs
+   public final void interceptOnly(Class<? extends ReplicableCommand>... toIntercept) {
+      if (stopped) {
+         throw new IllegalStateException("Trying to set intercept-only commands but we already stopped intercepting");
+      }
+      interceptOnlyCommands.clear();
+      interceptOnlyCommands.addAll(Arrays.asList(toIntercept));
    }
 
    public void stopBlocking() {
@@ -255,6 +273,10 @@ public class ControlledRpcManager extends AbstractDelegatingRpcManager {
    }
 
    private boolean isCommandExcluded(ReplicableCommand command) {
+      if (!interceptOnlyCommands.isEmpty()) {
+         // intercept-only mode: pass through anything NOT in the intercept-only set
+         return interceptOnlyCommands.stream().noneMatch(aClass -> aClass.isInstance(command));
+      }
       return excludedCommands.stream().anyMatch(aClass -> aClass.isInstance(command));
    }
 

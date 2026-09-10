@@ -81,11 +81,14 @@ public class MagicKey implements Serializable {
    }
 
    public MagicKey(String name, Cache<?, ?> primaryOwner, Cache<?, ?>... backupOwners) {
+      this(name, primaryOwner.getAdvancedCache().getDistributionManager().getCacheTopology(), primaryOwner, backupOwners);
+   }
+
+   public MagicKey(String name, LocalizedCacheTopology cacheTopology, Cache<?, ?> primaryOwner, Cache<?, ?>... backupOwners) {
       this.name = name;
       Address primaryAddress = addressOf(primaryOwner);
       this.address = primaryAddress.toString();
 
-      LocalizedCacheTopology cacheTopology = primaryOwner.getAdvancedCache().getDistributionManager().getCacheTopology();
       ConsistentHash ch = cacheTopology.getWriteConsistentHash();
       segment = findSegment(ch.getNumSegments(), s -> {
          List<Address> owners = ch.locateOwnersForSegment(s);
