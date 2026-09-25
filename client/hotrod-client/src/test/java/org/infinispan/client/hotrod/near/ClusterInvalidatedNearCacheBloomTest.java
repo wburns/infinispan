@@ -9,6 +9,7 @@ import java.util.concurrent.TimeUnit;
 import org.infinispan.Cache;
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.configuration.NearCacheMode;
+import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
 import org.infinispan.commons.util.concurrent.CompletionStages;
@@ -96,16 +97,11 @@ public class ClusterInvalidatedNearCacheBloomTest extends MultiHotRodServersTest
    public void testInvalidationFromOtherClientModification() {
       int key = 0;
 
-      int bloomFilterVersion = client2.bloomFilterVersion();
-
       client1.get(key, null).expectNearGetMiss(key);
       client2.get(key, null).expectNearGetMiss(key);
 
       String value = "v1";
       client1.put(key, value).expectNearPreemptiveRemove(key);
-
-      // We wait until the pending bloom updates is complete to avoid out of turn updates
-      eventuallyEquals(bloomFilterVersion + 2, () -> client2.bloomFilterVersion());
 
       client2.get(key, value).expectNearGetMissWithValue(key, value);
       client2.get(key, value).expectNearGetValue(key, value);
@@ -127,15 +123,36 @@ public class ClusterInvalidatedNearCacheBloomTest extends MultiHotRodServersTest
       String value2 = "v2";
       client1.put(key, value2).expectNearRemove(key, client2);
 
-      // Even though our near cache is emptied - the bloom filter hasn't yet been updated so we will still be hit
-      client2.put(key, value).expectNearRemove(key, client1);
-
-      // Force the clients to update the bloom filters on the servers so now we won't see the writes
-      CompletionStages.join(client1.remote.updateBloomFilter());
-      CompletionStages.join(client2.remote.updateBloomFilter());
-
+      // Server-side filter removes the key upon invalidation, so subsequent write does not send unnecessary event
       client2.put(key, value).expectNearPreemptiveRemove(key);
 
       client1.put(key, value).expectNearPreemptiveRemove(key);
+   }
+
+   public void testClearNearCacheResetsServerFilter() throws InterruptedException {
+      int key = 0;
+      String value = "v1";
+
+      client1.put(key, value).expectNearPreemptiveRemove(key);
+      client1.get(key, value).expectNearGetMissWithValue(key, value);
+      client1.get(key, value).expectNearGetValue(key, value);
+
+      // Explicitly clear near cache on client1
+      CompletionStages.join(((InvalidatedNearRemoteCache) client1.remote).clearNearCache());
+      client1.expectNearClear();
+
+      // Subsequent get on client1 is a miss because near cache was cleared
+      client1.get(key, value).expectNearGetMissWithValue(key, value);
+
+      // Clear again to ensure near cache is empty
+      CompletionStages.join(((InvalidatedNearRemoteCache) client1.remote).clearNearCache());
+      client1.expectNearClear();
+
+      // When client2 updates the key, client1 must NOT receive an invalidation event
+      // because the key was purged from the server filter when client1 cleared its near cache
+      String value2 = "v2";
+      client2.put(key, value2).expectNearPreemptiveRemove(key);
+
+      client1.expectNoNearEvents(50, TimeUnit.MILLISECONDS);
    }
 }

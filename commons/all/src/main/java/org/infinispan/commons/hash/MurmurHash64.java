@@ -1,4 +1,4 @@
-package org.infinispan.server.resp.commands;
+package org.infinispan.commons.hash;
 
 /**
  * MurmurHash3-based 64-bit hash used by probabilistic data structures (CuckooFilter, CountMinSketch).

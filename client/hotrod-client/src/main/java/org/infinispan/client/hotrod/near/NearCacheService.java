@@ -55,12 +55,9 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
 
       int maxEntries = config.maxEntries();
       if (maxEntries > 0 && config.bloomFilter()) {
-         bloomFilterBits = determineBloomFilterBits(maxEntries);
-         // We want to scale the update frequency of the bloom filter to be based on the number of max entries
-         // This number along with default values of 3 hash algorithms and 4x bit size we end up with
-         // between 14.689 and 16.573 percent hits per entry.
-         bloomFilterUpdateThreshold = maxEntries / 16 + 3;
-         nearCacheRemovals = new AtomicInteger();
+         bloomFilterBits = maxEntries;
+         bloomFilterUpdateThreshold = -1;
+         nearCacheRemovals = null;
       } else {
          bloomFilterBits = -1;
          bloomFilterUpdateThreshold = -1;

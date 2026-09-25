@@ -15,9 +15,7 @@ import java.util.concurrent.Executor;
 import javax.security.auth.Subject;
 
 import org.infinispan.AdvancedCache;
-import org.infinispan.commons.util.BloomFilter;
-import org.infinispan.commons.util.IntSets;
-import org.infinispan.commons.util.MurmurHash3BloomFilter;
+import org.infinispan.commons.util.CuckooFilter;
 import org.infinispan.commons.util.Util;
 import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.container.entries.CacheEntry;
@@ -48,7 +46,7 @@ class CacheRequestProcessor extends BaseRequestProcessor {
    private final ClientListenerRegistry listenerRegistry;
    private final InfinispanTelemetry telemetryService;
 
-   private final ConcurrentMap<String, BloomFilter<byte[]>> bloomFilters = new ConcurrentHashMap<>();
+   private final ConcurrentMap<String, CuckooFilter> cuckooFilters = new ConcurrentHashMap<>();
 
    CacheRequestProcessor(Channel channel, Executor executor, HotRodServer server, InfinispanTelemetry telemetryService) {
       super(channel, executor, server);
@@ -106,29 +104,30 @@ class CacheRequestProcessor extends BaseRequestProcessor {
 
    void updateBloomFilter(HotRodHeader header, Subject subject, byte[] bloomArray) {
       try {
-         BloomFilter<byte[]> filter = bloomFilters.get(header.cacheName);
-         if (filter != null) {
+         CuckooFilter cuckooFilter = cuckooFilters.get(header.cacheName);
+         if (cuckooFilter != null && isAllZero(bloomArray)) {
             if (log.isTraceEnabled()) {
-               log.tracef("Updating bloom filter %s found for cache %s", filter, header.cacheName);
+               log.tracef("Near cache cleared on client; clearing cuckoo filter for cache %s", header.cacheName);
             }
-            filter.setBits(IntSets.from(bloomArray));
-            if (log.isTraceEnabled()) {
-               log.tracef("Updated bloom filter %s for cache %s", filter, header.cacheName);
-            }
-            writeSuccess(header);
-         } else {
-            if (log.isTraceEnabled()) {
-               log.tracef("There was no bloom filter for cache %s from client", header.cacheName);
-            }
-            writeNotExecuted(header);
+            cuckooFilter.clear();
          }
+         writeSuccess(header);
       } catch (Throwable t) {
          writeException(header, t);
       }
    }
 
+   private static boolean isAllZero(byte[] array) {
+      if (array == null || array.length == 0) return true;
+      for (byte b : array) {
+         if (b != 0) return false;
+      }
+      return true;
+   }
+
    private void getInternal(HotRodHeader header, AdvancedCache<byte[], byte[]> cache, byte[] key,
                             InfinispanSpan<CacheEntry<?, ?>> span) {
+      addToFilter(header.cacheName, key);
       CompletableFuture<CacheEntry<byte[], byte[]>> get = cache.getCacheEntryAsync(key);
       if (get.isDone() && !get.isCompletedExceptionally()) {
          handleGet(header, get.join(), null, span);
@@ -138,17 +137,12 @@ class CacheRequestProcessor extends BaseRequestProcessor {
    }
 
    void addToFilter(String cacheName, byte[] key) {
-      BloomFilter<byte[]> bloomFilter = bloomFilters.get(cacheName);
-      // TODO: Need to think harder about this because we could have a concurrent write as we are doing our get
-      // and we could have just have had an invalidation come through that didn't pass the bloom filter
-      // I believe this has to go at the beginning of the get command before we get a value or exception
-      // We can fix this by adding a temporary check that if a get is being performed and the listener checks the
-      // bloom filter for the key to return a bit saying to not cache the returned value
-      if (bloomFilter != null) {
+      CuckooFilter cuckooFilter = cuckooFilters.get(cacheName);
+      if (cuckooFilter != null) {
          if (log.isTraceEnabled()) {
-            log.tracef("Added key %s to bloom filter for cache %s", Util.toStr(key), cacheName);
+            log.tracef("Added key %s to cuckoo filter for cache %s", Util.toStr(key), cacheName);
          }
-         bloomFilter.addToFilter(key);
+         cuckooFilter.addNx(key);
       }
    }
 
@@ -642,18 +636,57 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
       var span = requestStart(header, cacheInfo.getInfinispanSpanAttributes());
       try (var ignored = span.makeCurrent()) {
-         BloomFilter<byte[]> bloomFilter = null;
+         CuckooFilter cuckooFilter = null;
          if (bloomBits > 0) {
-            bloomFilter = MurmurHash3BloomFilter.createConcurrentFilter(bloomBits);
+            int capacity = Math.max(bloomBits / 4, 16);
+            cuckooFilter = new CuckooFilter(capacity, CuckooFilter.DEFAULT_BUCKET_SIZE,
+                  CuckooFilter.DEFAULT_MAX_ITERATIONS, CuckooFilter.DEFAULT_EXPANSION);
             if (log.isTraceEnabled()) {
-               log.tracef("Installing bloom filter for listener %s on cache %s", Util.toStr(listenerId), header.cacheName);
+               log.tracef("Installing cuckoo filter for legacy bloom listener %s on cache %s with capacity %d",
+                     Util.toStr(listenerId), header.cacheName, capacity);
             }
-            BloomFilter<byte[]> priorFilter = bloomFilters.putIfAbsent(header.cacheName, bloomFilter);
-            assert priorFilter == null;
+            cuckooFilters.put(header.cacheName, cuckooFilter);
          }
          CompletionStage<Void> stage = listenerRegistry.addClientListener(channel, header, listenerId, cache,
                includeCurrentState, filterFactory, filterParams, converterFactory, converterParams, useRawData,
-               listenerInterests, bloomFilter);
+               listenerInterests, cuckooFilter);
+         stage.whenCompleteAsync((ignore, cause) -> {
+            try {
+               if (cause != null) {
+                  log.trace("Failed to add listener", cause);
+                  if (cause instanceof CompletionException) {
+                     writeException(header, cause.getCause());
+                  } else {
+                     writeException(header, cause);
+                  }
+                  span.recordException(cause);
+               } else {
+                  writeSuccess(header);
+               }
+            } finally {
+               span.complete();
+            }
+         }, channel.eventLoop());
+      }
+   }
+
+   void addNearCacheListener(HotRodHeader header, Subject subject, byte[] listenerId, int nearCacheSize) {
+      var cacheInfo = server.getCacheInfo(header);
+      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+      var span = requestStart(header, cacheInfo.getInfinispanSpanAttributes());
+      try (var ignored = span.makeCurrent()) {
+         CuckooFilter cuckooFilter = null;
+         if (nearCacheSize > 0) {
+            cuckooFilter = new CuckooFilter(nearCacheSize, CuckooFilter.DEFAULT_BUCKET_SIZE,
+                  CuckooFilter.DEFAULT_MAX_ITERATIONS, CuckooFilter.DEFAULT_EXPANSION);
+            if (log.isTraceEnabled()) {
+               log.tracef("Installing cuckoo filter for listener %s on cache %s", Util.toStr(listenerId), header.cacheName);
+            }
+            cuckooFilters.put(header.cacheName, cuckooFilter);
+         }
+         CompletionStage<Void> stage = listenerRegistry.addClientListener(channel, header, listenerId, cache,
+               false, null, null, null, null, false,
+               14, cuckooFilter);
          stage.whenCompleteAsync((ignore, cause) -> {
             try {
                if (cause != null) {
@@ -693,6 +726,7 @@ class CacheRequestProcessor extends BaseRequestProcessor {
                      span.recordException(throwable);
                   } else {
                      if (success == Boolean.TRUE) {
+                        cuckooFilters.remove(header.cacheName);
                         writeSuccess(header);
                      } else {
                         writeNotExecuted(header);

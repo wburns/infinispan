@@ -4,6 +4,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 import org.infinispan.commons.marshall.ProtoStreamTypeIds;
+import org.infinispan.commons.util.CuckooFilter;
 import org.infinispan.functional.EntryView;
 import org.infinispan.protostream.annotations.ProtoTypeId;
 import org.infinispan.server.resp.commands.ProbabilisticErrors;

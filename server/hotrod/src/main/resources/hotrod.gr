@@ -219,6 +219,7 @@ numParams: byte;
 param: array[bytesAvailable(buf)];
 listenerInterests: vInt;
 bloomBits: vInt;
+nearCacheSize: vInt;
 
 bloomArray: array[bytesAvailable(buf)];
 
@@ -362,6 +363,8 @@ parameters switch opCode
       { cacheProcessor.addClientListener(getHeader(), auth.getSubject(operation), listenerId, includeCurrentState, filterFactory, filterParams, converterFactory, converterParams, useRawEvents, listenerInterests, 0); }
    | { ADD_BLOOM_FILTER_NEAR_CACHE_LISTENER_REQUEST }? listenerId bloomBits
       { cacheProcessor.addClientListener(getHeader(), auth.getSubject(operation), listenerId, false, null, null, null, null, false, 14, bloomBits); }
+   | { ADD_NEAR_CACHE_LISTENER_REQUEST }? listenerId nearCacheSize
+      { cacheProcessor.addNearCacheListener(getHeader(), auth.getSubject(operation), listenerId, nearCacheSize); }
    | { REMOVE_CLIENT_LISTENER_REQUEST }? listenerId { cacheProcessor.removeClientListener(getHeader(), auth.getSubject(operation), listenerId); }
    | { SIZE_REQUEST }? { cacheProcessor.size(getHeader(), auth.getSubject(operation)); }
    | { EXEC_REQUEST }? taskName taskParams { taskProcessor.exec(getHeader(), auth.getSubject(operation), taskName, taskParams); }

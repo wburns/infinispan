@@ -198,7 +198,10 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
 
    @Override
    public CompletableFuture<Void> clearAsync() {
-      return super.clearAsync().thenRun(nearcache::clear);
+      return super.clearAsync().thenCompose(v -> {
+         nearcache.clear();
+         return updateBloomFilter();
+      });
    }
 
    @SuppressWarnings("unchecked")
@@ -232,8 +235,9 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       super.stop();
    }
 
-   public void clearNearCache() {
+   public CompletionStage<Void> clearNearCache() {
       nearcache.clear();
+      return updateBloomFilter();
    }
 
    // Increments the bloom filter version if it is even and returns whether it was incremented
@@ -295,9 +299,9 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
    }
 
    @Override
-   public Channel addNearCacheListener(Object listener, int bloomBits) {
+   public Channel addNearCacheListener(Object listener, int nearCacheSize) {
       ClientListenerOperation op = getOperationsFactory().newAddNearCacheListenerOperation(listener,
-            bloomBits);
+            nearCacheSize);
       return getDispatcher().await(getDispatcher().executeAddListener(op));
    }
 

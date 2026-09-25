@@ -664,7 +664,7 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    }
 
    @Override
-   public Channel addNearCacheListener(Object listener, int bloomBits) {
+   public Channel addNearCacheListener(Object listener, int nearCacheSize) {
       throw new UnsupportedOperationException("Adding a near cache listener to a RemoteCache is not supported!");
    }
 

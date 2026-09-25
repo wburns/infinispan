@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import java.nio.charset.StandardCharsets;
 
+import org.infinispan.commons.util.CuckooFilter;
 import org.testng.annotations.Test;
 
 /**

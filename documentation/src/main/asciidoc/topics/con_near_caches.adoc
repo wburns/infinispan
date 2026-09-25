@@ -28,13 +28,14 @@ This means you do not need to manually keep the cache size within the boundaries
 Do not use maximum idle expiration with near caches because near-cache reads do not propagate the last access time for entries.
 ====
 
-.Bloom filters
+.Bloom and Cuckoo filters
 
-Bloom filters optimize performance for write operations by reducing the total number of invalidation messages.
+Filters optimize performance for write operations by reducing the total number of invalidation messages.
 
-Bloom filters:
+Filters:
 
 * Reside on {brandname} Server and keep track of the entries that the client has requested.
+* Use a server-side managed Cuckoo filter by default, where entries are added on read and removed on invalidation without requiring client-side recalculations.
 * Cannot be used with unbounded near caches.
 
 //-
