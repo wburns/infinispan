@@ -162,6 +162,16 @@ public abstract class DelegatingRemoteCache<K, V> extends RemoteCacheSupport<K, 
    }
 
    @Override
+   public CompletionStage<Void> removeNearCacheKeys(Set<byte[]> keys) {
+      return delegate.removeNearCacheKeys(keys);
+   }
+
+   @Override
+   public CompletionStage<Void> clearNearCache() {
+      return delegate.clearNearCache();
+   }
+
+   @Override
    public <T> T execute(String taskName, Map<String, ?> params) {
       return delegate.execute(taskName, params);
    }

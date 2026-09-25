@@ -111,10 +111,13 @@ public class ConfigurationProperties {
    public static final String CACHE_CONFIGURATION_URI_SUFFIX = ".configuration_uri";
    public static final String CACHE_FORCE_RETURN_VALUES_SUFFIX = ".force_return_values";
    public static final String CACHE_MARSHALLER = ".marshaller";
-   public static final String CACHE_NEAR_CACHE_MODE_SUFFIX = ".near_cache.mode";
-   public static final String CACHE_NEAR_CACHE_MAX_ENTRIES_SUFFIX = ".near_cache.max_entries";
-   public static final String CACHE_NEAR_CACHE_FACTORY_SUFFIX = ".near_cache.factory";
    public static final String CACHE_NEAR_CACHE_BLOOM_FILTER_SUFFIX = ".near_cache.bloom_filter";
+   public static final String CACHE_NEAR_CACHE_EVICTION_BATCH_SIZE_SUFFIX = ".near_cache.eviction_batch_size";
+   public static final String CACHE_NEAR_CACHE_EVICTION_STRATEGY_SUFFIX = ".near_cache.eviction_strategy";
+   public static final String CACHE_NEAR_CACHE_EVICTION_THRESHOLD_SUFFIX = ".near_cache.eviction_threshold";
+   public static final String CACHE_NEAR_CACHE_FACTORY_SUFFIX = ".near_cache.factory";
+   public static final String CACHE_NEAR_CACHE_MAX_ENTRIES_SUFFIX = ".near_cache.max_entries";
+   public static final String CACHE_NEAR_CACHE_MODE_SUFFIX = ".near_cache.mode";
    public static final String CACHE_TEMPLATE_NAME_SUFFIX = ".template_name";
    public static final String CACHE_TRANSACTION_MODE_SUFFIX = ".transaction.transaction_mode";
    public static final String CACHE_TRANSACTION_MANAGER_LOOKUP_SUFFIX = ".transaction.transaction_manager_lookup";

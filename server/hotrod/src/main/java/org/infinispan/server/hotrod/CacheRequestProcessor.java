@@ -707,6 +707,23 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       }
    }
 
+   void removeNearCacheKeys(HotRodHeader header, Subject subject, Set<byte[]> keys) {
+      try {
+         CuckooFilter cuckooFilter = cuckooFilters.get(header.cacheName);
+         if (cuckooFilter != null && keys != null) {
+            for (byte[] key : keys) {
+               if (log.isTraceEnabled()) {
+                  log.tracef("Removing evicted key %s from cuckoo filter for cache %s", Util.toStr(key), header.cacheName);
+               }
+               cuckooFilter.delete(key);
+            }
+         }
+         writeSuccess(header);
+      } catch (Throwable t) {
+         writeException(header, t);
+      }
+   }
+
    void removeClientListener(HotRodHeader header, Subject subject, byte[] listenerId) {
       var cacheInfo = server.getCacheInfo(header);
       AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);

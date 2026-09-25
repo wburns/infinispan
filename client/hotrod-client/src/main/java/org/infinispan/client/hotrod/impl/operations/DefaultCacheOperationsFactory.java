@@ -183,6 +183,11 @@ public final class DefaultCacheOperationsFactory implements CacheOperationsFacto
    }
 
    @Override
+   public HotRodOperation<Void> newRemoveNearCacheKeysOperation(Set<byte[]> keys) {
+      return new RemoveNearCacheKeysOperation(remoteCache, keys);
+   }
+
+   @Override
    public ClientListenerOperation newAddNearCacheListenerOperation(Object listener, int nearCacheSize) {
       return new AddNearCacheClientListenerOperation(remoteCache, listener, nearCacheSize);
    }

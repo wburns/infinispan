@@ -1,7 +1,11 @@
 package org.infinispan.client.hotrod.near;
 
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 
@@ -13,6 +17,7 @@ import org.infinispan.client.hotrod.annotation.ClientCacheEntryRemoved;
 import org.infinispan.client.hotrod.annotation.ClientCacheFailover;
 import org.infinispan.client.hotrod.annotation.ClientListener;
 import org.infinispan.client.hotrod.configuration.NearCacheConfiguration;
+import org.infinispan.client.hotrod.configuration.NearCacheEvictionStrategy;
 import org.infinispan.client.hotrod.event.ClientCacheEntryExpiredEvent;
 import org.infinispan.client.hotrod.event.ClientCacheEntryModifiedEvent;
 import org.infinispan.client.hotrod.event.ClientCacheEntryRemovedEvent;
@@ -45,6 +50,9 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    private final int bloomFilterBits;
    private final int bloomFilterUpdateThreshold;
    private final AtomicInteger nearCacheRemovals;
+   private final AtomicInteger evictionCount;
+   private final ConcurrentLinkedQueue<K> evictedKeys;
+   private final Set<K> inFlightEvictions;
    private InternalRemoteCache<K, V> remote;
 
    private Channel channelUsed;
@@ -58,10 +66,22 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
          bloomFilterBits = maxEntries;
          bloomFilterUpdateThreshold = -1;
          nearCacheRemovals = null;
+         if (config.evictionStrategy() == NearCacheEvictionStrategy.CLEAR_ON_THRESHOLD) {
+            evictionCount = new AtomicInteger();
+            evictedKeys = null;
+            inFlightEvictions = null;
+         } else {
+            evictionCount = null;
+            evictedKeys = new ConcurrentLinkedQueue<>();
+            inFlightEvictions = ConcurrentHashMap.newKeySet();
+         }
       } else {
          bloomFilterBits = -1;
          bloomFilterUpdateThreshold = -1;
          nearCacheRemovals = null;
+         evictionCount = null;
+         evictedKeys = null;
+         inFlightEvictions = null;
       }
    }
 
@@ -89,22 +109,56 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    }
 
    void entryRemovedFromNearCache(K key, MetadataValue<V> value) {
-      if (nearCacheRemovals == null) {
+      if (config.bloomFilter() && remote != null) {
+         if (value != null && config.evictionStrategy() == NearCacheEvictionStrategy.CLEAR_ON_THRESHOLD) {
+            int count = evictionCount.incrementAndGet();
+            if (count >= config.evictionThreshold()) {
+               if (evictionCount.compareAndSet(count, 0)) {
+                  if (log.isTraceEnabled()) {
+                     log.tracef("Near cache reached eviction threshold (%d); clearing near cache for %s", count, remote.getName());
+                  }
+                  remote.clearNearCache();
+               }
+            }
+         } else if (value != null && config.evictionStrategy() == NearCacheEvictionStrategy.BATCH_DELETE) {
+            evictedKeys.add(key);
+            if (evictedKeys.size() >= config.evictionBatchSize()) {
+               flushEvictedKeys();
+            }
+         } else if (nearCacheRemovals != null) {
+            int removals = nearCacheRemovals.incrementAndGet();
+            if (removals >= bloomFilterUpdateThreshold) {
+               remote.updateBloomFilter();
+            }
+         }
+      }
+   }
+
+   public boolean isEvictionInFlight(K key) {
+      return inFlightEvictions != null && inFlightEvictions.contains(key);
+   }
+
+   public void flushEvictedKeys() {
+      if (evictedKeys == null || evictedKeys.isEmpty() || remote == null) {
          return;
       }
-
-      while (true) {
-         int removals = nearCacheRemovals.get();
-         if (removals >= bloomFilterUpdateThreshold) {
-            if (nearCacheRemovals.compareAndSet(removals, 0)) {
-               log.tracef("Updating bloom filter due to reaching update threshold with %d for %s", removals, remote.getName());
-               remote.updateBloomFilter();
-               break;
-            }
-         } else if (nearCacheRemovals.compareAndSet(removals, removals + 1)) {
-            log.tracef("Incremented nearCacheRemovals to %d for %s", removals + 1, remote.getName());
+      Set<byte[]> batch = new HashSet<>(config.evictionBatchSize());
+      Set<K> inFlightBatch = new HashSet<>(config.evictionBatchSize());
+      K k;
+      while ((k = evictedKeys.poll()) != null) {
+         batch.add(remote.keyToBytes(k));
+         inFlightBatch.add(k);
+         if (batch.size() >= config.evictionBatchSize()) {
             break;
          }
+      }
+      if (!batch.isEmpty()) {
+         inFlightEvictions.addAll(inFlightBatch);
+         if (log.isTraceEnabled()) {
+            log.tracef("Flushing %d evicted keys to server for %s", batch.size(), remote.getName());
+         }
+         remote.removeNearCacheKeys(batch)
+               .whenComplete((ignore, t) -> inFlightEvictions.removeAll(inFlightBatch));
       }
    }
 
@@ -116,6 +170,12 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
       remote.removeClientListener(listener);
       // Empty cache
       cache.clear();
+      if (evictedKeys != null) {
+         evictedKeys.clear();
+      }
+      if (inFlightEvictions != null) {
+         inFlightEvictions.clear();
+      }
    }
 
    protected NearCache<K, V> createNearCache(NearCacheConfiguration config, BiConsumer<K, MetadataValue<V>> removedConsumer) {

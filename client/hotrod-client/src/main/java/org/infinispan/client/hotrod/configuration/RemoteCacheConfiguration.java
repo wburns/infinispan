@@ -24,6 +24,9 @@ public class RemoteCacheConfiguration {
    public static final AttributeDefinition<NearCacheMode> NEAR_CACHE_MODE = AttributeDefinition.builder("near-cache-mode", NearCacheMode.DISABLED).build();
    public static final AttributeDefinition<Integer> NEAR_CACHE_MAX_ENTRIES = AttributeDefinition.builder("near-cache-max-entries", -1).build();
    public static final AttributeDefinition<Boolean> NEAR_CACHE_BLOOM_FILTER = AttributeDefinition.builder("near-cache-bloom-filter", false).build();
+   public static final AttributeDefinition<NearCacheEvictionStrategy> NEAR_CACHE_EVICTION_STRATEGY = AttributeDefinition.builder("near-cache-eviction-strategy", NearCacheEvictionStrategy.BATCH_DELETE, NearCacheEvictionStrategy.class).build();
+   public static final AttributeDefinition<Integer> NEAR_CACHE_EVICTION_BATCH_SIZE = AttributeDefinition.builder("near-cache-eviction-batch-size", NearCacheConfiguration.DEFAULT_EVICTION_BATCH_SIZE).build();
+   public static final AttributeDefinition<Integer> NEAR_CACHE_EVICTION_THRESHOLD = AttributeDefinition.builder("near-cache-eviction-threshold", -1).build();
    public static final AttributeDefinition<NearCacheFactory> NEAR_CACHE_FACTORY = AttributeDefinition.builder("near-cache-factory", DefaultNearCacheFactory.INSTANCE, NearCacheFactory.class).build();
    public static final AttributeDefinition<String> TEMPLATE_NAME = AttributeDefinition.builder("template-name", null, String.class).build();
    public static final AttributeDefinition<TransactionMode> TRANSACTION_MODE = AttributeDefinition.builder("transaction-mode", TransactionMode.NONE).build();
@@ -32,7 +35,7 @@ public class RemoteCacheConfiguration {
    public static final AttributeDefinition<Class> MARSHALLER_CLASS = AttributeDefinition.builder("marshallerClass", null, Class.class).build();
 
    static AttributeSet attributeDefinitionSet() {
-      return new AttributeSet(RemoteCacheConfiguration.class, CONFIGURATION, FORCE_RETURN_VALUES, NAME, MARSHALLER, MARSHALLER_CLASS, NEAR_CACHE_MODE, NEAR_CACHE_MAX_ENTRIES, NEAR_CACHE_BLOOM_FILTER, NEAR_CACHE_FACTORY, TEMPLATE_NAME, TRANSACTION_MODE, TRANSACTION_MANAGER);
+      return new AttributeSet(RemoteCacheConfiguration.class, CONFIGURATION, FORCE_RETURN_VALUES, NAME, MARSHALLER, MARSHALLER_CLASS, NEAR_CACHE_MODE, NEAR_CACHE_MAX_ENTRIES, NEAR_CACHE_BLOOM_FILTER, NEAR_CACHE_EVICTION_STRATEGY, NEAR_CACHE_EVICTION_BATCH_SIZE, NEAR_CACHE_EVICTION_THRESHOLD, NEAR_CACHE_FACTORY, TEMPLATE_NAME, TRANSACTION_MODE, TRANSACTION_MANAGER);
    }
 
    private final Attribute<String> configuration;
@@ -43,6 +46,9 @@ public class RemoteCacheConfiguration {
    private final Attribute<NearCacheMode> nearCacheMode;
    private final Attribute<Integer> nearCacheMaxEntries;
    private final Attribute<Boolean> nearCacheBloomFilter;
+   private final Attribute<NearCacheEvictionStrategy> nearCacheEvictionStrategy;
+   private final Attribute<Integer> nearCacheEvictionBatchSize;
+   private final Attribute<Integer> nearCacheEvictionThreshold;
    private final Attribute<String> templateName;
    private final Attribute<TransactionMode> transactionMode;
    private final Attribute<TransactionManagerLookup> transactionManager;
@@ -58,6 +64,9 @@ public class RemoteCacheConfiguration {
       nearCacheMode = attributes.attribute(NEAR_CACHE_MODE);
       nearCacheMaxEntries = attributes.attribute(NEAR_CACHE_MAX_ENTRIES);
       nearCacheBloomFilter = attributes.attribute(NEAR_CACHE_BLOOM_FILTER);
+      nearCacheEvictionStrategy = attributes.attribute(NEAR_CACHE_EVICTION_STRATEGY);
+      nearCacheEvictionBatchSize = attributes.attribute(NEAR_CACHE_EVICTION_BATCH_SIZE);
+      nearCacheEvictionThreshold = attributes.attribute(NEAR_CACHE_EVICTION_THRESHOLD);
       templateName = attributes.attribute(TEMPLATE_NAME);
       transactionMode = attributes.attribute(TRANSACTION_MODE);
       transactionManager = attributes.attribute(TRANSACTION_MANAGER);
@@ -93,6 +102,18 @@ public class RemoteCacheConfiguration {
 
    public boolean nearCacheBloomFilter() {
       return nearCacheBloomFilter.get();
+   }
+
+   public NearCacheEvictionStrategy nearCacheEvictionStrategy() {
+      return nearCacheEvictionStrategy.get();
+   }
+
+   public int nearCacheEvictionBatchSize() {
+      return nearCacheEvictionBatchSize.get();
+   }
+
+   public int nearCacheEvictionThreshold() {
+      return nearCacheEvictionThreshold.get();
    }
 
    public NearCacheFactory nearCacheFactory() {

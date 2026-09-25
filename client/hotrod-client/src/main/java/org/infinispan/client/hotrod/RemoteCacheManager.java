@@ -631,7 +631,9 @@ public class RemoteCacheManager implements RemoteCacheContainer, Closeable, Remo
          return new RemoteCacheImpl<>(this, cacheName, timeService, factoryFunction);
       } else {
          NearCacheConfiguration nearCache = new NearCacheConfiguration(remoteCacheConfiguration.nearCacheMode(), remoteCacheConfiguration.nearCacheMaxEntries(),
-               remoteCacheConfiguration.nearCacheBloomFilter(), remoteCacheConfiguration.nearCacheFactory());
+               remoteCacheConfiguration.nearCacheBloomFilter(), remoteCacheConfiguration.nearCacheEvictionStrategy(),
+               remoteCacheConfiguration.nearCacheEvictionBatchSize(), remoteCacheConfiguration.nearCacheEvictionThreshold(),
+               remoteCacheConfiguration.nearCacheFactory());
          NearCacheService<K, V> nearCacheService = createNearCacheService(cacheName, nearCache);
          if (log.isTraceEnabled()) {
             log.tracef("Enabling near-caching for cache '%s'", cacheName);

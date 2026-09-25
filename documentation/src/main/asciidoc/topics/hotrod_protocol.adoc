@@ -118,6 +118,7 @@ In this particular case, this is +10+
 +0x39+ = putStream (since 2.6) +
 +0x43+ = addBloomFilterClientListener (since 3.1) +
 +0x47+ = addNearCacheListener (since 4.1) +
++0x49+ = removeNearCacheKeys (since 4.1) +
 | Cache Name Length   | vInt       | Length of cache name. If the passed
 length is +0+ (followed by no cache name), the operation will interact with
 the default cache.
@@ -3601,4 +3602,30 @@ Response (0x48):
 
 | Header              | variable   | Response header
 |==============================================================================
+
+.Remove Near Cache Keys
+
+When near cache entries are evicted locally by the client, the client can asynchronously send batches of evicted keys
+to the server to remove them from the server-side filter.
+
+Request (0x49):
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+
+| Header              | variable   | Request header
+| Number of keys      | vInt       | Number of keys in the batch
+| Keys                | byte array | Sequence of evicted keys (length as vInt, followed by bytes)
+|==============================================================================
+
+Response (0x4A):
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+
+| Header              | variable   | Response header
+|==============================================================================
+
 

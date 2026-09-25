@@ -6,6 +6,9 @@ import static org.infinispan.client.hotrod.configuration.RemoteCacheConfiguratio
 import static org.infinispan.client.hotrod.configuration.RemoteCacheConfiguration.MARSHALLER_CLASS;
 import static org.infinispan.client.hotrod.configuration.RemoteCacheConfiguration.NAME;
 import static org.infinispan.client.hotrod.configuration.RemoteCacheConfiguration.NEAR_CACHE_BLOOM_FILTER;
+import static org.infinispan.client.hotrod.configuration.RemoteCacheConfiguration.NEAR_CACHE_EVICTION_BATCH_SIZE;
+import static org.infinispan.client.hotrod.configuration.RemoteCacheConfiguration.NEAR_CACHE_EVICTION_STRATEGY;
+import static org.infinispan.client.hotrod.configuration.RemoteCacheConfiguration.NEAR_CACHE_EVICTION_THRESHOLD;
 import static org.infinispan.client.hotrod.configuration.RemoteCacheConfiguration.NEAR_CACHE_FACTORY;
 import static org.infinispan.client.hotrod.configuration.RemoteCacheConfiguration.NEAR_CACHE_MAX_ENTRIES;
 import static org.infinispan.client.hotrod.configuration.RemoteCacheConfiguration.NEAR_CACHE_MODE;
@@ -101,6 +104,41 @@ public class RemoteCacheConfigurationBuilder implements Builder<RemoteCacheConfi
     */
    public RemoteCacheConfigurationBuilder nearCacheUseBloomFilter(boolean enable) {
       attributes.attribute(NEAR_CACHE_BLOOM_FILTER).set(enable);
+      return this;
+   }
+
+   /**
+    * Specifies the eviction strategy to use for synchronizing client-side near cache evictions
+    * with the server-side filter.
+    *
+    * @param strategy the {@link NearCacheEvictionStrategy}
+    * @return an instance of this builder
+    */
+   public RemoteCacheConfigurationBuilder nearCacheEvictionStrategy(NearCacheEvictionStrategy strategy) {
+      attributes.attribute(NEAR_CACHE_EVICTION_STRATEGY).set(strategy);
+      return this;
+   }
+
+   /**
+    * Specifies the batch size of evicted keys sent to the server when using {@link NearCacheEvictionStrategy#BATCH_DELETE}.
+    *
+    * @param batchSize batch size of evicted keys
+    * @return an instance of this builder
+    */
+   public RemoteCacheConfigurationBuilder nearCacheEvictionBatchSize(int batchSize) {
+      attributes.attribute(NEAR_CACHE_EVICTION_BATCH_SIZE).set(batchSize);
+      return this;
+   }
+
+   /**
+    * Specifies the eviction count threshold before resetting the near cache and server filter
+    * when using {@link NearCacheEvictionStrategy#CLEAR_ON_THRESHOLD}.
+    *
+    * @param threshold the number of evictions before clearing
+    * @return an instance of this builder
+    */
+   public RemoteCacheConfigurationBuilder nearCacheEvictionThreshold(int threshold) {
+      attributes.attribute(NEAR_CACHE_EVICTION_THRESHOLD).set(threshold);
       return this;
    }
 
@@ -268,6 +306,9 @@ public class RemoteCacheConfigurationBuilder implements Builder<RemoteCacheConfi
       findCacheProperty(typed, ConfigurationProperties.CACHE_NEAR_CACHE_MODE_SUFFIX, v -> this.nearCacheMode(NearCacheMode.valueOf(v)));
       findCacheProperty(typed, ConfigurationProperties.CACHE_NEAR_CACHE_MAX_ENTRIES_SUFFIX, v -> this.nearCacheMaxEntries(Integer.parseInt(v)));
       findCacheProperty(typed, ConfigurationProperties.CACHE_NEAR_CACHE_BLOOM_FILTER_SUFFIX, v -> this.nearCacheUseBloomFilter(Boolean.parseBoolean(v)));
+      findCacheProperty(typed, ConfigurationProperties.CACHE_NEAR_CACHE_EVICTION_STRATEGY_SUFFIX, v -> this.nearCacheEvictionStrategy(NearCacheEvictionStrategy.valueOf(v)));
+      findCacheProperty(typed, ConfigurationProperties.CACHE_NEAR_CACHE_EVICTION_BATCH_SIZE_SUFFIX, v -> this.nearCacheEvictionBatchSize(Integer.parseInt(v)));
+      findCacheProperty(typed, ConfigurationProperties.CACHE_NEAR_CACHE_EVICTION_THRESHOLD_SUFFIX, v -> this.nearCacheEvictionThreshold(Integer.parseInt(v)));
       findCacheProperty(typed, ConfigurationProperties.CACHE_NEAR_CACHE_FACTORY_SUFFIX, v -> this.nearCacheFactory(getInstance(loadClass(v, RemoteCacheConfigurationBuilder.class.getClassLoader()))));
       findCacheProperty(typed, ConfigurationProperties.CACHE_TRANSACTION_MODE_SUFFIX, v -> this.transactionMode(TransactionMode.valueOf(v)));
       findCacheProperty(typed, ConfigurationProperties.CACHE_TRANSACTION_MANAGER_LOOKUP_SUFFIX, this::transactionManagerLookupClass);

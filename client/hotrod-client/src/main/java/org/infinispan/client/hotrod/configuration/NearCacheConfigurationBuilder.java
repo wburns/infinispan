@@ -14,6 +14,9 @@ public class NearCacheConfigurationBuilder extends AbstractConfigurationChildBui
    private NearCacheMode mode = NearCacheMode.DISABLED;
    private Integer maxEntries = null; // undefined
    private boolean bloomFilter = false;
+   private NearCacheEvictionStrategy evictionStrategy = NearCacheEvictionStrategy.BATCH_DELETE;
+   private int evictionBatchSize = NearCacheConfiguration.DEFAULT_EVICTION_BATCH_SIZE;
+   private int evictionThreshold = -1;
    private NearCacheFactory nearCacheFactory = DefaultNearCacheFactory.INSTANCE;
 
    protected NearCacheConfigurationBuilder(ConfigurationBuilder builder) {
@@ -44,6 +47,41 @@ public class NearCacheConfigurationBuilder extends AbstractConfigurationChildBui
     */
    public NearCacheConfigurationBuilder bloomFilter(boolean enable) {
       this.bloomFilter = enable;
+      return this;
+   }
+
+   /**
+    * Specifies the eviction strategy to use for synchronizing client-side near cache evictions
+    * with the server-side filter.
+    *
+    * @param strategy the {@link NearCacheEvictionStrategy}
+    * @return an instance of this builder
+    */
+   public NearCacheConfigurationBuilder evictionStrategy(NearCacheEvictionStrategy strategy) {
+      this.evictionStrategy = strategy;
+      return this;
+   }
+
+   /**
+    * Specifies the batch size of evicted keys sent to the server when using {@link NearCacheEvictionStrategy#BATCH_DELETE}.
+    *
+    * @param evictionBatchSize batch size of evicted keys
+    * @return an instance of this builder
+    */
+   public NearCacheConfigurationBuilder evictionBatchSize(int evictionBatchSize) {
+      this.evictionBatchSize = evictionBatchSize;
+      return this;
+   }
+
+   /**
+    * Specifies the eviction count threshold before resetting the near cache and server filter
+    * when using {@link NearCacheEvictionStrategy#CLEAR_ON_THRESHOLD}.
+    *
+    * @param evictionThreshold the number of evictions before clearing
+    * @return an instance of this builder
+    */
+   public NearCacheConfigurationBuilder evictionThreshold(int evictionThreshold) {
+      this.evictionThreshold = evictionThreshold;
       return this;
    }
 
@@ -82,7 +120,8 @@ public class NearCacheConfigurationBuilder extends AbstractConfigurationChildBui
 
    @Override
    public NearCacheConfiguration create() {
-      return new NearCacheConfiguration(mode, maxEntries == null ? -1 : maxEntries, bloomFilter, nearCacheFactory);
+      int threshold = evictionThreshold > 0 ? evictionThreshold : (maxEntries == null ? 100 : maxEntries);
+      return new NearCacheConfiguration(mode, maxEntries == null ? -1 : maxEntries, bloomFilter, evictionStrategy, evictionBatchSize, threshold, nearCacheFactory);
    }
 
    @Override
@@ -90,6 +129,9 @@ public class NearCacheConfigurationBuilder extends AbstractConfigurationChildBui
       mode = template.mode();
       maxEntries = template.maxEntries();
       bloomFilter = template.bloomFilter();
+      evictionStrategy = template.evictionStrategy();
+      evictionBatchSize = template.evictionBatchSize();
+      evictionThreshold = template.evictionThreshold();
       nearCacheFactory = template.nearCacheFactory();
       return this;
    }

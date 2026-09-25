@@ -220,6 +220,10 @@ public class AssertsNearCache<K, V> {
       killRemoteCacheManager(manager);
    }
 
+   public MetadataValue<V> getNearCacheEntry(K key) {
+      return nearCacheService.get().get(key);
+   }
+
    private static <K, V> void expectLocalNearRemoveInClient(AssertsNearCache<K, V> client, K key) {
       // Preemptive remove
       MockRemoveEvent preemptiveRemove = pollEvent(client.events);

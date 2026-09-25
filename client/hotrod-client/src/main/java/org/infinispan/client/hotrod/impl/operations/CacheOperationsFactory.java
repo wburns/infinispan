@@ -100,6 +100,8 @@ public interface CacheOperationsFactory {
 
    HotRodOperation<Void> newUpdateBloomFilterOperation(byte[] bloomFilterBits);
 
+   HotRodOperation<Void> newRemoveNearCacheKeysOperation(Set<byte[]> keys);
+
    ClientListenerOperation newAddNearCacheListenerOperation(Object listener, int nearCacheSize);
 
    <T> QueryOperation<T> newQueryOperation(RemoteQuery<T> ts, boolean withHitCount);

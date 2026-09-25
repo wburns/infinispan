@@ -103,6 +103,16 @@ public interface InternalRemoteCache<K, V> extends RemoteCache<K, V> {
     */
    CompletionStage<Void> updateBloomFilter();
 
+   /**
+    * Removes the given keys from the server-side near cache filter.
+    */
+   CompletionStage<Void> removeNearCacheKeys(Set<byte[]> keys);
+
+   /**
+    * Clears the near cache and resets the server-side filter.
+    */
+   CompletionStage<Void> clearNearCache();
+
    CacheOperationsFactory getOperationsFactory();
 
    ClientListenerNotifier getListenerNotifier();

@@ -159,6 +159,11 @@ public abstract class DelegatingCacheOperationsFactory implements CacheOperation
    }
 
    @Override
+   public HotRodOperation<Void> newRemoveNearCacheKeysOperation(Set<byte[]> keys) {
+      return delegate.newRemoveNearCacheKeysOperation(keys);
+   }
+
+   @Override
    public ClientListenerOperation newAddNearCacheListenerOperation(Object listener, int nearCacheSize) {
       return delegate.newAddNearCacheListenerOperation(listener, nearCacheSize);
    }

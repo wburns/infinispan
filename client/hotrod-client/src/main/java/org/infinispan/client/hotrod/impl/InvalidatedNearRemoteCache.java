@@ -5,6 +5,7 @@ import static org.infinispan.client.hotrod.logging.Log.HOTROD;
 import java.lang.invoke.MethodHandles;
 import java.net.SocketAddress;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.TimeUnit;
@@ -97,9 +98,9 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
          CompletionStage<GetWithMetadataOperation.GetWithMetadataResult<V>> remoteValue = super.getWithMetadataAsync(key, listenerChannel);
          // If previous version is odd we can't cache as that means it was started during
          // a bloom filter update.
-         if (!cache || (prevVersion & 1) == 1) {
+         if (!cache || (prevVersion & 1) == 1 || nearcache.isEvictionInFlight(key)) {
             if (trace) {
-               log.tracef("Unable to cache returned value for key %s as either has concurrent operation or during a bloom filter update",
+               log.tracef("Unable to cache returned value for key %s as either has concurrent operation, eviction in-flight, or during a bloom filter update",
                      org.infinispan.commons.util.Util.toStr(key));
             }
             nearcache.remove(key, calculatingPlaceholder);
@@ -116,6 +117,11 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
                   if (trace) {
                      log.tracef("Unable to cache returned value for key %s as operation was performed during a" +
                            " bloom filter update", org.infinispan.commons.util.Util.toStr(key));
+                  }
+               } else if (nearcache.isEvictionInFlight(key)) {
+                  if (trace) {
+                     log.tracef("Unable to cache returned value for key %s as it has an in-flight eviction",
+                           org.infinispan.commons.util.Util.toStr(key));
                   }
                } else if (listenerChannel != null && v.retried()) {
                   // Having a listener address means it has a bloom filter. When we have a bloom filter we cannot
@@ -284,6 +290,19 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       CacheOperationsFactory operationsFactory = getOperationsFactory();
       HotRodOperation<Void> op = operationsFactory.newUpdateBloomFilterOperation(bloomFilterBits);
       return incrementBloomVersionUponCompletion(getDispatcher().executeOnSingleAddress(op, ChannelRecord.of(listenerChannel)));
+   }
+
+   @Override
+   public CompletionStage<Void> removeNearCacheKeys(Set<byte[]> keys) {
+      if (keys == null || keys.isEmpty() || listenerChannel == null) {
+         return CompletableFutures.completedNull();
+      }
+      if (trace) {
+         log.tracef("Sending removeNearCacheKeys(%d keys) to %s", keys.size(), listenerChannel);
+      }
+      CacheOperationsFactory operationsFactory = getOperationsFactory();
+      HotRodOperation<Void> op = operationsFactory.newRemoveNearCacheKeysOperation(keys);
+      return getDispatcher().executeOnSingleAddress(op, ChannelRecord.of(listenerChannel));
    }
 
    public SocketAddress getBloomListenerAddress() {

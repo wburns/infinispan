@@ -36,6 +36,7 @@ Filters:
 
 * Reside on {brandname} Server and keep track of the entries that the client has requested.
 * Use a server-side managed Cuckoo filter by default, where entries are added on read and removed on invalidation without requiring client-side recalculations.
+* Synchronize client-side near cache evictions using either `BATCH_DELETE` (asynchronous batch deletion of evicted keys from the server filter) or `CLEAR_ON_THRESHOLD` (clearing near cache and server filter when cumulative evictions exceed a threshold).
 * Cannot be used with unbounded near caches.
 
 //-

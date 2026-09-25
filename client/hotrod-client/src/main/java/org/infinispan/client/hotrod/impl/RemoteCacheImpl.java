@@ -669,6 +669,16 @@ public class RemoteCacheImpl<K, V> extends RemoteCacheSupport<K, V> implements I
    }
 
    @Override
+   public CompletionStage<Void> removeNearCacheKeys(Set<byte[]> keys) {
+      throw new UnsupportedOperationException("Removing near cache keys from a RemoteCache is not supported!");
+   }
+
+   @Override
+   public CompletionStage<Void> clearNearCache() {
+      return CompletableFutures.completedNull();
+   }
+
+   @Override
    public void removeClientListener(Object listener) {
       assertRemoteCacheManagerIsStarted();
       byte[] listenerId = clientListenerNotifier.findListenerId(listener);
