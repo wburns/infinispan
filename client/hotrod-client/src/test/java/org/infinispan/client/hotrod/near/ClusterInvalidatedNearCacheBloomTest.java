@@ -96,16 +96,11 @@ public class ClusterInvalidatedNearCacheBloomTest extends MultiHotRodServersTest
    public void testInvalidationFromOtherClientModification() {
       int key = 0;
 
-      int bloomFilterVersion = client2.bloomFilterVersion();
-
       client1.get(key, null).expectNearGetMiss(key);
       client2.get(key, null).expectNearGetMiss(key);
 
       String value = "v1";
       client1.put(key, value).expectNearPreemptiveRemove(key);
-
-      // We wait until the pending bloom updates is complete to avoid out of turn updates
-      eventuallyEquals(bloomFilterVersion + 2, () -> client2.bloomFilterVersion());
 
       client2.get(key, value).expectNearGetMissWithValue(key, value);
       client2.get(key, value).expectNearGetValue(key, value);
@@ -127,13 +122,7 @@ public class ClusterInvalidatedNearCacheBloomTest extends MultiHotRodServersTest
       String value2 = "v2";
       client1.put(key, value2).expectNearRemove(key, client2);
 
-      // Even though our near cache is emptied - the bloom filter hasn't yet been updated so we will still be hit
-      client2.put(key, value).expectNearRemove(key, client1);
-
-      // Force the clients to update the bloom filters on the servers so now we won't see the writes
-      CompletionStages.join(client1.remote.updateBloomFilter());
-      CompletionStages.join(client2.remote.updateBloomFilter());
-
+      // Server-side filter removes the key upon invalidation, so subsequent write does not send unnecessary event
       client2.put(key, value).expectNearPreemptiveRemove(key);
 
       client1.put(key, value).expectNearPreemptiveRemove(key);

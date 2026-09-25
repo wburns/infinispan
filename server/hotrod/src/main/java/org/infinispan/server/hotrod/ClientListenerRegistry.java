@@ -23,7 +23,7 @@ import org.infinispan.commons.dataconversion.MediaType;
 import org.infinispan.commons.dataconversion.TranscoderMarshallerAdapter;
 import org.infinispan.commons.marshall.Marshaller;
 import org.infinispan.commons.marshall.WrappedByteArray;
-import org.infinispan.commons.util.BloomFilter;
+import org.infinispan.commons.util.CuckooFilter;
 import org.infinispan.commons.util.Util;
 import org.infinispan.commons.util.concurrent.CompletableFutures;
 import org.infinispan.container.versioning.NumericVersion;
@@ -145,13 +145,14 @@ class ClientListenerRegistry {
                           AdvancedCache<byte[], byte[]> cache, boolean includeState,
                           String filterFactory, List<byte[]> binaryFilterParams,
                           String converterFactory, List<byte[]> binaryConverterParams,
-                          boolean useRawData, int listenerInterests, BloomFilter<byte[]> bloomFilter) {
+                          boolean useRawData, int listenerInterests,
+                          CuckooFilter cuckooFilter) {
 
       CacheEventFilter<byte[], byte[]> filter;
       CacheEventConverter<byte[], byte[], byte[]> converter;
       ClientEventType eventType;
 
-      if (bloomFilter != null) {
+      if (cuckooFilter != null) {
          assert filterFactory == null || filterFactory.isEmpty();
          assert converterFactory == null || converterFactory.isEmpty();
          assert !includeState;
@@ -189,7 +190,8 @@ class ClientListenerRegistry {
          }
       }
       BaseClientEventSender clientEventSender = getClientEventSender(includeState, ch, h.encoder(), h.version, cache,
-                                                                     listenerId, eventType, h.messageId, bloomFilter);
+                                                                     listenerId, eventType, h.messageId,
+                                                                     cuckooFilter);
 
       eventSenders.put(new WrappedByteArray(listenerId), clientEventSender);
 
@@ -318,27 +320,43 @@ class ClientListenerRegistry {
    }
 
    @Listener(clustered = true)
-   private class BloomAwareStatelessClientEventSender extends StatelessClientEventSender {
-      private final BloomFilter<byte[]> bloomFilter;
+   private class CuckooAwareStatelessClientEventSender extends StatelessClientEventSender {
+      private final CuckooFilter cuckooFilter;
 
-      BloomAwareStatelessClientEventSender(Cache cache, Channel ch, VersionedEncoder encoder, byte[] listenerId,
-                                           byte version, ClientEventType targetEventType, BloomFilter<byte[]> bloomFilter) {
+      CuckooAwareStatelessClientEventSender(Cache cache, Channel ch, VersionedEncoder encoder, byte[] listenerId,
+                                            byte version, ClientEventType targetEventType, CuckooFilter cuckooFilter) {
          super(cache, ch, encoder, listenerId, version, targetEventType);
-         this.bloomFilter = bloomFilter;
+         this.cuckooFilter = cuckooFilter;
       }
 
-      boolean isSendEvent(CacheEntryEvent<byte[], byte[]> event) {
-         if (super.isSendEvent(event)) {
-            if (bloomFilter.possiblyPresent(event.getKey())) {
-               if (log.isTraceEnabled()) {
-                  log.tracef("Event %s passed bloom filter", event);
+      @CacheEntryCreated
+      @CacheEntryModified
+      @CacheEntryRemoved
+      @CacheEntryExpired
+      @Override
+      public CompletionStage<Void> onCacheEvent(CacheEntryEvent<byte[], byte[]> event) {
+         if (isSendEvent(event)) {
+            byte[] key = event.getKey();
+            ch.eventLoop().execute(() -> {
+               if (cuckooFilter.delete(key)) {
+                  if (log.isTraceEnabled()) {
+                     log.tracef("Event %s removed from cuckoo filter and will be sent", event);
+                  }
+                  long version;
+                  Metadata metadata;
+                  if ((metadata = event.getMetadata()) != null && metadata.version() != null) {
+                     version = ((NumericVersion) metadata.version()).getVersion();
+                  } else {
+                     version = 0;
+                  }
+                  Object v = event.getValue();
+                  sendEvent(key, (byte[]) v, version, event);
+               } else if (log.isTraceEnabled()) {
+                  log.tracef("Event %s key was not in cuckoo filter, skipping", event);
                }
-               return true;
-            } else if (log.isTraceEnabled()) {
-               log.tracef("Event %s didn't pass bloom filter", event);
-            }
+            });
          }
-         return false;
+         return null;
       }
    }
 
@@ -551,14 +569,14 @@ class ClientListenerRegistry {
    private BaseClientEventSender getClientEventSender(boolean includeState, Channel ch, VersionedEncoder encoder,
                                                       byte version, Cache cache, byte[] listenerId,
                                                       ClientEventType eventType, long messageId,
-                                                      BloomFilter<byte[]> bloomFilter) {
+                                                      CuckooFilter cuckooFilter) {
       BaseClientEventSender bces;
       if (includeState) {
          bces = new StatefulClientEventSender(cache, ch, encoder, listenerId, version, eventType, messageId);
       } else {
-         if (bloomFilter != null) {
-            bces = new BloomAwareStatelessClientEventSender(cache, ch, encoder, listenerId, version, eventType,
-                                                            bloomFilter);
+         if (cuckooFilter != null) {
+            bces = new CuckooAwareStatelessClientEventSender(cache, ch, encoder, listenerId, version, eventType,
+                                                             cuckooFilter);
          } else {
             bces = new StatelessClientEventSender(cache, ch, encoder, listenerId, version, eventType);
          }

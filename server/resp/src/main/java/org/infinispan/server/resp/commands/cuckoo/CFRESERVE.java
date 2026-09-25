@@ -7,6 +7,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.concurrent.CompletionStage;
 
+import org.infinispan.commons.util.CuckooFilter;
 import org.infinispan.functional.FunctionalMap;
 import org.infinispan.server.resp.AclCategory;
 import org.infinispan.server.resp.Resp3Handler;

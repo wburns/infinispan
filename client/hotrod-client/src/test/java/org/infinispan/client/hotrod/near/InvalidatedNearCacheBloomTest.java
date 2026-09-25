@@ -14,8 +14,7 @@ import org.infinispan.client.hotrod.configuration.NearCacheMode;
 import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
 import org.infinispan.client.hotrod.test.SingleHotRodServerTest;
-import org.infinispan.commons.util.BloomFilter;
-import org.infinispan.commons.util.MurmurHash3BloomFilter;
+import org.infinispan.commons.util.CuckooFilter;
 import org.infinispan.commons.util.concurrent.CompletionStages;
 import org.infinispan.configuration.cache.StorageType;
 import org.infinispan.manager.EmbeddedCacheManager;
@@ -33,7 +32,8 @@ public class InvalidatedNearCacheBloomTest extends SingleHotRodServerTest {
    private StorageType storageType;
    private AssertsNearCache<Integer, String> assertClient;
 
-   private final BloomFilter<byte[]> bloomFilter = MurmurHash3BloomFilter.createFilter(NEAR_CACHE_SIZE << 2);
+   private final CuckooFilter cuckooFilter = new CuckooFilter(NEAR_CACHE_SIZE, CuckooFilter.DEFAULT_BUCKET_SIZE,
+         CuckooFilter.DEFAULT_MAX_ITERATIONS, CuckooFilter.DEFAULT_EXPANSION);
 
    private InvalidatedNearCacheBloomTest storageType(StorageType storageType) {
       this.storageType = storageType;
@@ -51,8 +51,9 @@ public class InvalidatedNearCacheBloomTest extends SingleHotRodServerTest {
    @BeforeMethod
    void beforeMethod() {
       assertClient.expectNoNearEvents();
+      cuckooFilter.clear();
       // All tests rely upon having the bits set for the key 1
-      bloomFilter.addToFilter(assertClient.remote.keyToBytes(1));
+      cuckooFilter.add(assertClient.remote.keyToBytes(1));
    }
 
    @AfterMethod
@@ -110,7 +111,7 @@ public class InvalidatedNearCacheBloomTest extends SingleHotRodServerTest {
    public void testMultipleKeyFilterConflictButNoRead() {
       assertClient.put(1, "v1").expectNearPreemptiveRemove(1);
 
-      int conflictKey = findNextKey(bloomFilter, 1, true);
+      int conflictKey = findNextKey(cuckooFilter, 1, true);
       assertClient.put(conflictKey, "v1").expectNearPreemptiveRemove(conflictKey);
       assertClient.put(conflictKey, "v2").expectNearPreemptiveRemove(conflictKey);
    }
@@ -119,7 +120,7 @@ public class InvalidatedNearCacheBloomTest extends SingleHotRodServerTest {
       assertClient.put(1, "v1").expectNearPreemptiveRemove(1);
       assertClient.get(1, "v1").expectNearGetMissWithValue(1, "v1");
 
-      int conflictKey = findNextKey(bloomFilter, 1, true);
+      int conflictKey = findNextKey(cuckooFilter, 1, true);
       // This is a create thus no remove is sent
       assertClient.put(conflictKey, "v1").expectNearPreemptiveRemove(conflictKey);
       // This conflicts with our original key thus it will send a remove despite nothing being removed
@@ -134,7 +135,7 @@ public class InvalidatedNearCacheBloomTest extends SingleHotRodServerTest {
       assertClient.put(1, "v1").expectNearPreemptiveRemove(1);
       assertClient.get(1, "v1").expectNearGetMissWithValue(1, "v1");
 
-      int nonConflictKey = findNextKey(bloomFilter, 1, false);
+      int nonConflictKey = findNextKey(cuckooFilter, 1, false);
       // Both of the following never send a remove event back as the key wasn't present in bloom filter
       assertClient.put(nonConflictKey, "v1").expectNearPreemptiveRemove(nonConflictKey);
       assertClient.put(nonConflictKey, "v2").expectNearPreemptiveRemove(nonConflictKey);
@@ -144,7 +145,7 @@ public class InvalidatedNearCacheBloomTest extends SingleHotRodServerTest {
       assertClient.put(1, "v1").expectNearPreemptiveRemove(1);
       assertClient.get(1, "v1").expectNearGetMissWithValue(1, "v1");
 
-      int nonConflictKey = findNextKey(bloomFilter, 1, false);
+      int nonConflictKey = findNextKey(cuckooFilter, 1, false);
 
       assertClient.put(nonConflictKey, "v1").expectNearPreemptiveRemove(nonConflictKey);
       assertClient.get(nonConflictKey, "v1").expectNearGetMissWithValue(nonConflictKey, "v1");
@@ -178,10 +179,10 @@ public class InvalidatedNearCacheBloomTest extends SingleHotRodServerTest {
             () -> assertClient.events.poll(50, TimeUnit.MILLISECONDS) == null);
    }
 
-   int findNextKey(BloomFilter<byte[]> filter, int originalValue, boolean present) {
+   int findNextKey(CuckooFilter filter, int originalValue, boolean present) {
       while (true) {
          byte[] testKey = assertClient.remote.keyToBytes(++originalValue);
-         if (present == filter.possiblyPresent(testKey)) {
+         if (present == filter.exists(testKey)) {
             return originalValue;
          }
       }

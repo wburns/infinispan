@@ -159,8 +159,8 @@ public abstract class DelegatingCacheOperationsFactory implements CacheOperation
    }
 
    @Override
-   public ClientListenerOperation newAddNearCacheListenerOperation(Object listener, int bloomBits) {
-      return delegate.newAddNearCacheListenerOperation(listener, bloomBits);
+   public ClientListenerOperation newAddNearCacheListenerOperation(Object listener, int nearCacheSize) {
+      return delegate.newAddNearCacheListenerOperation(listener, nearCacheSize);
    }
 
    @Override

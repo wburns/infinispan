@@ -117,6 +117,7 @@ In this particular case, this is +10+
 +0x37+ = getStream (since 2.6) +
 +0x39+ = putStream (since 2.6) +
 +0x43+ = addBloomFilterClientListener (since 3.1) +
++0x47+ = addNearCacheListener (since 4.1) +
 | Cache Name Length   | vInt       | Length of cache name. If the passed
 length is +0+ (followed by no cache name), the operation will interact with
 the default cache.
@@ -3574,3 +3575,30 @@ Response (0xEA):
 
 | Header              | variable   | Response header
 |==============================================================================
+
+.Add Near Cache Listener
+
+Near caches can now utilize a server-side managed Cuckoo filter instead of the legacy Bloom filter.
+With this model, keys are added on get requests and removed on cache updates, eliminating the need
+for periodic client-side filter calculations and updates.
+
+Request (0x47):
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+
+| Header              | variable   | Request header
+| Listener ID         | byte array | Listener identifier
+| Near cache size     | vInt       | Defines the maximum entries of the near cache, used to size the server-side filter.
+|==============================================================================
+
+Response (0x48):
+
+[cols="3,^2,10",options="header"]
+|==============================================================================
+| Field Name          | Size       | Value
+
+| Header              | variable   | Response header
+|==============================================================================
+

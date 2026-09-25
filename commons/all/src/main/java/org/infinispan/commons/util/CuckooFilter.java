@@ -1,18 +1,18 @@
-package org.infinispan.server.resp.commands.cuckoo;
+package org.infinispan.commons.util;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
+import org.infinispan.commons.hash.MurmurHash64;
 import org.infinispan.commons.marshall.ProtoStreamTypeIds;
 import org.infinispan.protostream.annotations.ProtoFactory;
 import org.infinispan.protostream.annotations.ProtoField;
 import org.infinispan.protostream.annotations.ProtoName;
 import org.infinispan.protostream.annotations.ProtoTypeId;
-import org.infinispan.server.resp.commands.MurmurHash64;
 
 /**
- * A Cuckoo filter implementation compatible with Redis CF commands.
+ * A Cuckoo filter implementation.
  * <p>
  * Supports:
  * <ul>
@@ -21,8 +21,6 @@ import org.infinispan.server.resp.commands.MurmurHash64;
  *   <li>Counting occurrences</li>
  *   <li>Scaling with multiple sub-filters</li>
  * </ul>
- *
- * @since 16.2
  */
 @ProtoTypeId(ProtoStreamTypeIds.RESP_CUCKOO_FILTER)
 public final class CuckooFilter {
@@ -198,6 +196,16 @@ public final class CuckooFilter {
          }
       }
       return false;
+   }
+
+   /**
+    * Clears all items from the filter.
+    */
+   public void clear() {
+      subFilters.clear();
+      subFilters.add(new SubFilter(this.capacity, bucketSize));
+      itemsInserted = 0;
+      itemsDeleted = 0;
    }
 
    /**

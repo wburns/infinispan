@@ -1,6 +1,7 @@
 package org.infinispan.server.resp.commands.cuckoo;
 
 import org.infinispan.commons.marshall.ProtoStreamTypeIds;
+import org.infinispan.commons.util.CuckooFilter;
 import org.infinispan.functional.EntryView;
 import org.infinispan.protostream.annotations.ProtoFactory;
 import org.infinispan.protostream.annotations.ProtoField;

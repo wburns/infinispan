@@ -295,9 +295,9 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
    }
 
    @Override
-   public Channel addNearCacheListener(Object listener, int bloomBits) {
+   public Channel addNearCacheListener(Object listener, int nearCacheSize) {
       ClientListenerOperation op = getOperationsFactory().newAddNearCacheListenerOperation(listener,
-            bloomBits);
+            nearCacheSize);
       return getDispatcher().await(getDispatcher().executeAddListener(op));
    }
 
