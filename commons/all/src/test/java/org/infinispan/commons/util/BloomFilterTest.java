@@ -12,6 +12,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.ToIntFunction;
 
 import org.infinispan.commons.hash.MurmurHash3;
 import org.infinispan.commons.hash.MurmurHash3Old;
@@ -281,6 +282,62 @@ public class BloomFilterTest {
       for (byte b : countingFilter.toBitSet()) {
          assertEquals(0, b);
       }
+   }
+
+   @Test
+   public void testCountingBloomFilterZeroTransitions() {
+      // 1. Invariant test: sum of zeros returned on removal must equal total set bits
+      int bitsToUse = 4000;
+      CountingBloomFilter<byte[]> countingFilter = MurmurHash3CountingBloomFilter.createFilter(bitsToUse);
+      List<byte[]> keys = new ArrayList<>();
+      Random random = new Random(12345);
+      for (int i = 0; i < 200; i++) {
+         byte[] k = new byte[16];
+         random.nextBytes(k);
+         keys.add(k);
+         countingFilter.add(k);
+      }
+
+      int totalBitsSet = IntSets.from(countingFilter.toBitSet()).size();
+      int totalZerosReturned = 0;
+      for (byte[] k : keys) {
+         totalZerosReturned += countingFilter.remove(k);
+      }
+      assertEquals(totalBitsSet, totalZerosReturned,
+            "Sum of zero transitions across all removals must equal total number of unique set bits");
+
+      // After all keys are removed, every bit should be 0
+      for (byte b : countingFilter.toBitSet()) {
+         assertEquals(0, b);
+      }
+
+      // Further removals on empty filter must return 0
+      for (byte[] k : keys) {
+         assertEquals(0, countingFilter.remove(k));
+      }
+
+      // 2. Deterministic collision test with explicit hash functions
+      ToIntFunction<String> f0 = s -> s.equals("A") ? 0 : 1;
+      ToIntFunction<String> f1 = s -> s.equals("A") ? 1 : 2;
+      ToIntFunction<String> f2 = s -> s.equals("A") ? 2 : 3;
+      @SuppressWarnings("unchecked")
+      ToIntFunction<String>[] functions = new ToIntFunction[]{f0, f1, f2};
+      CountingBloomFilter<String> cbf = new CountingBloomFilter<>(10, functions);
+
+      // Add "A" (uses bits 0, 1, 2)
+      cbf.add("A");
+      // Add "B" (uses bits 1, 2, 3)
+      cbf.add("B");
+
+      // Removing "A" decrements bit 0 (1->0), bit 1 (2->1), bit 2 (2->1).
+      // Only bit 0 reaches 0, so remove("A") must return 1.
+      int zerosA = cbf.remove("A");
+      assertEquals(1, zerosA);
+
+      // Removing "B" decrements bit 1 (1->0), bit 2 (1->0), bit 3 (1->0).
+      // All 3 reach 0, so remove("B") must return 3.
+      int zerosB = cbf.remove("B");
+      assertEquals(3, zerosB);
    }
 
    @Test
