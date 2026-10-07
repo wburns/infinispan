@@ -35,15 +35,27 @@ public class CountingBloomFilter<E> {
       }
    }
 
-   public synchronized void remove(E value) {
+   /**
+    * Removes the value from the counting bloom filter by decrementing the count for each of its
+    * hash bits.
+    *
+    * @param value element to remove
+    * @return the number of counters that were brought down to 0 by this removal
+    */
+   public synchronized int remove(E value) {
+      int zeros = 0;
       for (ToIntFunction<? super E> function : hashFunctions) {
          int hash = function.applyAsInt(value);
          int bit = (hash == Integer.MIN_VALUE ? 0 : Math.abs(hash)) % bitsToUse;
          byte count = counts[bit];
          if (count > 0) {
-            counts[bit] = (byte) (count - 1);
+            if (--count == 0) {
+               zeros++;
+            }
+            counts[bit] = count;
          }
       }
+      return zeros;
    }
 
    public synchronized boolean possiblyPresent(E value) {

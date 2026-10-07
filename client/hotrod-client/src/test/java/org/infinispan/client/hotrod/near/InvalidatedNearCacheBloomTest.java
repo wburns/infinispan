@@ -2,6 +2,7 @@ package org.infinispan.client.hotrod.near;
 
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -171,6 +172,24 @@ public class InvalidatedNearCacheBloomTest extends SingleHotRodServerTest {
       }
 
       assertTrue(serverBloomFilterUpdated, "The server bloom filter was never updated and we got remove events every time");
+   }
+
+   public void testZeroCountsAndThresholdBehavior() {
+      NearCacheService<Integer, String> nearCacheService = assertClient.nearCacheService.get();
+      assertNotNull(nearCacheService);
+      assertEquals(0, nearCacheService.getZeroCounts());
+      int threshold = nearCacheService.getBloomFilterUpdateThreshold();
+      assertEquals(3, threshold);
+
+      // 1. False positive remove on a key not in near cache must NOT increment zeroCounts
+      boolean removed = nearCacheService.remove(999);
+      assertFalse(removed);
+      assertEquals(0, nearCacheService.getZeroCounts());
+
+      // 2. Clear resets zeroCounts
+      nearCacheService.clear();
+      assertClient.expectNearClear();
+      assertEquals(0, nearCacheService.getZeroCounts());
    }
 
    private void drainAsyncEvents() {

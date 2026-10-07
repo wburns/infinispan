@@ -46,7 +46,7 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    private Runnable invalidationCallback;
    private final int bloomFilterBits;
    private final int bloomFilterUpdateThreshold;
-   private final AtomicInteger nearCacheRemovals;
+   private final AtomicInteger nearCacheZeroCounts;
    private final CountingBloomFilter<byte[]> countingBloomFilter;
    private InternalRemoteCache<K, V> remote;
 
@@ -63,12 +63,12 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
          // This number along with default values of 3 hash algorithms and 4x bit size we end up with
          // between 14.689 and 16.573 percent hits per entry.
          bloomFilterUpdateThreshold = maxEntries / 16 + 3;
-         nearCacheRemovals = new AtomicInteger();
+         nearCacheZeroCounts = new AtomicInteger();
          countingBloomFilter = MurmurHash3CountingBloomFilter.createFilter(bloomFilterBits);
       } else {
          bloomFilterBits = -1;
          bloomFilterUpdateThreshold = -1;
-         nearCacheRemovals = null;
+         nearCacheZeroCounts = null;
          countingBloomFilter = null;
       }
    }
@@ -97,24 +97,30 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    }
 
    void entryRemovedFromNearCache(K key, MetadataValue<V> value) {
-      if (nearCacheRemovals == null) {
+      if (nearCacheZeroCounts == null) {
          return;
       }
 
+      int zeros = 0;
       if (countingBloomFilter != null && remote != null && value != null && value.getValue() != null) {
-         countingBloomFilter.remove(remote.keyToBytes(key));
+         zeros = countingBloomFilter.remove(remote.keyToBytes(key));
+      }
+
+      if (zeros == 0) {
+         return;
       }
 
       while (true) {
-         int removals = nearCacheRemovals.get();
-         if (removals >= bloomFilterUpdateThreshold) {
-            if (nearCacheRemovals.compareAndSet(removals, 0)) {
-               log.tracef("Updating bloom filter due to reaching update threshold with %d for %s", removals, remote.getName());
+         int current = nearCacheZeroCounts.get();
+         int next = current + zeros;
+         if (next >= bloomFilterUpdateThreshold) {
+            if (nearCacheZeroCounts.compareAndSet(current, 0)) {
+               log.tracef("Updating bloom filter due to reaching update threshold with %d zeros for %s", next, remote.getName());
                remote.updateBloomFilter();
                break;
             }
-         } else if (nearCacheRemovals.compareAndSet(removals, removals + 1)) {
-            log.tracef("Incremented nearCacheRemovals to %d for %s", removals + 1, remote.getName());
+         } else if (nearCacheZeroCounts.compareAndSet(current, next)) {
+            log.tracef("Incremented nearCacheZeroCounts to %d for %s", next, remote.getName());
             break;
          }
       }
@@ -176,10 +182,8 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
          }
          if (log.isTraceEnabled())
             log.tracef("Removed key=%s from near cache (listenedId=%s)", key, Util.printArray(listenerId));
-      } else {
+      } else if (log.isTraceEnabled()) {
          log.tracef("Received false positive remove for key=%s from near cache (listenedId=%s)", key, Util.printArray(listenerId));
-         // There was a false positive, add that to the removal
-         entryRemovedFromNearCache(key, null);
       }
 
       return removed;
@@ -214,8 +218,8 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    @Override
    public void clear() {
       cache.clear();
-      if (nearCacheRemovals != null) {
-         nearCacheRemovals.set(0);
+      if (nearCacheZeroCounts != null) {
+         nearCacheZeroCounts.set(0);
       }
       if (countingBloomFilter != null) {
          countingBloomFilter.clear();
@@ -243,6 +247,14 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
 
    public int getBloomFilterBits() {
       return bloomFilterBits;
+   }
+
+   int getBloomFilterUpdateThreshold() {
+      return bloomFilterUpdateThreshold;
+   }
+
+   int getZeroCounts() {
+      return nearCacheZeroCounts != null ? nearCacheZeroCounts.get() : -1;
    }
 
    public NearCacheConfiguration getConfig() {
