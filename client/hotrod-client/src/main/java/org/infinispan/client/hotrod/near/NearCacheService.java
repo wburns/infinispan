@@ -22,8 +22,10 @@ import org.infinispan.client.hotrod.impl.InternalRemoteCache;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.commons.util.BloomFilter;
+import org.infinispan.commons.util.CountingBloomFilter;
 import org.infinispan.commons.util.IntSet;
 import org.infinispan.commons.util.MurmurHash3BloomFilter;
+import org.infinispan.commons.util.MurmurHash3CountingBloomFilter;
 import org.infinispan.commons.util.Util;
 
 import io.netty.channel.Channel;
@@ -45,6 +47,7 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    private final int bloomFilterBits;
    private final int bloomFilterUpdateThreshold;
    private final AtomicInteger nearCacheRemovals;
+   private final CountingBloomFilter<byte[]> countingBloomFilter;
    private InternalRemoteCache<K, V> remote;
 
    private Channel channelUsed;
@@ -61,10 +64,12 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
          // between 14.689 and 16.573 percent hits per entry.
          bloomFilterUpdateThreshold = maxEntries / 16 + 3;
          nearCacheRemovals = new AtomicInteger();
+         countingBloomFilter = MurmurHash3CountingBloomFilter.createFilter(bloomFilterBits);
       } else {
          bloomFilterBits = -1;
          bloomFilterUpdateThreshold = -1;
          nearCacheRemovals = null;
+         countingBloomFilter = null;
       }
    }
 
@@ -94,6 +99,10 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    void entryRemovedFromNearCache(K key, MetadataValue<V> value) {
       if (nearCacheRemovals == null) {
          return;
+      }
+
+      if (countingBloomFilter != null && remote != null && value != null && value.getValue() != null) {
+         countingBloomFilter.remove(remote.keyToBytes(key));
       }
 
       while (true) {
@@ -133,6 +142,11 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    @Override
    public boolean replace(K key, MetadataValue<V> prevValue, MetadataValue<V> newValue) {
       boolean replaced = cache.replace(key, prevValue, newValue);
+      if (replaced && countingBloomFilter != null && remote != null && newValue != null && newValue.getValue() != null) {
+         if (prevValue == null || prevValue.getValue() == null) {
+            countingBloomFilter.add(remote.keyToBytes(key));
+         }
+      }
       if (log.isTraceEnabled()) {
          log.tracef("Replaced key=%s and value=%s with new value=%s in near cache (listenerId=%s): %s",
                key, prevValue, newValue, Util.printArray(listenerId), replaced);
@@ -143,6 +157,9 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    @Override
    public boolean putIfAbsent(K key, MetadataValue<V> value) {
       boolean inserted = cache.putIfAbsent(key, value);
+      if (inserted && countingBloomFilter != null && remote != null && value != null && value.getValue() != null) {
+         countingBloomFilter.add(remote.keyToBytes(key));
+      }
 
       if (log.isTraceEnabled())
          log.tracef("Conditionally put %s if absent in near cache (listenerId=%s): %s", value,
@@ -200,6 +217,9 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
       if (nearCacheRemovals != null) {
          nearCacheRemovals.set(0);
       }
+      if (countingBloomFilter != null) {
+         countingBloomFilter.clear();
+      }
       if (log.isTraceEnabled()) log.tracef("Cleared near cache (listenerId=%s)", Util.printArray(listenerId));
    }
 
@@ -236,6 +256,9 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    public byte[] calculateBloomBits() {
       if (bloomFilterBits <= 0) {
          return null;
+      }
+      if (countingBloomFilter != null) {
+         return countingBloomFilter.toBitSet();
       }
       BloomFilter<byte[]> bloomFilter = MurmurHash3BloomFilter.createFilter(bloomFilterBits);
       for (Map.Entry<K, MetadataValue<V>> entry : cache) {

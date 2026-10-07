@@ -236,4 +236,99 @@ public class BloomFilterTest {
       }
       assertEquals(actualBits, set.size(), "Size was desynchronized under concurrent updates!");
    }
+
+   @Test
+   public void testCountingBloomFilterAddRemoveEquivalence() {
+      int bitsToUse = 4000;
+      BloomFilter<byte[]> standardFilter = MurmurHash3BloomFilter.createFilter(bitsToUse);
+      CountingBloomFilter<byte[]> countingFilter = MurmurHash3CountingBloomFilter.createFilter(bitsToUse);
+
+      List<byte[]> allKeys = new ArrayList<>();
+      Random random = new Random(42);
+      for (int i = 0; i < 500; i++) {
+         byte[] key = new byte[16];
+         random.nextBytes(key);
+         allKeys.add(key);
+
+         standardFilter.addToFilter(key);
+         countingFilter.add(key);
+      }
+
+      // Check that bitsets are identical
+      byte[] standardBytes = standardFilter.getIntSet().toBitSet();
+      byte[] countingBytes = countingFilter.toBitSet();
+      assertEquals(standardFilter.getIntSet(), IntSets.from(countingBytes));
+
+      for (byte[] key : allKeys) {
+         assertTrue(countingFilter.possiblyPresent(key));
+      }
+
+      // Remove the first 250 keys from the counting filter
+      for (int i = 0; i < 250; i++) {
+         countingFilter.remove(allKeys.get(i));
+      }
+
+      // Build a fresh standard filter with only the remaining 250 keys
+      BloomFilter<byte[]> remainingFilter = MurmurHash3BloomFilter.createFilter(bitsToUse);
+      for (int i = 250; i < 500; i++) {
+         remainingFilter.addToFilter(allKeys.get(i));
+      }
+
+      assertEquals(remainingFilter.getIntSet(), IntSets.from(countingFilter.toBitSet()));
+
+      // Clear the counting filter
+      countingFilter.clear();
+      for (byte b : countingFilter.toBitSet()) {
+         assertEquals(0, b);
+      }
+   }
+
+   @Test
+   public void testMicrobenchmarkCountingBloomFilterBitExtraction() {
+      int bitsToUse = 4000;
+      CountingBloomFilter<byte[]> countingFilter = MurmurHash3CountingBloomFilter.createFilter(bitsToUse);
+      List<byte[]> keys = new ArrayList<>();
+      Random random = new Random(42);
+      for (int i = 0; i < 1000; i++) {
+         byte[] key = new byte[16];
+         random.nextBytes(key);
+         keys.add(key);
+         countingFilter.add(key);
+      }
+
+      int warmup = 5_000;
+      int iterations = 20_000;
+
+      // Warmup
+      for (int i = 0; i < warmup; i++) {
+         countingFilter.toBitSet();
+         BloomFilter<byte[]> bf = MurmurHash3BloomFilter.createFilter(bitsToUse);
+         for (byte[] key : keys) {
+            bf.addToFilter(key);
+         }
+         bf.getIntSet().toBitSet();
+      }
+
+      // Benchmark CountingBloomFilter.toBitSet()
+      long startCbf = System.nanoTime();
+      for (int i = 0; i < iterations; i++) {
+         countingFilter.toBitSet();
+      }
+      long durCbf = System.nanoTime() - startCbf;
+
+      // Benchmark full re-hashing of 1,000 keys
+      long startFull = System.nanoTime();
+      for (int i = 0; i < iterations; i++) {
+         BloomFilter<byte[]> bf = MurmurHash3BloomFilter.createFilter(bitsToUse);
+         for (byte[] key : keys) {
+            bf.addToFilter(key);
+         }
+         bf.getIntSet().toBitSet();
+      }
+      long durFull = System.nanoTime() - startFull;
+
+      System.out.println("CountingBloomFilter.toBitSet(): " + (durCbf / 1_000_000.0) + " ms (" + ((double) durCbf / iterations) + " ns/op)");
+      System.out.println("Full re-hash traversal (1000 keys): " + (durFull / 1_000_000.0) + " ms (" + ((double) durFull / iterations) + " ns/op)");
+      System.out.println("Speedup: " + String.format("%.1fx", (double) durFull / durCbf));
+   }
 }
