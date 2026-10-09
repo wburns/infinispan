@@ -251,4 +251,50 @@ public class BloomFilterTest {
       }
       assertEquals(actualBits, set.size(), "Size was desynchronized under concurrent updates!");
    }
+
+   @Test
+   public void testCountingBloomFilterAddRemoveEquivalence() {
+      int bitsToUse = 4000;
+      BloomFilter<byte[]> standardFilter = MurmurHash3BloomFilter.createFilter(bitsToUse);
+      CountingBloomFilter<byte[]> countingFilter = MurmurHash3CountingBloomFilter.createFilter(bitsToUse);
+
+      List<byte[]> allKeys = new ArrayList<>();
+      Random random = new Random(42);
+      for (int i = 0; i < 500; i++) {
+         byte[] key = new byte[16];
+         random.nextBytes(key);
+         allKeys.add(key);
+
+         standardFilter.addToFilter(key);
+         countingFilter.add(key);
+      }
+
+      // Check that bitsets are identical
+      byte[] standardBytes = standardFilter.getIntSet().toBitSet();
+      byte[] countingBytes = countingFilter.toBitSet();
+      assertEquals(IntSets.from(standardBytes), IntSets.from(countingBytes));
+
+      for (byte[] key : allKeys) {
+         assertTrue(countingFilter.possiblyPresent(key));
+      }
+
+      // Remove the first 250 keys from the counting filter
+      for (int i = 0; i < 250; i++) {
+         countingFilter.remove(allKeys.get(i));
+      }
+
+      // Build a fresh standard filter with only the remaining 250 keys
+      BloomFilter<byte[]> remainingFilter = MurmurHash3BloomFilter.createFilter(bitsToUse);
+      for (int i = 250; i < 500; i++) {
+         remainingFilter.addToFilter(allKeys.get(i));
+      }
+
+      assertEquals(IntSets.from(remainingFilter.getIntSet().toBitSet()), IntSets.from(countingFilter.toBitSet()));
+
+      // Clear the counting filter
+      countingFilter.clear();
+      for (byte b : countingFilter.toBitSet()) {
+         assertEquals(0, b);
+      }
+   }
 }
