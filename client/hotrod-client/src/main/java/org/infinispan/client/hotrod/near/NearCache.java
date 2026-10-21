@@ -11,7 +11,12 @@ import org.infinispan.client.hotrod.MetadataValue;
  */
 public interface NearCache<K, V> extends Iterable<Map.Entry<K, MetadataValue<V>>> {
    boolean putIfAbsent(K key, MetadataValue<V> value);
+
    boolean replace(K key, MetadataValue<V> prevValue, MetadataValue<V> newValue);
+
+   default boolean replace(K key, byte[] serializedKey, MetadataValue<V> prevValue, MetadataValue<V> newValue) {
+      return replace(key, prevValue, newValue);
+   }
    boolean remove(K key);
 
    // Removes a specific value from the near cache, note this method does not count towards and invalidation

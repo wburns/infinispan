@@ -147,10 +147,15 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
 
    @Override
    public boolean replace(K key, MetadataValue<V> prevValue, MetadataValue<V> newValue) {
+      return replace(key, null, prevValue, newValue);
+   }
+
+   @Override
+   public boolean replace(K key, byte[] serializedKey, MetadataValue<V> prevValue, MetadataValue<V> newValue) {
       boolean replaced = cache.replace(key, prevValue, newValue);
       if (replaced && countingBloomFilter != null && remote != null && newValue != null && newValue.getValue() != null) {
          if (prevValue == null || prevValue.getValue() == null) {
-            countingBloomFilter.add(remote.keyToBytes(key));
+            countingBloomFilter.add(serializedKey != null ? serializedKey : remote.keyToBytes(key));
          }
       }
       if (log.isTraceEnabled()) {
