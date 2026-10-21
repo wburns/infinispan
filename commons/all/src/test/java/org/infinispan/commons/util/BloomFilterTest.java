@@ -1,11 +1,13 @@
 package org.infinispan.commons.util;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Random;
@@ -13,6 +15,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.ToIntFunction;
 
 import org.junit.jupiter.api.Test;
 
@@ -352,5 +355,26 @@ public class BloomFilterTest {
       // All 3 reach 0, so remove("B") must return 3.
       int zerosB = cbf.remove("B");
       assertEquals(3, zerosB);
+   }
+
+   @Test
+   public void testCountingBloomFilterBitSetCopyIsolation() {
+      CountingBloomFilter<byte[]> countingFilter = MurmurHash3CountingBloomFilter.createFilter(100);
+      byte[] key = new byte[]{1, 2, 3};
+      countingFilter.add(key);
+
+      byte[] bitSet1 = countingFilter.toBitSet();
+      byte[] bitSet2 = countingFilter.toBitSet();
+
+      // Ensure both copies are equal initially
+      assertArrayEquals(bitSet1, bitSet2);
+
+      // Mutate bitSet1
+      Arrays.fill(bitSet1, (byte) 0xFF);
+
+      // Verify that subsequent toBitSet() and existing bitSet2 are not affected
+      byte[] bitSet3 = countingFilter.toBitSet();
+      assertArrayEquals(bitSet2, bitSet3);
+      assertFalse(Arrays.equals(bitSet1, bitSet3));
    }
 }

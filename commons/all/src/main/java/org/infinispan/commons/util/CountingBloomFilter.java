@@ -13,6 +13,7 @@ import java.util.function.ToIntFunction;
 public class CountingBloomFilter<E> {
    private final int bitsToUse;
    private final byte[] counts;
+   private final byte[] bitSet;
    private final ToIntFunction<? super E>[] hashFunctions;
 
    CountingBloomFilter(int bitsToUse, ToIntFunction<? super E>[] hashFunctions) {
@@ -21,6 +22,7 @@ public class CountingBloomFilter<E> {
       }
       this.bitsToUse = bitsToUse;
       this.counts = new byte[bitsToUse];
+      this.bitSet = new byte[(bitsToUse + 7) >>> 3];
       this.hashFunctions = hashFunctions;
    }
 
@@ -30,6 +32,9 @@ public class CountingBloomFilter<E> {
          int bit = (hash == Integer.MIN_VALUE ? 0 : Math.abs(hash)) % bitsToUse;
          byte count = counts[bit];
          if (count < Byte.MAX_VALUE) {
+            if (count == 0) {
+               bitSet[bit >>> 3] |= (byte) (1 << (bit & 7));
+            }
             counts[bit] = (byte) (count + 1);
          }
       }
@@ -51,6 +56,7 @@ public class CountingBloomFilter<E> {
          if (count > 0) {
             if (--count == 0) {
                zeros++;
+               bitSet[bit >>> 3] &= ~(byte) (1 << (bit & 7));
             }
             counts[bit] = count;
          }
@@ -70,18 +76,12 @@ public class CountingBloomFilter<E> {
    }
 
    public synchronized byte[] toBitSet() {
-      int byteLen = (bitsToUse + 7) >>> 3;
-      byte[] bytes = new byte[byteLen];
-      for (int i = 0; i < bitsToUse; i++) {
-         if (counts[i] > 0) {
-            bytes[i >>> 3] |= (1 << (i & 7));
-         }
-      }
-      return bytes;
+      return bitSet.clone();
    }
 
    public synchronized void clear() {
       Arrays.fill(counts, (byte) 0);
+      Arrays.fill(bitSet, (byte) 0);
    }
 
    public int bitsToUse() {
