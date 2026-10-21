@@ -117,7 +117,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
                      log.tracef("Unable to cache returned value for key %s as operation was performed during a" +
                            " bloom filter update", org.infinispan.commons.util.Util.toStr(key));
                   }
-               } else if (listenerChannel != null && v.serializedKeyNoRetry() != null) {
+               } else if (listenerChannel != null && v.serializedKey() == null) {
                   // Having a listener address means it has a bloom filter. When we have a bloom filter we cannot
                   // cache values upon a retry as we can't guarantee the bloom filter is updated on the server properly
                   if (trace) {
@@ -125,7 +125,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
                            org.infinispan.commons.util.Util.toStr(key));
                   }
                } else {
-                  nearcache.replace(key, v.serializedKeyNoRetry(), calculatingPlaceholder, value);
+                  nearcache.replace(key, v.serializedKey(), calculatingPlaceholder, value);
                   if (value.getMaxIdle() > 0) {
                      HOTROD.nearCacheMaxIdleUnsupported();
                   }

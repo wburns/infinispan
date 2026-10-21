@@ -23,7 +23,7 @@ import io.netty.channel.Channel;
  */
 public class GetWithMetadataOperation<V> extends AbstractKeyOperation<GetWithMetadataOperation.GetWithMetadataResult<V>> {
 
-   public record GetWithMetadataResult<V>(MetadataValue<V> value, byte[] serializedKeyNoRetry) {};
+   public record GetWithMetadataResult<V>(MetadataValue<V> value, byte[] serializedKey) {};
 
    private static final Log log = LogFactory.getLog(GetWithMetadataOperation.class);
 
@@ -39,7 +39,7 @@ public class GetWithMetadataOperation<V> extends AbstractKeyOperation<GetWithMet
    public GetWithMetadataResult<V> createResponse(ByteBuf buf, short status, HeaderDecoder decoder, Codec codec, CacheUnmarshaller unmarshaller) {
       boolean retried = preferredChannel != null && !preferredChannel.equals(decoder.getChannel());
       MetadataValue<V> metadataValue = readMetadataValue(buf, status, unmarshaller);
-      return new GetWithMetadataResult<>(metadataValue, retried ? keyBytes : null);
+      return new GetWithMetadataResult<>(metadataValue, retried ? null : keyBytes);
    }
 
    @Override

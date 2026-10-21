@@ -59,10 +59,9 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
       int maxEntries = config.maxEntries();
       if (maxEntries > 0 && config.bloomFilter()) {
          bloomFilterBits = determineBloomFilterBits(maxEntries);
-         // We want to scale the update frequency of the bloom filter to be based on the number of max entries
-         // This number along with default values of 3 hash algorithms and 4x bit size we end up with
-         // between 14.689 and 16.573 percent hits per entry.
-         bloomFilterUpdateThreshold = maxEntries / 16 + 3;
+         // Scale the update frequency of the bloom filter based on the number of max entries.
+         // With counting bloom filter zero-transitions, divisor 8 roughly aligns with ~1/8 of entries cleared.
+         bloomFilterUpdateThreshold = determineBloomFilterUpdateThreshold(maxEntries);
          nearCacheZeroCounts = new AtomicInteger();
          countingBloomFilter = MurmurHash3CountingBloomFilter.createFilter(bloomFilterBits);
       } else {
@@ -94,6 +93,15 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    private static int determineBloomFilterBits(int maxEntries) {
       int bloomFilterBitScaler = Integer.parseInt(System.getProperty("infinispan.bloom-filter.bit-multiplier", "4"));
       return maxEntries * bloomFilterBitScaler;
+   }
+
+   private static int determineBloomFilterUpdateThreshold(int maxEntries) {
+      String explicitThreshold = System.getProperty("infinispan.bloom-filter.update-threshold");
+      if (explicitThreshold != null) {
+         return Integer.parseInt(explicitThreshold);
+      }
+      int divisor = Integer.parseInt(System.getProperty("infinispan.bloom-filter.update-threshold-divisor", "8"));
+      return maxEntries / divisor + 3;
    }
 
    void entryRemovedFromNearCache(K key, MetadataValue<V> value) {

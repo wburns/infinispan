@@ -11,6 +11,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.infinispan.client.hotrod.RemoteCacheManager;
 import org.infinispan.client.hotrod.configuration.ConfigurationBuilder;
+import org.infinispan.client.hotrod.configuration.NearCacheConfiguration;
 import org.infinispan.client.hotrod.configuration.NearCacheMode;
 import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
 import org.infinispan.client.hotrod.test.HotRodClientTestingUtil;
@@ -195,6 +196,27 @@ public class InvalidatedNearCacheBloomTest extends SingleHotRodServerTest {
    private void drainAsyncEvents() {
       eventually("Expected all async near cache events to be drained",
             () -> assertClient.events.poll(50, TimeUnit.MILLISECONDS) == null);
+   }
+
+   public void testCustomBloomFilterUpdateThresholdConfig() {
+      System.setProperty("infinispan.bloom-filter.update-threshold", "42");
+      try {
+         NearCacheConfiguration config = new NearCacheConfiguration(NearCacheMode.INVALIDATED, 100, true);
+         NearCacheService<Integer, String> service = NearCacheService.create(config, null);
+         assertEquals(42, service.getBloomFilterUpdateThreshold());
+      } finally {
+         System.clearProperty("infinispan.bloom-filter.update-threshold");
+      }
+
+      System.setProperty("infinispan.bloom-filter.update-threshold-divisor", "4");
+      try {
+         NearCacheConfiguration config = new NearCacheConfiguration(NearCacheMode.INVALIDATED, 100, true);
+         NearCacheService<Integer, String> service = NearCacheService.create(config, null);
+         // 100 / 4 + 3 = 28
+         assertEquals(28, service.getBloomFilterUpdateThreshold());
+      } finally {
+         System.clearProperty("infinispan.bloom-filter.update-threshold-divisor");
+      }
    }
 
    int findNextKey(BloomFilter<byte[]> filter, int originalValue, boolean present) {
