@@ -673,6 +673,41 @@ class CacheRequestProcessor extends BaseRequestProcessor {
       }
    }
 
+   void addPrimaryClientListener(HotRodHeader header, Subject subject, byte[] listenerId, int bloomBits) {
+      var cacheInfo = server.getCacheInfo(header);
+      AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
+      var span = requestStart(header, cacheInfo.getInfinispanSpanAttributes());
+      try (var ignored = span.makeCurrent()) {
+         BloomFilter<byte[]> bloomFilter = null;
+         if (bloomBits > 0) {
+            bloomFilter = MurmurHash3BloomFilter.createConcurrentFilter(bloomBits);
+            if (log.isTraceEnabled()) {
+               log.tracef("Installing bloom filter for primary listener %s on cache %s", Util.toStr(listenerId), header.cacheName);
+            }
+            BloomFilter<byte[]> priorFilter = bloomFilters.putIfAbsent(header.cacheName, bloomFilter);
+            assert priorFilter == null;
+         }
+         CompletionStage<Void> stage = listenerRegistry.addPrimaryClientListener(channel, header, listenerId, cache, 14, bloomFilter);
+         stage.whenCompleteAsync((ignore, cause) -> {
+            try {
+               if (cause != null) {
+                  log.trace("Failed to add primary listener", cause);
+                  if (cause instanceof CompletionException) {
+                     writeException(header, cause.getCause());
+                  } else {
+                     writeException(header, cause);
+                  }
+                  span.recordException(cause);
+               } else {
+                  writeSuccess(header);
+               }
+            } finally {
+               span.complete();
+            }
+         }, channel.eventLoop());
+      }
+   }
+
    void removeClientListener(HotRodHeader header, Subject subject, byte[] listenerId) {
       var cacheInfo = server.getCacheInfo(header);
       AdvancedCache<byte[], byte[]> cache = server.cache(cacheInfo, header, subject);
