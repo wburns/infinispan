@@ -188,6 +188,11 @@ public final class DefaultCacheOperationsFactory implements CacheOperationsFacto
    }
 
    @Override
+   public ClientListenerOperation newAddPrimaryNearCacheListenerOperation(Object listener, int bloomBits) {
+      return new AddPrimaryNearCacheClientListenerOperation(remoteCache, listener, bloomBits);
+   }
+
+   @Override
    public <T> QueryOperation<T> newQueryOperation(RemoteQuery<T> ts, boolean withHitCount) {
       return new QueryOperation<>(remoteCache, ts, withHitCount);
    }

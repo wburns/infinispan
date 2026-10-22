@@ -27,7 +27,10 @@ import org.infinispan.client.hotrod.event.ClientCacheFailoverEvent;
 import org.infinispan.client.hotrod.event.ClientEvent;
 import org.infinispan.client.hotrod.impl.InternalRemoteCache;
 import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
+import org.infinispan.client.hotrod.impl.operations.AddPrimaryNearCacheClientListenerOperation;
 import org.infinispan.client.hotrod.impl.operations.ClientListenerOperation;
+import org.infinispan.client.hotrod.impl.operations.HotRodOperation;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelRecord;
 import org.infinispan.client.hotrod.impl.transport.netty.OperationDispatcher;
 import org.infinispan.commons.util.ReflectionUtil;
 import org.infinispan.commons.util.Util;
@@ -133,6 +136,25 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
 
    @Override
    public CompletableFuture<Void> executeFailover() {
+      if (op instanceof AddPrimaryNearCacheClientListenerOperation) {
+         OperationDispatcher dispatcher = remoteCache.getDispatcher();
+         return dispatcher.executeAddListener(op.copy(), address)
+               .thenCompose(channel -> {
+                  if (remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
+                     if (inrc.getNearCacheConfiguration().bloomFilter()) {
+                        byte[] bloomBits = inrc.getNearCacheService().calculateBloomBits();
+                        if (bloomBits != null) {
+                           HotRodOperation<Void> updateOp = inrc.getOperationsFactory().newUpdateBloomFilterOperation(bloomBits);
+                           return dispatcher.executeOnSingleAddress(updateOp, ChannelRecord.of(channel))
+                                 .thenRun(() -> inrc.setServerListenerActive(address, true));
+                        }
+                     }
+                     inrc.setServerListenerActive(address, true);
+                  }
+                  return CompletableFuture.completedFuture(null);
+               })
+               .toCompletableFuture();
+      }
       OperationDispatcher dispatcher = remoteCache.getDispatcher();
       CompletableFuture<Channel> future = dispatcher.executeAddListener(op.copy())
             .toCompletableFuture();
@@ -147,6 +169,12 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
 
    @Override
    protected void invokeFailoverEvent() {
+      if (op instanceof AddPrimaryNearCacheClientListenerOperation) {
+         if (remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
+            inrc.handlePrimaryListenerDisconnected(address);
+         }
+         return;
+      }
       List<ClientListenerInvocation> callbacks = invocables.get(ClientCacheFailover.class);
       if (callbacks != null) {
          for (ClientListenerInvocation callback : callbacks) {

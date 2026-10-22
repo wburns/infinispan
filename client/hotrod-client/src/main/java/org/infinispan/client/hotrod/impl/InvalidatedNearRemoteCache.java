@@ -4,24 +4,37 @@ import static org.infinispan.client.hotrod.logging.Log.HOTROD;
 
 import java.lang.invoke.MethodHandles;
 import java.net.SocketAddress;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.configuration.NearCacheConfiguration;
+import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
+import org.infinispan.client.hotrod.impl.consistenthash.SegmentConsistentHash;
 import org.infinispan.client.hotrod.impl.operations.CacheOperationsFactory;
 import org.infinispan.client.hotrod.impl.operations.ClientListenerOperation;
 import org.infinispan.client.hotrod.impl.operations.GetWithMetadataOperation;
 import org.infinispan.client.hotrod.impl.operations.HotRodOperation;
+import org.infinispan.client.hotrod.impl.topology.CacheInfo;
 import org.infinispan.client.hotrod.impl.transport.netty.ChannelRecord;
+import org.infinispan.client.hotrod.impl.transport.netty.OperationDispatcher;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.client.hotrod.near.NearCacheService;
 import org.infinispan.commons.dataconversion.MediaType;
 import org.infinispan.commons.marshall.Marshaller;
+import org.infinispan.commons.util.Util;
 import org.infinispan.commons.util.concurrent.CompletableFutures;
 
 import io.netty.channel.Channel;
@@ -46,6 +59,40 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
    private final AtomicInteger bloomFilterUpdateVersion;
    private final CacheOperationsFactory cacheOperationsFactory;
    private volatile Channel listenerChannel;
+
+   public static class ServerListenerState {
+      private volatile boolean active;
+      private final AtomicInteger bloomVersion = new AtomicInteger();
+      private final AtomicBoolean registering = new AtomicBoolean();
+
+      public boolean isActive() {
+         return active;
+      }
+
+      public void setActive(boolean active) {
+         this.active = active;
+      }
+
+      public boolean startRegistering() {
+         return registering.compareAndSet(false, true);
+      }
+
+      public void stopRegistering() {
+         registering.set(false);
+      }
+
+      public int getVersion() {
+         return bloomVersion.get();
+      }
+
+      public int incrementVersion() {
+         return bloomVersion.incrementAndGet();
+      }
+   }
+
+   private final ConcurrentMap<SocketAddress, ServerListenerState> serverListenerStates = new ConcurrentHashMap<>();
+   private volatile Object nearListener;
+   private volatile int nearBloomBits;
 
    InvalidatedNearRemoteCache(InternalRemoteCache<K, V> remoteCache, ClientStatistics clientStatistics,
                               NearCacheService<K, V> nearcache) {
@@ -76,6 +123,110 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       return value.thenApply(v -> v != null ? v.getValue() : null);
    }
 
+   public NearCacheService<K, V> getNearCacheService() {
+      return nearcache;
+   }
+
+   public boolean isPrimaryMode() {
+      if (!getDispatcher().isPrimaryNearCacheListenerSupported()) {
+         return false;
+      }
+      Map<SocketAddress, Set<Integer>> primarySegments = getDispatcher().getPrimarySegmentsByAddress(getName());
+      return primarySegments != null && !primarySegments.isEmpty();
+   }
+
+   public boolean hasActivePrimaryListeners() {
+      return !serverListenerStates.isEmpty() && serverListenerStates.values().stream().anyMatch(ServerListenerState::isActive);
+   }
+
+   public SocketAddress getPrimaryOwner(Object key) {
+      ConsistentHash ch = getDispatcher().getConsistentHash(getName());
+      return ch != null ? ch.getServer(key) : null;
+   }
+
+   public static boolean sameAddress(SocketAddress a1, SocketAddress a2) {
+      if (Objects.equals(a1, a2)) {
+         return true;
+      }
+      if (a1 instanceof java.net.InetSocketAddress isa1 && a2 instanceof java.net.InetSocketAddress isa2) {
+         return isa1.getPort() == isa2.getPort() && Objects.equals(isa1.getHostString(), isa2.getHostString());
+      }
+      return false;
+   }
+
+   public int getVersionIfActive(SocketAddress server) {
+      if (server == null) {
+         return -1;
+      }
+      for (Map.Entry<SocketAddress, ServerListenerState> entry : serverListenerStates.entrySet()) {
+         if (sameAddress(entry.getKey(), server)) {
+            ServerListenerState state = entry.getValue();
+            if (!state.isActive()) {
+               return -1;
+            }
+            int v = state.getVersion();
+            return (v & 1) == 1 ? -1 : v;
+         }
+      }
+      return -1;
+   }
+
+   public boolean isActiveAndVersionMatches(SocketAddress server, int expectedVersion) {
+      if (server == null || expectedVersion < 0) {
+         return false;
+      }
+      for (Map.Entry<SocketAddress, ServerListenerState> entry : serverListenerStates.entrySet()) {
+         if (sameAddress(entry.getKey(), server)) {
+            ServerListenerState state = entry.getValue();
+            return state.isActive() && state.getVersion() == expectedVersion;
+         }
+      }
+      return false;
+   }
+
+   public ServerListenerState getOrCreateServerListenerState(SocketAddress server) {
+      for (Map.Entry<SocketAddress, ServerListenerState> entry : serverListenerStates.entrySet()) {
+         if (sameAddress(entry.getKey(), server)) {
+            return entry.getValue();
+         }
+      }
+      return serverListenerStates.computeIfAbsent(server, k -> new ServerListenerState());
+   }
+
+   public void setServerListenerActive(SocketAddress server, boolean active) {
+      ServerListenerState state = getOrCreateServerListenerState(server);
+      state.setActive(active);
+   }
+
+   public ServerListenerState getServerListenerState(SocketAddress server) {
+      for (Map.Entry<SocketAddress, ServerListenerState> entry : serverListenerStates.entrySet()) {
+         if (sameAddress(entry.getKey(), server)) {
+            return entry.getValue();
+         }
+      }
+      return null;
+   }
+
+   public Map<SocketAddress, ServerListenerState> getServerListenerStates() {
+      return Collections.unmodifiableMap(serverListenerStates);
+   }
+
+   public void handlePrimaryListenerDisconnected(SocketAddress address) {
+      ServerListenerState state = getServerListenerState(address);
+      if (state != null) {
+         state.setActive(false);
+         state.stopRegistering();
+      }
+      Map<SocketAddress, Set<Integer>> primarySegments = getDispatcher().getPrimarySegmentsByAddress(getName());
+      if (primarySegments != null) {
+         for (Map.Entry<SocketAddress, Set<Integer>> entry : primarySegments.entrySet()) {
+            if (sameAddress(entry.getKey(), address)) {
+               nearcache.invalidateSegments(entry.getValue());
+            }
+         }
+      }
+   }
+
    public int getCurrentVersion() {
       if (bloomFilterUpdateVersion != null) {
          return bloomFilterUpdateVersion.get();
@@ -93,43 +244,85 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
          // We cannot cache this value as we could have 2 concurrent gets and an update and we could cache a previous one
          MetadataValue<V> calculatingPlaceholder = new MetadataValueImpl<>(-1, -1, -1, -1, -1, null);
          boolean cache = nearcache.putIfAbsent(key, calculatingPlaceholder);
-         int prevVersion = getCurrentVersion();
-         CompletionStage<GetWithMetadataOperation.GetWithMetadataResult<V>> remoteValue = super.getWithMetadataAsync(key, listenerChannel);
-         // If previous version is odd we can't cache as that means it was started during
-         // a bloom filter update.
-         if (!cache || (prevVersion & 1) == 1) {
-            if (trace) {
-               log.tracef("Unable to cache returned value for key %s as either has concurrent operation or during a bloom filter update",
-                     org.infinispan.commons.util.Util.toStr(key));
+
+         boolean isPrimary = isPrimaryMode();
+         final SocketAddress primaryServer;
+         final int prevVersion;
+         final CompletionStage<GetWithMetadataOperation.GetWithMetadataResult<V>> remoteValue;
+
+         if (isPrimary) {
+            primaryServer = getPrimaryOwner(key);
+            prevVersion = getVersionIfActive(primaryServer);
+            if (!cache || prevVersion < 0) {
+               if (trace) {
+                  log.tracef("Unable to cache returned value for key %s (cache=%s, prevVersion=%d, primary=%s)",
+                        Util.toStr(key), cache, prevVersion, primaryServer);
+               }
+               nearcache.remove(key, calculatingPlaceholder);
+               return super.getWithMetadataAsync(key, null).toCompletableFuture()
+                     .thenApply(GetWithMetadataOperation.GetWithMetadataResult::value);
             }
-            nearcache.remove(key, calculatingPlaceholder);
-            return remoteValue.toCompletableFuture()
-                  .thenApply(GetWithMetadataOperation.GetWithMetadataResult::value);
+            remoteValue = super.getWithMetadataAsync(key, null);
+         } else {
+            primaryServer = null;
+            prevVersion = getCurrentVersion();
+            remoteValue = super.getWithMetadataAsync(key, listenerChannel);
+            if (!cache || (prevVersion & 1) == 1) {
+               if (trace) {
+                  log.tracef("Unable to cache returned value for key %s as either has concurrent operation or during a bloom filter update",
+                        Util.toStr(key));
+               }
+               nearcache.remove(key, calculatingPlaceholder);
+               return remoteValue.toCompletableFuture()
+                     .thenApply(GetWithMetadataOperation.GetWithMetadataResult::value);
+            }
          }
+
          return remoteValue.thenApply(v -> {
             boolean shouldRemove = true;
             MetadataValue<V> value = v != null ? v.value() : null;
             // We cannot cache the value if a retry was required - which means we did not talk to the listener node
             if (value != null) {
-               // We can't cache if the new version doesn't match the prior as it overlapped a bloom update.
-               if (prevVersion != getCurrentVersion()) {
-                  if (trace) {
-                     log.tracef("Unable to cache returned value for key %s as operation was performed during a" +
-                           " bloom filter update", org.infinispan.commons.util.Util.toStr(key));
-                  }
-               } else if (listenerChannel != null && v.retried()) {
-                  // Having a listener address means it has a bloom filter. When we have a bloom filter we cannot
-                  // cache values upon a retry as we can't guarantee the bloom filter is updated on the server properly
-                  if (trace) {
-                     log.tracef("Unable to cache returned value for key %s as operation was retried",
-                           org.infinispan.commons.util.Util.toStr(key));
+               if (isPrimary) {
+                  SocketAddress currentPrimary = getPrimaryOwner(key);
+                  if (!Objects.equals(primaryServer, currentPrimary)) {
+                     if (trace) {
+                        log.tracef("Unable to cache returned value for key %s as primary owner changed from %s to %s",
+                              Util.toStr(key), primaryServer, currentPrimary);
+                     }
+                  } else if (!isActiveAndVersionMatches(primaryServer, prevVersion)) {
+                     if (trace) {
+                        log.tracef("Unable to cache returned value for key %s as listener state/version on %s changed",
+                              Util.toStr(key), primaryServer);
+                     }
+                  } else {
+                     nearcache.replace(key, calculatingPlaceholder, value);
+                     if (value.getMaxIdle() > 0) {
+                        HOTROD.nearCacheMaxIdleUnsupported();
+                     }
+                     shouldRemove = false;
                   }
                } else {
-                  nearcache.replace(key, calculatingPlaceholder, value);
-                  if (value.getMaxIdle() > 0) {
-                     HOTROD.nearCacheMaxIdleUnsupported();
+                  // We can't cache if the new version doesn't match the prior as it overlapped a bloom update.
+                  if (prevVersion != getCurrentVersion()) {
+                     if (trace) {
+                        log.tracef("Unable to cache returned value for key %s as operation was performed during a" +
+                              " bloom filter update", Util.toStr(key));
+                     }
+                  } else if (listenerChannel != null && v.retried()) {
+                     // Having a listener address means it has a bloom filter. When we have a bloom filter we cannot
+                     // cache values upon a retry as we can't guarantee the bloom filter is updated on the server properly
+                     if (trace) {
+                        log.tracef("Unable to cache returned value for key %s as operation was retried",
+                              Util.toStr(key));
+                     }
+                  } else {
+                     nearcache.replace(key, calculatingPlaceholder, value);
+                     if (value.getMaxIdle() > 0) {
+                        HOTROD.nearCacheMaxIdleUnsupported();
+                     }
+                     shouldRemove = false;
                   }
-                  shouldRemove = false;
                }
             }
             if (shouldRemove) {
@@ -259,14 +452,30 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
 
    @Override
    public CompletionStage<Void> updateBloomFilter() {
-      if (bloomFilterUpdateVersion == null) {
+      if (bloomFilterUpdateVersion == null && nearcache.getBloomFilterBits() <= 0) {
          return CompletableFutures.completedNull();
+      }
+      if (isPrimaryMode()) {
+         byte[] bloomFilterBits = nearcache.calculateBloomBits();
+         List<CompletableFuture<Void>> stages = new ArrayList<>();
+         CacheOperationsFactory operationsFactory = getOperationsFactory();
+         for (Map.Entry<SocketAddress, ServerListenerState> entry : serverListenerStates.entrySet()) {
+            if (entry.getValue().isActive()) {
+               ServerListenerState state = entry.getValue();
+               state.incrementVersion();
+               HotRodOperation<Void> op = operationsFactory.newUpdateBloomFilterOperation(bloomFilterBits);
+               CompletionStage<Void> stage = getDispatcher().executeOnSingleAddress(op, entry.getKey())
+                     .whenComplete((ignore, t) -> state.incrementVersion());
+               stages.add(stage.toCompletableFuture());
+            }
+         }
+         return CompletableFuture.allOf(stages.toArray(new CompletableFuture[0]));
       }
       // Not being able to increment the even version means we have a concurrent update - so skip
       if (!incrementBloomVersionIfEven()) {
          if (trace) {
             log.tracef("Already have a concurrent bloom filter update for listenerId(%s) - skipping",
-                  org.infinispan.commons.util.Util.printArray(nearcache.getListenerId()));
+                  Util.printArray(nearcache.getListenerId()));
          }
          return CompletableFuture.completedFuture(null);
       }
@@ -274,8 +483,8 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
 
       if (trace) {
          log.tracef("Sending bloom filter bits(%s) update to %s for listenerId(%s)",
-               org.infinispan.commons.util.Util.printArray(bloomFilterBits), listenerChannel,
-               org.infinispan.commons.util.Util.printArray(nearcache.getListenerId()));
+               Util.printArray(bloomFilterBits), listenerChannel,
+               Util.printArray(nearcache.getListenerId()));
       }
       CacheOperationsFactory operationsFactory = getOperationsFactory();
       HotRodOperation<Void> op = operationsFactory.newUpdateBloomFilterOperation(bloomFilterBits);
@@ -296,9 +505,109 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
 
    @Override
    public Channel addNearCacheListener(Object listener, int bloomBits) {
+      this.nearListener = listener;
+      this.nearBloomBits = bloomBits;
+      if (isPrimaryMode()) {
+         getDispatcher().addTopologyListener(getName(), this::onTopologyUpdate);
+         return registerPrimaryListeners(listener, bloomBits);
+      }
       ClientListenerOperation op = getOperationsFactory().newAddNearCacheListenerOperation(listener,
             bloomBits);
       return getDispatcher().await(getDispatcher().executeAddListener(op));
+   }
+
+   private Channel registerPrimaryListeners(Object listener, int bloomBits) {
+      OperationDispatcher dispatcher = getDispatcher();
+      ConsistentHash ch = dispatcher.getConsistentHash(getName());
+      if (ch instanceof SegmentConsistentHash sch) {
+         nearcache.setSegmentFunction(sch::getSegment, sch.getNumSegments());
+      }
+      Map<SocketAddress, Set<Integer>> primarySegments = dispatcher.getPrimarySegmentsByAddress(getName());
+      if (primarySegments == null || primarySegments.isEmpty()) {
+         return null;
+      }
+      List<CompletableFuture<Channel>> stages = new ArrayList<>();
+      for (SocketAddress server : primarySegments.keySet()) {
+         stages.add(registerPrimaryListenerOnServer(server, listener, bloomBits).toCompletableFuture());
+      }
+      return dispatcher.await(CompletableFutures.sequence(stages).thenApply(list -> {
+         for (Channel c : list) {
+            if (c != null) {
+               return c;
+            }
+         }
+         return null;
+      }));
+   }
+
+   private CompletionStage<Channel> registerPrimaryListenerOnServer(SocketAddress server, Object listener, int bloomBits) {
+      ServerListenerState state = getOrCreateServerListenerState(server);
+      if (state.isActive() || !state.startRegistering()) {
+         return CompletableFuture.completedFuture(null);
+      }
+      ClientListenerOperation op = getOperationsFactory().newAddPrimaryNearCacheListenerOperation(listener, bloomBits);
+      return getDispatcher().executeAddListener(op, server).thenCompose(ch -> {
+         if (bloomBits > 0) {
+            byte[] currentBloomBits = nearcache.calculateBloomBits();
+            if (currentBloomBits != null) {
+               HotRodOperation<Void> updateOp = getOperationsFactory().newUpdateBloomFilterOperation(currentBloomBits);
+               return getDispatcher().executeOnSingleAddress(updateOp, ChannelRecord.of(ch))
+                     .thenApply(ignore -> {
+                        state.setActive(true);
+                        state.stopRegistering();
+                        return ch;
+                     });
+            }
+         }
+         state.setActive(true);
+         state.stopRegistering();
+         return CompletableFuture.completedFuture(ch);
+      }).whenComplete((ch, t) -> {
+         if (t != null) {
+            state.setActive(false);
+            state.stopRegistering();
+            if (trace) {
+               log.tracef(t, "Failed to register primary listener on server %s", server);
+            }
+         }
+      });
+   }
+
+   private void onTopologyUpdate(CacheInfo oldCacheInfo, CacheInfo newCacheInfo) {
+      ConsistentHash oldCH = oldCacheInfo != null ? oldCacheInfo.getConsistentHash() : null;
+      ConsistentHash newCH = newCacheInfo != null ? newCacheInfo.getConsistentHash() : null;
+
+      if (newCH instanceof SegmentConsistentHash newSCH) {
+         int numSegments = newSCH.getNumSegments();
+         nearcache.setSegmentFunction(newSCH::getSegment, numSegments);
+
+         if (oldCH instanceof SegmentConsistentHash oldSCH) {
+            SocketAddress[][] oldOwners = oldSCH.getSegmentOwners();
+            SocketAddress[][] newOwners = newSCH.getSegmentOwners();
+            for (int seg = 0; seg < numSegments; ++seg) {
+               SocketAddress oldPrimary = (oldOwners != null && seg < oldOwners.length && oldOwners[seg].length > 0) ? oldOwners[seg][0] : null;
+               SocketAddress newPrimary = (newOwners != null && seg < newOwners.length && newOwners[seg].length > 0) ? newOwners[seg][0] : null;
+               if (!Objects.equals(oldPrimary, newPrimary)) {
+                  nearcache.invalidateSegment(seg);
+               }
+            }
+         } else {
+            for (int seg = 0; seg < numSegments; ++seg) {
+               nearcache.invalidateSegment(seg);
+            }
+         }
+
+         // Register listeners on any new primary servers
+         Object listener = this.nearListener;
+         if (listener != null) {
+            Map<SocketAddress, Set<Integer>> primarySegments = newCacheInfo.getPrimarySegments();
+            if (primarySegments != null) {
+               for (SocketAddress server : primarySegments.keySet()) {
+                  registerPrimaryListenerOnServer(server, listener, nearBloomBits);
+               }
+            }
+         }
+      }
    }
 
    @Override

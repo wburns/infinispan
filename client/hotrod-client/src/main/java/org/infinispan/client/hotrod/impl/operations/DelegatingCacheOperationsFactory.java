@@ -164,6 +164,11 @@ public abstract class DelegatingCacheOperationsFactory implements CacheOperation
    }
 
    @Override
+   public ClientListenerOperation newAddPrimaryNearCacheListenerOperation(Object listener, int bloomBits) {
+      return delegate.newAddPrimaryNearCacheListenerOperation(listener, bloomBits);
+   }
+
+   @Override
    public <T> QueryOperation<T> newQueryOperation(RemoteQuery<T> ts, boolean withHitCount) {
       return delegate.newQueryOperation(ts, withHitCount);
    }

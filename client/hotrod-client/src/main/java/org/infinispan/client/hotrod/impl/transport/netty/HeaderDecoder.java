@@ -4,6 +4,7 @@ import static org.infinispan.client.hotrod.impl.protocol.HotRodConstants.CACHE_E
 import static org.infinispan.client.hotrod.impl.protocol.HotRodConstants.CACHE_ENTRY_EXPIRED_EVENT_RESPONSE;
 import static org.infinispan.client.hotrod.impl.protocol.HotRodConstants.CACHE_ENTRY_MODIFIED_EVENT_RESPONSE;
 import static org.infinispan.client.hotrod.impl.protocol.HotRodConstants.CACHE_ENTRY_REMOVED_EVENT_RESPONSE;
+import static org.infinispan.client.hotrod.impl.protocol.HotRodConstants.CACHE_TOPOLOGY_CHANGED_EVENT_RESPONSE;
 import static org.infinispan.client.hotrod.impl.protocol.HotRodConstants.COUNTER_EVENT_RESPONSE;
 import static org.infinispan.client.hotrod.logging.Log.HOTROD;
 
@@ -244,6 +245,11 @@ public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
                      // the loop in HintedReplayingDecoder will call decode again
                      return;
                   }
+                  case CACHE_TOPOLOGY_CHANGED_EVENT_RESPONSE -> {
+                     checkpoint(State.READ_TOPOLOGY_EVENT);
+                     // the loop in HintedReplayingDecoder will call decode again
+                     return;
+                  }
                }
                if (receivedMessageId >= 0) {
                   // we can remove the operation at this point since we'll read no more in this state
@@ -350,6 +356,19 @@ public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
                   throw t;
                }
                invokeEvent(counterEvent.getListenerId(), counterEvent);
+               checkpoint(State.READ_MESSAGE_ID);
+               break;
+            case READ_TOPOLOGY_EVENT:
+               if (log.isTraceEnabled()) {
+                  log.tracef("Decoding topology changed event %s", HotRodConstants.Names.of(receivedOpCode));
+               }
+               status = in.readUnsignedByte();
+               in.readUnsignedByte(); // ignore topology byte (0) in header
+               byte[] topologyListenerId = ByteBufUtil.readArray(in);
+               String topologyCacheName = dispatcher.getClientListenerNotifier().findCacheName(topologyListenerId);
+               if (topologyCacheName != null) {
+                  readNewTopologyAndHash(in, topologyCacheName);
+               }
                checkpoint(State.READ_MESSAGE_ID);
                break;
          }
@@ -544,5 +563,6 @@ public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
       READ_TOPOLOGY,
       READ_PAYLOAD,
       READ_CACHE_EVENT, READ_COUNTER_EVENT,
+      READ_TOPOLOGY_EVENT,
    }
 }

@@ -16,11 +16,14 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.StampedLock;
+import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -49,6 +52,7 @@ import org.infinispan.client.hotrod.impl.operations.HotRodBulkOperation;
 import org.infinispan.client.hotrod.impl.operations.HotRodOperation;
 import org.infinispan.client.hotrod.impl.operations.NoCachePingOperation;
 import org.infinispan.client.hotrod.impl.operations.NoHotRodOperation;
+import org.infinispan.client.hotrod.impl.protocol.Codec;
 import org.infinispan.client.hotrod.impl.protocol.HotRodConstants;
 import org.infinispan.client.hotrod.impl.topology.CacheInfo;
 import org.infinispan.client.hotrod.impl.topology.ClusterInfo;
@@ -106,6 +110,8 @@ public class OperationDispatcher {
    private final Set<SocketAddress> connectionFailedServers;
    private final ChannelHandler channelHandler;
    private final ExecutorService executorService;
+   private final ConcurrentMap<String, List<BiConsumer<CacheInfo, CacheInfo>>> topologyListeners = new ConcurrentHashMap<>();
+   private final Configuration configuration;
    private final TimeService timeService;
 
    private final ClientListenerNotifier clientListenerNotifier;
@@ -115,6 +121,7 @@ public class OperationDispatcher {
 
    public OperationDispatcher(Configuration configuration, ExecutorService executorService, TimeService timeService,
                               ClientListenerNotifier clientListenerNotifier, Consumer<ChannelPipeline> pipelineDecorator) {
+      this.configuration = configuration;
       this.executorService = executorService;
       this.timeService = timeService;
       this.clientListenerNotifier = clientListenerNotifier;
@@ -410,9 +417,36 @@ public class OperationDispatcher {
       return channelHandler;
    }
 
+   public boolean isPrimaryNearCacheListenerSupported() {
+      if (getClientIntelligence() != ClientIntelligence.HASH_DISTRIBUTION_AWARE) {
+         return false;
+      }
+      return getCodec().isPrimaryNearCacheListenerSupported();
+   }
+
+   public Codec getCodec() {
+      for (OperationChannel ch : channelHandler.getChannels()) {
+         if (ch.codec != null) {
+            return ch.codec;
+         }
+      }
+      return configuration.version().getCodec();
+   }
+
    public Map<SocketAddress, Set<Integer>> getPrimarySegmentsByAddress(String cacheName) {
       CacheInfo cacheInfo = getCacheInfo(cacheName);
       return cacheInfo != null ? cacheInfo.getPrimarySegments() : null;
+   }
+
+   public void addTopologyListener(String cacheName, BiConsumer<CacheInfo, CacheInfo> listener) {
+      topologyListeners.computeIfAbsent(cacheName, k -> new CopyOnWriteArrayList<>()).add(listener);
+   }
+
+   public void removeTopologyListener(String cacheName, BiConsumer<CacheInfo, CacheInfo> listener) {
+      List<BiConsumer<CacheInfo, CacheInfo>> listeners = topologyListeners.get(cacheName);
+      if (listeners != null) {
+         listeners.remove(listener);
+      }
    }
 
    public Collection<InetSocketAddress> getServers() {
@@ -508,6 +542,17 @@ public class OperationDispatcher {
          HOTROD.removingServer(server);
          connectionFailedServers.remove(server);
          gracefulCloseChannel(server);
+      }
+
+      List<BiConsumer<CacheInfo, CacheInfo>> listeners = topologyListeners.get(cacheName);
+      if (listeners != null) {
+         for (BiConsumer<CacheInfo, CacheInfo> listener : listeners) {
+            try {
+               listener.accept(oldCacheInfo, newCacheInfo);
+            } catch (Throwable t) {
+               log.errorf(t, "Error notifying topology listener for cache %s", cacheName);
+            }
+         }
       }
    }
 

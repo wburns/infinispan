@@ -102,6 +102,8 @@ public interface CacheOperationsFactory {
 
    ClientListenerOperation newAddNearCacheListenerOperation(Object listener, int bloomBits);
 
+   ClientListenerOperation newAddPrimaryNearCacheListenerOperation(Object listener, int bloomBits);
+
    <T> QueryOperation<T> newQueryOperation(RemoteQuery<T> ts, boolean withHitCount);
 
    AddClientListenerOperation newAddClientListenerOperation(Object listener);

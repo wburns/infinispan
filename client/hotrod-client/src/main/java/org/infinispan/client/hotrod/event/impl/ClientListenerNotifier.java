@@ -161,6 +161,11 @@ public class ClientListenerNotifier {
       return null;
    }
 
+   public String findCacheName(byte[] listenerId) {
+      EventDispatcher<?> dispatcher = dispatchers.get(new WrappedByteArray(listenerId));
+      return dispatcher != null ? dispatcher.cacheName : null;
+   }
+
    public SocketAddress findAddressByListener(Object listener) {
       return findAddress(findListenerId(listener));
    }
