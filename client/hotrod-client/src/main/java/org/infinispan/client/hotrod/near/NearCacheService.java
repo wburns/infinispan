@@ -46,7 +46,7 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    private Runnable invalidationCallback;
    private final int bloomFilterBits;
    private final int bloomFilterUpdateThreshold;
-   private final AtomicInteger nearCacheZeroCounts;
+   private final AtomicInteger missedInvalidations;
    private final CountingBloomFilter<byte[]> countingBloomFilter;
    private InternalRemoteCache<K, V> remote;
 
@@ -60,14 +60,13 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
       if (maxEntries > 0 && config.bloomFilter()) {
          bloomFilterBits = determineBloomFilterBits(maxEntries);
          // Scale the update frequency of the bloom filter based on the number of max entries.
-         // With counting bloom filter zero-transitions, divisor 8 roughly aligns with ~1/8 of entries cleared.
          bloomFilterUpdateThreshold = determineBloomFilterUpdateThreshold(maxEntries);
-         nearCacheZeroCounts = new AtomicInteger();
+         missedInvalidations = new AtomicInteger();
          countingBloomFilter = MurmurHash3CountingBloomFilter.createFilter(bloomFilterBits);
       } else {
          bloomFilterBits = -1;
          bloomFilterUpdateThreshold = -1;
-         nearCacheZeroCounts = null;
+         missedInvalidations = null;
          countingBloomFilter = null;
       }
    }
@@ -96,41 +95,12 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    }
 
    private static int determineBloomFilterUpdateThreshold(int maxEntries) {
-      String explicitThreshold = System.getProperty("infinispan.bloom-filter.update-threshold");
-      if (explicitThreshold != null) {
-         return Integer.parseInt(explicitThreshold);
-      }
-      int divisor = Integer.parseInt(System.getProperty("infinispan.bloom-filter.update-threshold-divisor", "8"));
-      return maxEntries / divisor + 3;
+      return maxEntries / 16 + 3;
    }
 
    void entryRemovedFromNearCache(K key, MetadataValue<V> value) {
-      if (nearCacheZeroCounts == null) {
-         return;
-      }
-
-      int zeros = 0;
       if (countingBloomFilter != null && remote != null && value != null && value.getValue() != null) {
-         zeros = countingBloomFilter.remove(remote.keyToBytes(key));
-      }
-
-      if (zeros == 0) {
-         return;
-      }
-
-      while (true) {
-         int current = nearCacheZeroCounts.get();
-         int next = current + zeros;
-         if (next >= bloomFilterUpdateThreshold) {
-            if (nearCacheZeroCounts.compareAndSet(current, 0)) {
-               log.tracef("Updating bloom filter due to reaching update threshold with %d zeros for %s", next, remote.getName());
-               remote.updateBloomFilter();
-               break;
-            }
-         } else if (nearCacheZeroCounts.compareAndSet(current, next)) {
-            log.tracef("Incremented nearCacheZeroCounts to %d for %s", next, remote.getName());
-            break;
-         }
+         countingBloomFilter.remove(remote.keyToBytes(key));
       }
    }
 
@@ -202,6 +172,33 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
       return removed;
    }
 
+   void serverInvalidation(K key) {
+      if (!remove(key)) {
+         recordMissedInvalidation();
+      }
+   }
+
+   private void recordMissedInvalidation() {
+      if (missedInvalidations == null) {
+         return;
+      }
+
+      while (true) {
+         int current = missedInvalidations.get();
+         int next = current + 1;
+         if (next >= bloomFilterUpdateThreshold) {
+            if (missedInvalidations.compareAndSet(current, 0)) {
+               log.tracef("Updating bloom filter due to reaching missed invalidation threshold with %d for %s", next, remote.getName());
+               remote.updateBloomFilter();
+               break;
+            }
+         } else if (missedInvalidations.compareAndSet(current, next)) {
+            log.tracef("Incremented missedInvalidations to %d for %s", next, remote.getName());
+            break;
+         }
+      }
+   }
+
    @Override
    public boolean remove(K key, MetadataValue<V> value) {
       boolean removed = cache.remove(key, value);
@@ -231,8 +228,8 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    @Override
    public void clear() {
       cache.clear();
-      if (nearCacheZeroCounts != null) {
-         nearCacheZeroCounts.set(0);
+      if (missedInvalidations != null) {
+         missedInvalidations.set(0);
       }
       if (countingBloomFilter != null) {
          countingBloomFilter.clear();
@@ -266,8 +263,8 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
       return bloomFilterUpdateThreshold;
    }
 
-   int getZeroCounts() {
-      return nearCacheZeroCounts != null ? nearCacheZeroCounts.get() : -1;
+   int getMissedInvalidations() {
+      return missedInvalidations != null ? missedInvalidations.get() : -1;
    }
 
    public NearCacheConfiguration getConfig() {
@@ -279,6 +276,9 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
    }
 
    public byte[] calculateBloomBits() {
+      if (missedInvalidations != null) {
+         missedInvalidations.set(0);
+      }
       if (bloomFilterBits <= 0) {
          return null;
       }
@@ -294,13 +294,13 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
       return intSet.toBitSet();
    }
 
-      @ClientListener
+   @ClientListener
    private static class InvalidatedNearCacheListener<K, V> {
       private static final Log log = LogFactory.getLog(InvalidatedNearCacheListener.class);
-      private final NearCache<K, V> cache;
+      private final NearCacheService<K, V> service;
 
-      private InvalidatedNearCacheListener(NearCache<K, V> cache) {
-         this.cache = cache;
+      private InvalidatedNearCacheListener(NearCacheService<K, V> service) {
+         this.service = service;
       }
 
       @ClientCacheEntryModified
@@ -325,11 +325,11 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
       @SuppressWarnings("unused")
       public void handleFailover(ClientCacheFailoverEvent e) {
          if (log.isTraceEnabled()) log.trace("Clear near cache after fail-over of server");
-         cache.clear();
+         service.clear();
       }
 
       private void invalidate(K key) {
-         cache.remove(key);
+         service.serverInvalidation(key);
       }
    }
 }

@@ -175,22 +175,26 @@ public class InvalidatedNearCacheBloomTest extends SingleHotRodServerTest {
       assertTrue(serverBloomFilterUpdated, "The server bloom filter was never updated and we got remove events every time");
    }
 
-   public void testZeroCountsAndThresholdBehavior() {
+   public void testMissedInvalidationsAndThresholdBehavior() {
       NearCacheService<Integer, String> nearCacheService = assertClient.nearCacheService.get();
       assertNotNull(nearCacheService);
-      assertEquals(0, nearCacheService.getZeroCounts());
+      assertEquals(0, nearCacheService.getMissedInvalidations());
       int threshold = nearCacheService.getBloomFilterUpdateThreshold();
       assertEquals(3, threshold);
 
-      // 1. False positive remove on a key not in near cache must NOT increment zeroCounts
-      boolean removed = nearCacheService.remove(999);
+      // 1. Local remove on a key not in near cache must NOT increment missedInvalidations
+      boolean removed = nearCacheService.remove(998);
       assertFalse(removed);
-      assertEquals(0, nearCacheService.getZeroCounts());
+      assertEquals(0, nearCacheService.getMissedInvalidations());
 
-      // 2. Clear resets zeroCounts
+      // 2. Server invalidation that didn't remove anything increments missedInvalidations
+      nearCacheService.serverInvalidation(999);
+      assertEquals(1, nearCacheService.getMissedInvalidations());
+
+      // 3. Clear resets missedInvalidations
       nearCacheService.clear();
       assertClient.expectNearClear();
-      assertEquals(0, nearCacheService.getZeroCounts());
+      assertEquals(0, nearCacheService.getMissedInvalidations());
    }
 
    private void drainAsyncEvents() {
@@ -198,25 +202,18 @@ public class InvalidatedNearCacheBloomTest extends SingleHotRodServerTest {
             () -> assertClient.events.poll(50, TimeUnit.MILLISECONDS) == null);
    }
 
-   public void testCustomBloomFilterUpdateThresholdConfig() {
-      System.setProperty("infinispan.bloom-filter.update-threshold", "42");
-      try {
-         NearCacheConfiguration config = new NearCacheConfiguration(NearCacheMode.INVALIDATED, 100, true);
-         NearCacheService<Integer, String> service = NearCacheService.create(config, null);
-         assertEquals(42, service.getBloomFilterUpdateThreshold());
-      } finally {
-         System.clearProperty("infinispan.bloom-filter.update-threshold");
-      }
+   public void testBloomFilterUpdateThresholdFormula() {
+      NearCacheConfiguration config4 = new NearCacheConfiguration(NearCacheMode.INVALIDATED, 4, true);
+      NearCacheService<Integer, String> service4 = NearCacheService.create(config4, null);
+      assertEquals(3, service4.getBloomFilterUpdateThreshold());
 
-      System.setProperty("infinispan.bloom-filter.update-threshold-divisor", "4");
-      try {
-         NearCacheConfiguration config = new NearCacheConfiguration(NearCacheMode.INVALIDATED, 100, true);
-         NearCacheService<Integer, String> service = NearCacheService.create(config, null);
-         // 100 / 4 + 3 = 28
-         assertEquals(28, service.getBloomFilterUpdateThreshold());
-      } finally {
-         System.clearProperty("infinispan.bloom-filter.update-threshold-divisor");
-      }
+      NearCacheConfiguration config16 = new NearCacheConfiguration(NearCacheMode.INVALIDATED, 16, true);
+      NearCacheService<Integer, String> service16 = NearCacheService.create(config16, null);
+      assertEquals(4, service16.getBloomFilterUpdateThreshold());
+
+      NearCacheConfiguration config100 = new NearCacheConfiguration(NearCacheMode.INVALIDATED, 100, true);
+      NearCacheService<Integer, String> service100 = NearCacheService.create(config100, null);
+      assertEquals(9, service100.getBloomFilterUpdateThreshold());
    }
 
    int findNextKey(BloomFilter<byte[]> filter, int originalValue, boolean present) {
