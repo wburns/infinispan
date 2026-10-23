@@ -141,14 +141,15 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
          return dispatcher.executeAddListener(op.copy(), address)
                .thenCompose(channel -> {
                   if (remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
-                     inrc.setServerListenerActive(address, true);
                      if (inrc.getNearCacheConfiguration().bloomFilter()) {
                         byte[] bloomBits = inrc.getNearCacheService().calculateBloomBits();
                         if (bloomBits != null) {
                            HotRodOperation<Void> updateOp = inrc.getOperationsFactory().newUpdateBloomFilterOperation(bloomBits);
-                           return dispatcher.executeOnSingleAddress(updateOp, ChannelRecord.of(channel));
+                           return dispatcher.executeOnSingleAddress(updateOp, ChannelRecord.of(channel))
+                                 .thenRun(() -> inrc.setServerListenerActive(address, true));
                         }
                      }
+                     inrc.setServerListenerActive(address, true);
                   }
                   return CompletableFuture.completedFuture(null);
                })

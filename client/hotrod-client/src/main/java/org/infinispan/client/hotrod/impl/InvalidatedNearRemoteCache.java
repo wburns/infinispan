@@ -5,6 +5,7 @@ import static org.infinispan.client.hotrod.logging.Log.HOTROD;
 import java.lang.invoke.MethodHandles;
 import java.net.SocketAddress;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -14,6 +15,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.infinispan.client.hotrod.MetadataValue;
@@ -61,6 +63,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
    public static class ServerListenerState {
       private volatile boolean active;
       private final AtomicInteger bloomVersion = new AtomicInteger();
+      private final AtomicBoolean registering = new AtomicBoolean();
 
       public boolean isActive() {
          return active;
@@ -68,6 +71,14 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
 
       public void setActive(boolean active) {
          this.active = active;
+      }
+
+      public boolean startRegistering() {
+         return registering.compareAndSet(false, true);
+      }
+
+      public void stopRegistering() {
+         registering.set(false);
       }
 
       public int getVersion() {
@@ -173,14 +184,18 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       return false;
    }
 
-   public void setServerListenerActive(SocketAddress server, boolean active) {
+   public ServerListenerState getOrCreateServerListenerState(SocketAddress server) {
       for (Map.Entry<SocketAddress, ServerListenerState> entry : serverListenerStates.entrySet()) {
          if (sameAddress(entry.getKey(), server)) {
-            entry.getValue().setActive(active);
-            return;
+            return entry.getValue();
          }
       }
-      serverListenerStates.computeIfAbsent(server, k -> new ServerListenerState()).setActive(active);
+      return serverListenerStates.computeIfAbsent(server, k -> new ServerListenerState());
+   }
+
+   public void setServerListenerActive(SocketAddress server, boolean active) {
+      ServerListenerState state = getOrCreateServerListenerState(server);
+      state.setActive(active);
    }
 
    public ServerListenerState getServerListenerState(SocketAddress server) {
@@ -192,8 +207,16 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       return null;
    }
 
+   public Map<SocketAddress, ServerListenerState> getServerListenerStates() {
+      return Collections.unmodifiableMap(serverListenerStates);
+   }
+
    public void handlePrimaryListenerDisconnected(SocketAddress address) {
-      setServerListenerActive(address, false);
+      ServerListenerState state = getServerListenerState(address);
+      if (state != null) {
+         state.setActive(false);
+         state.stopRegistering();
+      }
       Map<SocketAddress, Set<Integer>> primarySegments = getDispatcher().getPrimarySegmentsByAddress(getName());
       if (primarySegments != null) {
          for (Map.Entry<SocketAddress, Set<Integer>> entry : primarySegments.entrySet()) {
@@ -507,23 +530,45 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       for (SocketAddress server : primarySegments.keySet()) {
          stages.add(registerPrimaryListenerOnServer(server, listener, bloomBits).toCompletableFuture());
       }
-      return dispatcher.await(CompletableFutures.sequence(stages).thenApply(list -> list.isEmpty() ? null : list.get(0)));
+      return dispatcher.await(CompletableFutures.sequence(stages).thenApply(list -> {
+         for (Channel c : list) {
+            if (c != null) {
+               return c;
+            }
+         }
+         return null;
+      }));
    }
 
    private CompletionStage<Channel> registerPrimaryListenerOnServer(SocketAddress server, Object listener, int bloomBits) {
+      ServerListenerState state = getOrCreateServerListenerState(server);
+      if (state.isActive() || !state.startRegistering()) {
+         return CompletableFuture.completedFuture(null);
+      }
       ClientListenerOperation op = getOperationsFactory().newAddPrimaryNearCacheListenerOperation(listener, bloomBits);
-      return getDispatcher().executeAddListener(op, server).whenComplete((ch, t) -> {
-         if (t == null) {
-            setServerListenerActive(server, true);
-            if (bloomBits > 0) {
-               byte[] currentBloomBits = nearcache.calculateBloomBits();
-               if (currentBloomBits != null) {
-                  HotRodOperation<Void> updateOp = getOperationsFactory().newUpdateBloomFilterOperation(currentBloomBits);
-                  getDispatcher().executeOnSingleAddress(updateOp, ChannelRecord.of(ch));
-               }
+      return getDispatcher().executeAddListener(op, server).thenCompose(ch -> {
+         if (bloomBits > 0) {
+            byte[] currentBloomBits = nearcache.calculateBloomBits();
+            if (currentBloomBits != null) {
+               HotRodOperation<Void> updateOp = getOperationsFactory().newUpdateBloomFilterOperation(currentBloomBits);
+               return getDispatcher().executeOnSingleAddress(updateOp, ChannelRecord.of(ch))
+                     .thenApply(ignore -> {
+                        state.setActive(true);
+                        state.stopRegistering();
+                        return ch;
+                     });
             }
-         } else if (trace) {
-            log.tracef(t, "Failed to register primary listener on server %s", server);
+         }
+         state.setActive(true);
+         state.stopRegistering();
+         return CompletableFuture.completedFuture(ch);
+      }).whenComplete((ch, t) -> {
+         if (t != null) {
+            state.setActive(false);
+            state.stopRegistering();
+            if (trace) {
+               log.tracef(t, "Failed to register primary listener on server %s", server);
+            }
          }
       });
    }
@@ -558,10 +603,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
             Map<SocketAddress, Set<Integer>> primarySegments = newCacheInfo.getPrimarySegments();
             if (primarySegments != null) {
                for (SocketAddress server : primarySegments.keySet()) {
-                  ServerListenerState state = serverListenerStates.get(server);
-                  if (state == null || !state.isActive()) {
-                     registerPrimaryListenerOnServer(server, listener, nearBloomBits);
-                  }
+                  registerPrimaryListenerOnServer(server, listener, nearBloomBits);
                }
             }
          }

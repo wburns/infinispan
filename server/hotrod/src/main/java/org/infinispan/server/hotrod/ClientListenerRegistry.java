@@ -18,6 +18,7 @@ import java.util.concurrent.CompletionStage;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -381,6 +382,8 @@ class ClientListenerRegistry {
    @Listener(clustered = false, primaryOnly = true)
    private class PrimaryStatelessClientEventSender extends BaseClientEventSender {
       private final Cache<Address, ServerAddress> addressCache;
+      private volatile ConsistentHash pendingConsistentHash;
+      private final AtomicInteger topologyRetryCount = new AtomicInteger();
 
       PrimaryStatelessClientEventSender(Cache cache, Channel ch, VersionedEncoder encoder, byte[] listenerId,
                                         byte version, ClientEventType targetEventType,
@@ -394,23 +397,41 @@ class ClientListenerRegistry {
          if (event.isPre() || isChannelDisconnected()) {
             return;
          }
-         ConsistentHash ch = event.getReadConsistentHashAtEnd();
-         if (ch != null && addressCache != null) {
-            Map<Address, ServerAddress> serverEndpoints;
-            try {
-               serverEndpoints = new HashMap<>(addressCache);
-            } catch (Exception e) {
-               return;
-            }
-            if (!serverEndpoints.keySet().containsAll(ch.getMembers())) {
-               return;
-            }
-            int clientTopologyId = ch.hashCode();
-            HashDistAware20Response topologyResponse = new HashDistAware20Response(clientTopologyId, serverEndpoints, ch.getNumSegments(), Constants.DEFAULT_CONSISTENT_HASH_VERSION);
-            InetAddress localAddress = ((InetSocketAddress) this.ch.localAddress()).getAddress();
-            Events.TopologyChangedEvent tce = new Events.TopologyChangedEvent(version, 0, listenerId, topologyResponse, ch, localAddress, encoder);
-            sendTopologyEvent(tce);
+         ConsistentHash consistentHash = event.getReadConsistentHashAtEnd();
+         if (consistentHash != null && addressCache != null) {
+            pendingConsistentHash = consistentHash;
+            topologyRetryCount.set(0);
+            trySendTopology(consistentHash);
          }
+      }
+
+      private void trySendTopology(ConsistentHash consistentHash) {
+         if (isChannelDisconnected() || pendingConsistentHash != consistentHash) {
+            return;
+         }
+         Map<Address, ServerAddress> serverEndpoints;
+         try {
+            serverEndpoints = new HashMap<>(addressCache);
+         } catch (Exception e) {
+            return;
+         }
+         if (!serverEndpoints.keySet().containsAll(consistentHash.getMembers())) {
+            int attempt = topologyRetryCount.incrementAndGet();
+            if (attempt <= 20) {
+               this.ch.eventLoop().schedule(() -> trySendTopology(consistentHash), 50, TimeUnit.MILLISECONDS);
+               return;
+            }
+            if (log.isTraceEnabled()) {
+               log.tracef("Sending topology update after %d attempts as addressCache does not contain all members: %s vs %s",
+                     attempt, serverEndpoints.keySet(), consistentHash.getMembers());
+            }
+         }
+         pendingConsistentHash = null;
+         int clientTopologyId = consistentHash.hashCode();
+         HashDistAware20Response topologyResponse = new HashDistAware20Response(clientTopologyId, serverEndpoints, consistentHash.getNumSegments(), Constants.DEFAULT_CONSISTENT_HASH_VERSION);
+         InetAddress localAddress = ((InetSocketAddress) this.ch.localAddress()).getAddress();
+         Events.TopologyChangedEvent tce = new Events.TopologyChangedEvent(version, 0, listenerId, topologyResponse, consistentHash, localAddress, encoder);
+         sendTopologyEvent(tce);
       }
    }
 
