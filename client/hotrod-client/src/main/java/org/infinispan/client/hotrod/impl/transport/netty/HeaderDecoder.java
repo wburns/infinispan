@@ -366,9 +366,7 @@ public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
                in.readUnsignedByte(); // ignore topology byte (0) in header
                byte[] topologyListenerId = ByteBufUtil.readArray(in);
                String topologyCacheName = dispatcher.getClientListenerNotifier().findCacheName(topologyListenerId);
-               if (topologyCacheName != null) {
-                  readNewTopologyAndHash(in, topologyCacheName);
-               }
+               readNewTopologyAndHash(in, topologyCacheName);
                checkpoint(State.READ_MESSAGE_ID);
                break;
          }
@@ -409,7 +407,7 @@ public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
 
       // Only update the topology if this channel is fully connected and authenticated
       OperationChannel operationChannel = channel.attr(OperationChannel.OPERATION_CHANNEL_ATTRIBUTE_KEY).get();
-      if (operationChannel != null && operationChannel.isAcceptingRequests()) {
+      if (cacheName != null && operationChannel != null && operationChannel.isAcceptingRequests()) {
          dispatcher.updateTopology(cacheName, operation, newTopologyId,
                addresses, segmentOwners, hashFunctionVersion);
       }
@@ -481,8 +479,9 @@ public class HeaderDecoder extends HintedReplayingDecoder<HeaderDecoder.State> {
    }
 
    void failoverClientListeners() {
+      SocketAddress remoteAddress = ChannelRecord.of(channel);
       for (byte[] listenerId : listeners) {
-         dispatcher.getClientListenerNotifier().failoverClientListener(listenerId);
+         dispatcher.getClientListenerNotifier().failoverClientListener(listenerId, remoteAddress);
       }
    }
 

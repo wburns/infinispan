@@ -272,7 +272,7 @@ public class OperationDispatcher {
       operation.whenComplete((channel, t) -> {
          if (t != null) {
             log.errorf("Error encountered trying to add listener %s", operation.listener);
-            clientListenerNotifier.removeClientListener(operation.listenerId);
+            clientListenerNotifier.removeClientListener(operation.listenerId, target);
          } else {
             SocketAddress unresolvedAddress = ChannelRecord.of(channel);
             if (unresolvedAddress != target) {

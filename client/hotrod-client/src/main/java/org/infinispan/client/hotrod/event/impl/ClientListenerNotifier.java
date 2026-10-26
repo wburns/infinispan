@@ -4,12 +4,14 @@ import static org.infinispan.client.hotrod.logging.Log.HOTROD;
 
 import java.net.SocketAddress;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -19,6 +21,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.configuration.Configuration;
 import org.infinispan.client.hotrod.impl.ConfigurationProperties;
+import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 import org.infinispan.commons.configuration.ClassAllowList;
@@ -38,7 +41,7 @@ public class ClientListenerNotifier {
    // Time for trying to reconnect listeners when all connections are down.
    public static final int RECONNECT_PERIOD = 5000;
 
-   private final ConcurrentMap<WrappedByteArray, EventDispatcher<?>> dispatchers = new ConcurrentHashMap<>();
+   private final ConcurrentMap<WrappedByteArray, List<EventDispatcher<?>>> dispatchers = new ConcurrentHashMap<>();
    private final ScheduledThreadPoolExecutor reconnectExecutor;
 
    private final Marshaller marshaller;
@@ -67,7 +70,10 @@ public class ClientListenerNotifier {
    }
 
    public void addDispatcher(EventDispatcher<?> dispatcher) {
-      dispatchers.put(new WrappedByteArray(dispatcher.listenerId), dispatcher);
+      List<EventDispatcher<?>> list = dispatchers.computeIfAbsent(new WrappedByteArray(dispatcher.listenerId),
+            k -> new CopyOnWriteArrayList<>());
+      list.removeIf(d -> InvalidatedNearRemoteCache.sameAddress(d.address(), dispatcher.address()));
+      list.add(dispatcher);
       if (log.isTraceEnabled())
          log.tracef("Add dispatcher %s for client listener with id %s, for listener %s",
                dispatcher, Util.printArray(dispatcher.listenerId), dispatcher.listener);
@@ -76,10 +82,11 @@ public class ClientListenerNotifier {
    public void failoverListeners(Set<SocketAddress> failedServers) {
       // Compile all listener ids that need failing over
       List<WrappedByteArray> failoverListenerIds = new ArrayList<>();
-      for (Map.Entry<WrappedByteArray, EventDispatcher<?>> entry : dispatchers.entrySet()) {
-         EventDispatcher<?> dispatcher = entry.getValue();
-         if (failedServers.contains(dispatcher.address()))
-            failoverListenerIds.add(entry.getKey());
+      for (Map.Entry<WrappedByteArray, List<EventDispatcher<?>>> entry : dispatchers.entrySet()) {
+         for (EventDispatcher<?> dispatcher : entry.getValue()) {
+            if (failedServers.contains(dispatcher.address()))
+               failoverListenerIds.add(entry.getKey());
+         }
       }
       if (log.isTraceEnabled() && failoverListenerIds.isEmpty())
          log.tracef("No event listeners registered in failed servers: %s", failedServers);
@@ -89,7 +96,16 @@ public class ClientListenerNotifier {
    }
 
    public void failoverClientListener(byte[] listenerId) {
-      EventDispatcher<?> dispatcher = removeClientListener(listenerId);
+      failoverClientListener(listenerId, null);
+   }
+
+   public void failoverClientListener(byte[] listenerId, SocketAddress address) {
+      EventDispatcher<?> dispatcher;
+      if (address != null) {
+         dispatcher = removeClientListener(listenerId, address);
+      } else {
+         dispatcher = removeClientListener(listenerId);
+      }
       if (dispatcher == null) {
          return;
       }
@@ -117,53 +133,106 @@ public class ClientListenerNotifier {
    }
 
    public void startClientListener(byte[] listenerId) {
-      EventDispatcher<?> eventDispatcher = dispatchers.get(new WrappedByteArray(listenerId));
-      eventDispatcher.start();
+      List<EventDispatcher<?>> list = dispatchers.get(new WrappedByteArray(listenerId));
+      if (list != null) {
+         for (EventDispatcher<?> dispatcher : list) {
+            dispatcher.start();
+         }
+      }
    }
 
    public EventDispatcher<?> removeClientListener(byte[] listenerId) {
       return removeClientListener(new WrappedByteArray(listenerId));
    }
 
+   public EventDispatcher<?> removeClientListener(byte[] listenerId, SocketAddress address) {
+      WrappedByteArray wrapped = new WrappedByteArray(listenerId);
+      List<EventDispatcher<?>> list = dispatchers.get(wrapped);
+      if (list == null) {
+         return null;
+      }
+      EventDispatcher<?> removed = null;
+      for (EventDispatcher<?> d : list) {
+         if (address == null || InvalidatedNearRemoteCache.sameAddress(d.address(), address)) {
+            list.remove(d);
+            d.stop();
+            removed = d;
+            if (address != null) {
+               break;
+            }
+         }
+      }
+      if (list.isEmpty()) {
+         dispatchers.remove(wrapped, list);
+      }
+      if (removed != null && log.isTraceEnabled()) {
+         log.tracef("Remove client listener with id %s on %s", Util.printArray(listenerId), address);
+      }
+      return removed;
+   }
+
    private EventDispatcher<?> removeClientListener(WrappedByteArray listenerId) {
-      EventDispatcher<?> dispatcher = dispatchers.remove(listenerId);
-      if (dispatcher == null) {
+      List<EventDispatcher<?>> list = dispatchers.remove(listenerId);
+      if (list == null || list.isEmpty()) {
          if (log.isTraceEnabled()) {
             log.tracef("Client listener %s not present (removed concurrently?)", Util.printArray(listenerId.getBytes()));
          }
-      } else {
+         return null;
+      }
+      for (EventDispatcher<?> dispatcher : list) {
          dispatcher.stop();
       }
       if (log.isTraceEnabled())
          log.tracef("Remove client listener with id %s", Util.printArray(listenerId.getBytes()));
-      return dispatcher;
+      return list.get(0);
    }
 
    public byte[] findListenerId(Object listener) {
-      for (EventDispatcher<?> dispatcher : dispatchers.values()) {
-         if (dispatcher.listener.equals(listener))
-            return dispatcher.listenerId;
+      for (List<EventDispatcher<?>> list : dispatchers.values()) {
+         for (EventDispatcher<?> dispatcher : list) {
+            if (dispatcher.listener.equals(listener))
+               return dispatcher.listenerId;
+         }
       }
       return null;
    }
 
    public boolean isListenerConnected(byte[] listenerId) {
-      EventDispatcher<?> dispatcher = dispatchers.get(new WrappedByteArray(listenerId));
-      // If listener not present, is not active
-      return dispatcher != null && dispatcher.isRunning();
+      List<EventDispatcher<?>> list = dispatchers.get(new WrappedByteArray(listenerId));
+      if (list == null || list.isEmpty()) {
+         return false;
+      }
+      for (EventDispatcher<?> dispatcher : list) {
+         if (dispatcher.isRunning()) {
+            return true;
+         }
+      }
+      return false;
    }
 
    public SocketAddress findAddress(byte[] listenerId) {
-      EventDispatcher<?> dispatcher = dispatchers.get(new WrappedByteArray(listenerId));
-      if (dispatcher != null)
-         return dispatcher.address();
-
+      List<EventDispatcher<?>> list = dispatchers.get(new WrappedByteArray(listenerId));
+      if (list != null && !list.isEmpty()) {
+         return list.get(0).address();
+      }
       return null;
    }
 
+   public Set<SocketAddress> findAddresses(byte[] listenerId) {
+      List<EventDispatcher<?>> list = dispatchers.get(new WrappedByteArray(listenerId));
+      if (list == null || list.isEmpty()) {
+         return Collections.emptySet();
+      }
+      Set<SocketAddress> addresses = new HashSet<>(list.size());
+      for (EventDispatcher<?> dispatcher : list) {
+         addresses.add(dispatcher.address());
+      }
+      return addresses;
+   }
+
    public String findCacheName(byte[] listenerId) {
-      EventDispatcher<?> dispatcher = dispatchers.get(new WrappedByteArray(listenerId));
-      return dispatcher != null ? dispatcher.cacheName : null;
+      List<EventDispatcher<?>> list = dispatchers.get(new WrappedByteArray(listenerId));
+      return (list != null && !list.isEmpty()) ? list.get(0).cacheName : null;
    }
 
    public SocketAddress findAddressByListener(Object listener) {
@@ -172,9 +241,11 @@ public class ClientListenerNotifier {
 
    public Set<Object> getListeners(String cacheName) {
       Set<Object> ret = new HashSet<>(dispatchers.size());
-      for (EventDispatcher<?> dispatcher : dispatchers.values()) {
-         if (dispatcher.cacheName.equals(cacheName))
-            ret.add(dispatcher.listener);
+      for (List<EventDispatcher<?>> list : dispatchers.values()) {
+         for (EventDispatcher<?> dispatcher : list) {
+            if (dispatcher.cacheName.equals(cacheName))
+               ret.add(dispatcher.listener);
+         }
       }
 
       return ret;
@@ -191,18 +262,20 @@ public class ClientListenerNotifier {
    }
 
    public <T> void invokeEvent(byte[] listenerId, T event) {
-      EventDispatcher<T> eventDispatcher = (EventDispatcher<T>) dispatchers.get(new WrappedByteArray(listenerId));
-      if (eventDispatcher == null) {
+      List<EventDispatcher<?>> list = dispatchers.get(new WrappedByteArray(listenerId));
+      if (list == null || list.isEmpty()) {
          throw HOTROD.unexpectedListenerId(Util.printArray(listenerId));
       }
+      EventDispatcher<T> eventDispatcher = (EventDispatcher<T>) list.get(0);
       eventDispatcher.invokeEvent(event);
    }
 
    public DataFormat getCacheDataFormat(byte[] listenerId) {
-      ClientEventDispatcher clientEventDispatcher = (ClientEventDispatcher) dispatchers.get(new WrappedByteArray(listenerId));
-      if (clientEventDispatcher == null) {
+      List<EventDispatcher<?>> list = dispatchers.get(new WrappedByteArray(listenerId));
+      if (list == null || list.isEmpty()) {
          throw HOTROD.unexpectedListenerId(Util.printArray(listenerId));
       }
+      ClientEventDispatcher clientEventDispatcher = (ClientEventDispatcher) list.get(0);
       return clientEventDispatcher.getDataFormat();
    }
 

@@ -10,6 +10,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 import org.infinispan.client.hotrod.DataFormat;
@@ -137,6 +138,22 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
    @Override
    public CompletableFuture<Void> executeFailover() {
       if (op instanceof AddPrimaryNearCacheClientListenerOperation) {
+         if (remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
+            Map<SocketAddress, Set<Integer>> primarySegments = inrc.getDispatcher().getPrimarySegmentsByAddress(remoteCache.getName());
+            boolean isPrimary = false;
+            if (primarySegments != null) {
+               for (SocketAddress s : primarySegments.keySet()) {
+                  if (InvalidatedNearRemoteCache.sameAddress(s, address)) {
+                     isPrimary = true;
+                     break;
+                  }
+               }
+            }
+            if (!isPrimary) {
+               // Node is no longer a primary owner; complete cleanly without retrying
+               return CompletableFuture.completedFuture(null);
+            }
+         }
          OperationDispatcher dispatcher = remoteCache.getDispatcher();
          return dispatcher.executeAddListener(op.copy(), address)
                .thenCompose(channel -> {

@@ -17,9 +17,11 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
 
 import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.configuration.NearCacheConfiguration;
+import org.infinispan.client.hotrod.event.impl.ClientListenerNotifier;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.consistenthash.SegmentConsistentHash;
 import org.infinispan.client.hotrod.impl.operations.CacheOperationsFactory;
@@ -91,7 +93,9 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
    }
 
    private final ConcurrentMap<SocketAddress, ServerListenerState> serverListenerStates = new ConcurrentHashMap<>();
+   private final BiConsumer<CacheInfo, CacheInfo> topologyListener = this::onTopologyUpdate;
    private volatile Object nearListener;
+   private volatile byte[] nearListenerId;
    private volatile int nearBloomBits;
 
    InvalidatedNearRemoteCache(InternalRemoteCache<K, V> remoteCache, ClientStatistics clientStatistics,
@@ -149,7 +153,21 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
          return true;
       }
       if (a1 instanceof java.net.InetSocketAddress isa1 && a2 instanceof java.net.InetSocketAddress isa2) {
-         return isa1.getPort() == isa2.getPort() && Objects.equals(isa1.getHostString(), isa2.getHostString());
+         if (isa1.getPort() != isa2.getPort()) {
+            return false;
+         }
+         if (Objects.equals(isa1.getHostString(), isa2.getHostString())) {
+            return true;
+         }
+         if (isa1.getAddress() != null && isa2.getAddress() != null) {
+            return Objects.equals(isa1.getAddress(), isa2.getAddress());
+         }
+         if (isa1.getAddress() != null && Objects.equals(isa1.getAddress().getHostAddress(), isa2.getHostString())) {
+            return true;
+         }
+         if (isa2.getAddress() != null && Objects.equals(isa2.getAddress().getHostAddress(), isa1.getHostString())) {
+            return true;
+         }
       }
       return false;
    }
@@ -285,7 +303,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
             if (value != null) {
                if (isPrimary) {
                   SocketAddress currentPrimary = getPrimaryOwner(key);
-                  if (!Objects.equals(primaryServer, currentPrimary)) {
+                  if (!sameAddress(primaryServer, currentPrimary)) {
                      if (trace) {
                         log.tracef("Unable to cache returned value for key %s as primary owner changed from %s to %s",
                               Util.toStr(key), primaryServer, currentPrimary);
@@ -420,7 +438,39 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
    }
 
    @Override
+   public void removeClientListener(Object listener) {
+      if (isPrimaryMode() && Objects.equals(listener, this.nearListener)) {
+         getDispatcher().removeTopologyListener(getName(), topologyListener);
+         byte[] lid = this.nearListenerId;
+         if (lid != null) {
+            ClientListenerNotifier cln = getDispatcher().getClientListenerNotifier();
+            for (SocketAddress server : serverListenerStates.keySet()) {
+               try {
+                  HotRodOperation<Void> op = getOperationsFactory().newRemoveClientListenerOperation(lid);
+                  CompletableFuture<Void> removalStage = op.asCompletableFuture().thenAccept(___ -> cln.removeClientListener(lid, server));
+                  getDispatcher().executeOnSingleAddress(op, server);
+                  getDispatcher().await(removalStage);
+               } catch (Exception e) {
+                  if (trace) {
+                     log.tracef(e, "Error removing primary listener on %s", server);
+                  }
+               }
+            }
+            cln.removeClientListener(lid);
+         }
+         serverListenerStates.clear();
+         this.nearListener = null;
+         this.nearListenerId = null;
+         return;
+      }
+      super.removeClientListener(listener);
+   }
+
+   @Override
    public void stop() {
+      if (isPrimaryMode()) {
+         getDispatcher().removeTopologyListener(getName(), topologyListener);
+      }
       nearcache.stop(this);
       super.stop();
    }
@@ -508,15 +558,18 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       this.nearListener = listener;
       this.nearBloomBits = bloomBits;
       if (isPrimaryMode()) {
-         getDispatcher().addTopologyListener(getName(), this::onTopologyUpdate);
-         return registerPrimaryListeners(listener, bloomBits);
+         this.nearListenerId = ClientListenerOperation.generateListenerId();
+         getDispatcher().addTopologyListener(getName(), topologyListener);
+         return registerPrimaryListeners(listener, nearListenerId, bloomBits);
       }
       ClientListenerOperation op = getOperationsFactory().newAddNearCacheListenerOperation(listener,
             bloomBits);
-      return getDispatcher().await(getDispatcher().executeAddListener(op));
+      Channel channel = getDispatcher().await(getDispatcher().executeAddListener(op));
+      this.nearListenerId = op.listenerId;
+      return channel;
    }
 
-   private Channel registerPrimaryListeners(Object listener, int bloomBits) {
+   private Channel registerPrimaryListeners(Object listener, byte[] listenerId, int bloomBits) {
       OperationDispatcher dispatcher = getDispatcher();
       ConsistentHash ch = dispatcher.getConsistentHash(getName());
       if (ch instanceof SegmentConsistentHash sch) {
@@ -528,7 +581,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       }
       List<CompletableFuture<Channel>> stages = new ArrayList<>();
       for (SocketAddress server : primarySegments.keySet()) {
-         stages.add(registerPrimaryListenerOnServer(server, listener, bloomBits).toCompletableFuture());
+         stages.add(registerPrimaryListenerOnServer(server, listener, listenerId, bloomBits).toCompletableFuture());
       }
       return dispatcher.await(CompletableFutures.sequence(stages).thenApply(list -> {
          for (Channel c : list) {
@@ -540,12 +593,12 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       }));
    }
 
-   private CompletionStage<Channel> registerPrimaryListenerOnServer(SocketAddress server, Object listener, int bloomBits) {
+   private CompletionStage<Channel> registerPrimaryListenerOnServer(SocketAddress server, Object listener, byte[] listenerId, int bloomBits) {
       ServerListenerState state = getOrCreateServerListenerState(server);
       if (state.isActive() || !state.startRegistering()) {
          return CompletableFuture.completedFuture(null);
       }
-      ClientListenerOperation op = getOperationsFactory().newAddPrimaryNearCacheListenerOperation(listener, bloomBits);
+      ClientListenerOperation op = getOperationsFactory().newAddPrimaryNearCacheListenerOperation(listener, listenerId, bloomBits);
       return getDispatcher().executeAddListener(op, server).thenCompose(ch -> {
          if (bloomBits > 0) {
             byte[] currentBloomBits = nearcache.calculateBloomBits();
@@ -587,7 +640,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
             for (int seg = 0; seg < numSegments; ++seg) {
                SocketAddress oldPrimary = (oldOwners != null && seg < oldOwners.length && oldOwners[seg].length > 0) ? oldOwners[seg][0] : null;
                SocketAddress newPrimary = (newOwners != null && seg < newOwners.length && newOwners[seg].length > 0) ? newOwners[seg][0] : null;
-               if (!Objects.equals(oldPrimary, newPrimary)) {
+               if (!sameAddress(oldPrimary, newPrimary)) {
                   nearcache.invalidateSegment(seg);
                }
             }
@@ -597,13 +650,27 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
             }
          }
 
-         // Register listeners on any new primary servers
+         // Register listeners on any new primary servers and mark decommissioned servers inactive
          Object listener = this.nearListener;
-         if (listener != null) {
+         byte[] listenerId = this.nearListenerId;
+         if (listener != null && listenerId != null) {
             Map<SocketAddress, Set<Integer>> primarySegments = newCacheInfo.getPrimarySegments();
             if (primarySegments != null) {
+               for (Map.Entry<SocketAddress, ServerListenerState> entry : serverListenerStates.entrySet()) {
+                  boolean stillPrimary = false;
+                  for (SocketAddress s : primarySegments.keySet()) {
+                     if (sameAddress(s, entry.getKey())) {
+                        stillPrimary = true;
+                        break;
+                     }
+                  }
+                  if (!stillPrimary) {
+                     entry.getValue().setActive(false);
+                     entry.getValue().stopRegistering();
+                  }
+               }
                for (SocketAddress server : primarySegments.keySet()) {
-                  registerPrimaryListenerOnServer(server, listener, nearBloomBits);
+                  registerPrimaryListenerOnServer(server, listener, listenerId, nearBloomBits);
                }
             }
          }

@@ -35,6 +35,8 @@ public interface CacheOperationsFactory {
 
    HotRodOperation<Void> newRemoveClientListenerOperation(Object listener);
 
+   HotRodOperation<Void> newRemoveClientListenerOperation(byte[] listenerId);
+
    HotRodOperation<IterationStartResponse> newIterationStartOperation(String filterConverterFactory, byte[][] filterParams,
                                                                       IntSet segments, int batchSize, boolean metadata);
 
@@ -103,6 +105,8 @@ public interface CacheOperationsFactory {
    ClientListenerOperation newAddNearCacheListenerOperation(Object listener, int bloomBits);
 
    ClientListenerOperation newAddPrimaryNearCacheListenerOperation(Object listener, int bloomBits);
+
+   ClientListenerOperation newAddPrimaryNearCacheListenerOperation(Object listener, byte[] listenerId, int bloomBits);
 
    <T> QueryOperation<T> newQueryOperation(RemoteQuery<T> ts, boolean withHitCount);
 
