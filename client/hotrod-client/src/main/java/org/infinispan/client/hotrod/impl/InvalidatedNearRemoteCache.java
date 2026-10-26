@@ -165,9 +165,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
          if (isa1.getAddress() != null && Objects.equals(isa1.getAddress().getHostAddress(), isa2.getHostString())) {
             return true;
          }
-         if (isa2.getAddress() != null && Objects.equals(isa2.getAddress().getHostAddress(), isa1.getHostString())) {
-            return true;
-         }
+         return isa2.getAddress() != null && Objects.equals(isa2.getAddress().getHostAddress(), isa1.getHostString());
       }
       return false;
    }

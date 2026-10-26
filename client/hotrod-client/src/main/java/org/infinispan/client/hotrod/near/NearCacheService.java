@@ -313,7 +313,7 @@ public class NearCacheService<K, V> implements NearCache<K, V> {
       return intSet.toBitSet();
    }
 
-      @ClientListener
+   @ClientListener
    private static class InvalidatedNearCacheListener<K, V> {
       private static final Log log = LogFactory.getLog(InvalidatedNearCacheListener.class);
       private final NearCache<K, V> cache;

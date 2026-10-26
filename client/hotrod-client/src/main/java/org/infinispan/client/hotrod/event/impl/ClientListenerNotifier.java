@@ -79,26 +79,6 @@ public class ClientListenerNotifier {
                dispatcher, Util.printArray(dispatcher.listenerId), dispatcher.listener);
    }
 
-   public void failoverListeners(Set<SocketAddress> failedServers) {
-      // Compile all listener ids that need failing over
-      List<WrappedByteArray> failoverListenerIds = new ArrayList<>();
-      for (Map.Entry<WrappedByteArray, List<EventDispatcher<?>>> entry : dispatchers.entrySet()) {
-         for (EventDispatcher<?> dispatcher : entry.getValue()) {
-            if (failedServers.contains(dispatcher.address()))
-               failoverListenerIds.add(entry.getKey());
-         }
-      }
-      if (log.isTraceEnabled() && failoverListenerIds.isEmpty())
-         log.tracef("No event listeners registered in failed servers: %s", failedServers);
-
-      // Remove tracking listeners and read to the fallback transport
-      failoverListenerIds.forEach(wrapped -> failoverClientListener(wrapped.getBytes()));
-   }
-
-   public void failoverClientListener(byte[] listenerId) {
-      failoverClientListener(listenerId, null);
-   }
-
    public void failoverClientListener(byte[] listenerId, SocketAddress address) {
       EventDispatcher<?> dispatcher;
       if (address != null) {
