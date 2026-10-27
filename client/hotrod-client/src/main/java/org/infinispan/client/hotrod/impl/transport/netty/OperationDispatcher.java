@@ -265,8 +265,8 @@ public class OperationDispatcher {
    public CompletionStage<Channel> executeAddListener(ClientListenerOperation operation, SocketAddress target) {
       // Unfortunately, we have to do this preemptively for the case when a listener has included current state
       // as that will not complete until all initial events have been received
-      clientListenerNotifier.addDispatcher(ClientEventDispatcher.create(operation,
-            target, () -> {/* TODO s*/}, operation.getRemoteCache()));
+      clientListenerNotifier.addDispatcher(operation.listenerId, target, operation,
+            (id, op) -> ClientEventDispatcher.create(op, () -> {/* TODO s*/}));
       // Note this is done here, to guarantee this is lambda is ALWAYS invoked in the event loop after completion
       // This allows a retry with a different address to be protected from concurrent events being raised
       operation.whenComplete((channel, t) -> {
@@ -346,6 +346,11 @@ public class OperationDispatcher {
    public <E> CompletionStage<E> executeOnSingleAddress(HotRodOperation<E> operation, SocketAddress socketAddress) {
       // We do an empty check, as contains will perform hashCode on the socketAddress creating a String object
       if (!connectionFailedServers.isEmpty() && connectionFailedServers.contains(socketAddress)) {
+         if (!operation.supportRetry()) {
+            operation.asCompletableFuture().completeExceptionally(
+                  new org.infinispan.client.hotrod.exceptions.TransportException("Server " + socketAddress + " is marked as failed", socketAddress));
+            return operation.asCompletableFuture();
+         }
          SocketAddress alternative = getBalancer(operation.getCacheName()).nextServer(connectionFailedServers);
          if (!connectionFailedServers.contains(alternative)) {
             log.tracef("Server %s is suspected, trying %s for %s", socketAddress, alternative, operation);
@@ -944,9 +949,8 @@ public class OperationDispatcher {
          for (SocketAddress failed : op.getFailedServers()) {
             clientListenerNotifier.removeAddress(aclo.listenerId, failed);
          }
-         // This will replace the prior dispatcher from the previous attempt failure
-         clientListenerNotifier.addDispatcher(ClientEventDispatcher.create(aclo,
-               sa, () -> {/* TODO s*/}, aclo.getRemoteCache()));
+         clientListenerNotifier.addDispatcher(aclo.listenerId, sa, aclo,
+               (id, op1) -> ClientEventDispatcher.create(op1, () -> {/* TODO s*/}));
          executeOnSingleAddress(op, sa);
       }
    }

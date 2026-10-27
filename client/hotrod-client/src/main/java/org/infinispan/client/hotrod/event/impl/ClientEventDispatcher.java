@@ -10,7 +10,6 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 import org.infinispan.client.hotrod.DataFormat;
@@ -30,15 +29,13 @@ import org.infinispan.client.hotrod.impl.InternalRemoteCache;
 import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
 import org.infinispan.client.hotrod.impl.operations.AddPrimaryNearCacheClientListenerOperation;
 import org.infinispan.client.hotrod.impl.operations.ClientListenerOperation;
-import org.infinispan.client.hotrod.impl.operations.HotRodOperation;
-import org.infinispan.client.hotrod.impl.transport.netty.ChannelRecord;
 import org.infinispan.client.hotrod.impl.transport.netty.OperationDispatcher;
 import org.infinispan.commons.util.ReflectionUtil;
 import org.infinispan.commons.util.Util;
 
 import io.netty.channel.Channel;
 
-public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
+public class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
 
    private static final ClientCacheFailoverEvent FAILOVER_EVENT_SINGLETON = () -> ClientEvent.Type.CLIENT_CACHE_FAILOVER;
 
@@ -52,10 +49,10 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
       allowedListeners.put(ClientCacheFailover.class, new Class[]{ClientCacheFailoverEvent.class});
    }
 
-   private final Map<Class<? extends Annotation>, List<ClientListenerInvocation>> invocables;
+   final Map<Class<? extends Annotation>, List<ClientListenerInvocation>> invocables;
 
-   private final ClientListenerOperation op;
-   private final InternalRemoteCache<?, ?> remoteCache;
+   final ClientListenerOperation op;
+   final InternalRemoteCache<?, ?> remoteCache;
 
    ClientEventDispatcher(ClientListenerOperation op, SocketAddress address, Map<Class<? extends Annotation>,
          List<ClientListenerInvocation>> invocables, String cacheName, Runnable cleanup, InternalRemoteCache<?, ?> remoteCache) {
@@ -67,8 +64,20 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
 
    public static ClientEventDispatcher create(ClientListenerOperation op, SocketAddress address, Runnable cleanup,
                                               InternalRemoteCache<?, ?> remoteCache) {
+      if (op instanceof AddPrimaryNearCacheClientListenerOperation primaryOp && remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
+         return PrimaryNearCacheEventDispatcher.create(primaryOp, address, cleanup, inrc);
+      }
       Map<Class<? extends Annotation>, List<ClientEventDispatcher.ClientListenerInvocation>> invocables = findMethods(op.listener);
       return new ClientEventDispatcher(op, address, invocables, remoteCache.getName(), cleanup, remoteCache);
+   }
+
+   public static ClientEventDispatcher create(ClientListenerOperation op, Runnable cleanup) {
+      return create(op, null, cleanup, op.getRemoteCache());
+   }
+
+   public static ClientEventDispatcher create(ClientListenerOperation op, Runnable cleanup,
+                                              InternalRemoteCache<?, ?> remoteCache) {
+      return create(op, null, cleanup, remoteCache);
    }
 
    public static Map<Class<? extends Annotation>, List<ClientEventDispatcher.ClientListenerInvocation>> findMethods(Object listener) {
@@ -142,47 +151,12 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
 
    @Override
    public CompletableFuture<Void> executeFailover(SocketAddress failedAddress) {
-      if (op instanceof AddPrimaryNearCacheClientListenerOperation) {
-         if (remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
-            Map<SocketAddress, Set<Integer>> primarySegments = inrc.getDispatcher().getPrimarySegmentsByAddress(remoteCache.getName());
-            boolean isPrimary = false;
-            if (primarySegments != null) {
-               for (SocketAddress s : primarySegments.keySet()) {
-                  if (InvalidatedNearRemoteCache.sameAddress(s, failedAddress)) {
-                     isPrimary = true;
-                     break;
-                  }
-               }
-            }
-            if (!isPrimary) {
-               // Node is no longer a primary owner; complete cleanly without retrying
-               return CompletableFuture.completedFuture(null);
-            }
-         }
-         OperationDispatcher dispatcher = remoteCache.getDispatcher();
-         return dispatcher.executeAddListener(op.copy(), failedAddress)
-               .thenCompose(channel -> {
-                  if (remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
-                     if (inrc.getNearCacheConfiguration().bloomFilter()) {
-                        byte[] bloomBits = inrc.getNearCacheService().calculateBloomBits();
-                        if (bloomBits != null) {
-                           HotRodOperation<Void> updateOp = inrc.getOperationsFactory().newUpdateBloomFilterOperation(bloomBits);
-                           return dispatcher.executeOnSingleAddress(updateOp, ChannelRecord.of(channel))
-                                 .thenRun(() -> inrc.setServerListenerActive(failedAddress, true));
-                        }
-                     }
-                     inrc.setServerListenerActive(failedAddress, true);
-                  }
-                  return CompletableFuture.completedFuture(null);
-               })
-               .toCompletableFuture();
-      }
       OperationDispatcher dispatcher = remoteCache.getDispatcher();
       CompletableFuture<Channel> future = dispatcher.executeAddListener(op.copy())
             .toCompletableFuture();
-      if (remoteCache instanceof InvalidatedNearRemoteCache) {
+      if (remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
          future = future.thenApply(channel -> {
-            ((InvalidatedNearRemoteCache<?, ?>) remoteCache).setBloomListenerAddress(channel);
+            inrc.setBloomListenerAddress(channel);
             return channel;
          });
       }
@@ -196,12 +170,6 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
 
    @Override
    protected void invokeFailoverEvent(SocketAddress failedAddress) {
-      if (op instanceof AddPrimaryNearCacheClientListenerOperation) {
-         if (remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
-            inrc.handlePrimaryListenerDisconnected(failedAddress);
-         }
-         return;
-      }
       List<ClientListenerInvocation> callbacks = invocables.get(ClientCacheFailover.class);
       if (callbacks != null) {
          for (ClientListenerInvocation callback : callbacks) {

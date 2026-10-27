@@ -8,7 +8,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 
-import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
+import org.infinispan.client.hotrod.impl.transport.netty.ChannelRecord;
 import org.infinispan.client.hotrod.logging.Log;
 import org.infinispan.client.hotrod.logging.LogFactory;
 
@@ -34,6 +34,10 @@ public abstract class EventDispatcher<T> {
       this.cleanup = cleanup;
    }
 
+   EventDispatcher(String cacheName, Object listener, byte[] listenerId, Runnable cleanup) {
+      this(cacheName, listener, listenerId, null, cleanup);
+   }
+
    public boolean start() {
       return statusUpdater.compareAndSet(this, EventDispatcher.DispatcherStatus.STOPPED, EventDispatcher.DispatcherStatus.RUNNING);
    }
@@ -55,7 +59,7 @@ public abstract class EventDispatcher<T> {
 
    public void addAddress(SocketAddress address) {
       if (address != null) {
-         addresses.removeIf(a -> InvalidatedNearRemoteCache.sameAddress(a, address));
+         addresses.removeIf(a -> ChannelRecord.sameAddress(a, address));
          addresses.add(address);
       }
    }
@@ -65,7 +69,7 @@ public abstract class EventDispatcher<T> {
          addresses.clear();
          return true;
       }
-      return addresses.removeIf(a -> InvalidatedNearRemoteCache.sameAddress(a, address));
+      return addresses.removeIf(a -> ChannelRecord.sameAddress(a, address));
    }
 
    public void replaceAddress(SocketAddress oldAddress, SocketAddress newAddress) {
@@ -75,19 +79,6 @@ public abstract class EventDispatcher<T> {
       if (newAddress != null) {
          addAddress(newAddress);
       }
-   }
-
-   public void clearAddresses() {
-      addresses.clear();
-   }
-
-   public boolean hasAddress(SocketAddress address) {
-      for (SocketAddress a : addresses) {
-         if (InvalidatedNearRemoteCache.sameAddress(a, address)) {
-            return true;
-         }
-      }
-      return false;
    }
 
    public Set<SocketAddress> addresses() {

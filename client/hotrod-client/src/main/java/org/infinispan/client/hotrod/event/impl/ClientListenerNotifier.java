@@ -13,6 +13,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiFunction;
 
 import org.infinispan.client.hotrod.DataFormat;
 import org.infinispan.client.hotrod.configuration.Configuration;
@@ -64,17 +65,27 @@ public class ClientListenerNotifier {
       return marshaller;
    }
 
-   public void addDispatcher(EventDispatcher<?> dispatcher) {
-      WrappedByteArray key = new WrappedByteArray(dispatcher.listenerId);
-      EventDispatcher<?> existing = dispatchers.putIfAbsent(key, dispatcher);
-      if (existing != null) {
-         for (SocketAddress address : dispatcher.addresses()) {
-            existing.addAddress(address);
-         }
+   public <C> EventDispatcher<?> addDispatcher(byte[] listenerId, SocketAddress address, C context,
+                                               BiFunction<byte[], C, ? extends EventDispatcher<?>> factory) {
+      WrappedByteArray key = new WrappedByteArray(listenerId);
+      EventDispatcher<?> dispatcher = dispatchers.computeIfAbsent(key, k -> {
+         EventDispatcher<?> created = factory.apply(listenerId, context);
+         if (log.isTraceEnabled())
+            log.tracef("Add dispatcher %s for client listener with id %s, for listener %s",
+                  created, Util.printArray(listenerId), created.listener);
+         return created;
+      });
+      if (address != null) {
+         dispatcher.addAddress(address);
       }
-      if (log.isTraceEnabled())
-         log.tracef("Add dispatcher %s for client listener with id %s, for listener %s",
-               dispatcher, Util.printArray(dispatcher.listenerId), dispatcher.listener);
+      return dispatcher;
+   }
+
+   public void addDispatcher(EventDispatcher<?> dispatcher) {
+      EventDispatcher<?> existing = addDispatcher(dispatcher.listenerId, null, dispatcher, (id, d) -> d);
+      for (SocketAddress address : dispatcher.addresses()) {
+         existing.addAddress(address);
+      }
    }
 
    public void replaceAddress(byte[] listenerId, SocketAddress oldAddress, SocketAddress newAddress) {
@@ -118,9 +129,7 @@ public class ClientListenerNotifier {
                log.debug("Client listener failover rejected, not retrying", throwable);
             } else {
                log.debug("Unable to failover client listener, so ignore connection reset", throwable);
-               ReconnectTask reconnectTask = new ReconnectTask(dispatcher, address);
-               ScheduledFuture<?> scheduledFuture = reconnectExecutor.scheduleAtFixedRate(reconnectTask, RECONNECT_PERIOD, RECONNECT_PERIOD, TimeUnit.MILLISECONDS);
-               reconnectTask.setCancellationFuture(scheduledFuture);
+               scheduleReconnect(dispatcher, address);
             }
          } else {
             if (log.isTraceEnabled()) {
@@ -129,6 +138,20 @@ public class ClientListenerNotifier {
             }
          }
       });
+   }
+
+   public void scheduleReconnect(byte[] listenerId, SocketAddress address) {
+      EventDispatcher<?> dispatcher = dispatchers.get(new WrappedByteArray(listenerId));
+      if (dispatcher != null) {
+         scheduleReconnect(dispatcher, address);
+      }
+   }
+
+   public void scheduleReconnect(EventDispatcher<?> dispatcher, SocketAddress address) {
+      ReconnectTask reconnectTask = new ReconnectTask(dispatcher, address);
+      ScheduledFuture<?> scheduledFuture = reconnectExecutor.scheduleAtFixedRate(
+            reconnectTask, RECONNECT_PERIOD, RECONNECT_PERIOD, TimeUnit.MILLISECONDS);
+      reconnectTask.setCancellationFuture(scheduledFuture);
    }
 
    public void startClientListener(byte[] listenerId) {

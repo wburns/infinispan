@@ -6,6 +6,7 @@ import java.lang.invoke.MethodHandles;
 import java.net.SocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -97,6 +98,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
    private volatile Object nearListener;
    private volatile byte[] nearListenerId;
    private volatile int nearBloomBits;
+   private volatile boolean primaryModeDisabled = false;
 
    InvalidatedNearRemoteCache(InternalRemoteCache<K, V> remoteCache, ClientStatistics clientStatistics,
                               NearCacheService<K, V> nearcache) {
@@ -132,7 +134,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
    }
 
    public boolean isPrimaryMode() {
-      if (!getDispatcher().isPrimaryNearCacheListenerSupported()) {
+      if (primaryModeDisabled || !getDispatcher().isPrimaryNearCacheListenerSupported()) {
          return false;
       }
       Map<SocketAddress, Set<Integer>> primarySegments = getDispatcher().getPrimarySegmentsByAddress(getName());
@@ -143,31 +145,54 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       return !serverListenerStates.isEmpty() && serverListenerStates.values().stream().anyMatch(ServerListenerState::isActive);
    }
 
+   public boolean hasAllPrimaryListenersActive() {
+      Map<SocketAddress, Set<Integer>> primarySegments = getDispatcher().getPrimarySegmentsByAddress(getName());
+      if (primarySegments == null || primarySegments.isEmpty()) {
+         return false;
+      }
+      for (SocketAddress server : primarySegments.keySet()) {
+         ServerListenerState state = getServerListenerState(server);
+         if (state == null || !state.isActive()) {
+            return false;
+         }
+      }
+      return true;
+   }
+
+   private void cleanupPrimaryMode() {
+      primaryModeDisabled = true;
+      getDispatcher().removeTopologyListener(getName(), topologyListener);
+      byte[] lid = this.nearListenerId;
+      if (lid != null) {
+         ClientListenerNotifier cln = getDispatcher().getClientListenerNotifier();
+         for (Map.Entry<SocketAddress, ServerListenerState> entry : serverListenerStates.entrySet()) {
+            if (entry.getValue().isActive()) {
+               SocketAddress server = entry.getKey();
+               try {
+                  HotRodOperation<Void> op = getOperationsFactory().newRemoveClientListenerOperation(lid);
+                  op.asCompletableFuture().thenAccept(___ -> cln.removeClientListener(lid, server));
+                  getDispatcher().executeOnSingleAddress(op, server);
+               } catch (Exception e) {
+                  if (trace) {
+                     log.tracef(e, "Error removing primary listener on %s during fallback", server);
+                  }
+               }
+            }
+         }
+         cln.removeClientListener(lid);
+         this.nearListenerId = null;
+      }
+      serverListenerStates.clear();
+      nearcache.setSegmentFunction(null, 0);
+   }
+
    public SocketAddress getPrimaryOwner(Object key) {
       ConsistentHash ch = getDispatcher().getConsistentHash(getName());
       return ch != null ? ch.getServer(key) : null;
    }
 
    public static boolean sameAddress(SocketAddress a1, SocketAddress a2) {
-      if (Objects.equals(a1, a2)) {
-         return true;
-      }
-      if (a1 instanceof java.net.InetSocketAddress isa1 && a2 instanceof java.net.InetSocketAddress isa2) {
-         if (isa1.getPort() != isa2.getPort()) {
-            return false;
-         }
-         if (Objects.equals(isa1.getHostString(), isa2.getHostString())) {
-            return true;
-         }
-         if (isa1.getAddress() != null && isa2.getAddress() != null) {
-            return Objects.equals(isa1.getAddress(), isa2.getAddress());
-         }
-         if (isa1.getAddress() != null && Objects.equals(isa1.getAddress().getHostAddress(), isa2.getHostString())) {
-            return true;
-         }
-         return isa2.getAddress() != null && Objects.equals(isa2.getAddress().getHostAddress(), isa1.getHostString());
-      }
-      return false;
+      return ChannelRecord.sameAddress(a1, a2);
    }
 
    public int getVersionIfActive(SocketAddress server) {
@@ -558,7 +583,20 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       if (isPrimaryMode()) {
          this.nearListenerId = ClientListenerOperation.generateListenerId();
          getDispatcher().addTopologyListener(getName(), topologyListener);
-         return registerPrimaryListeners(listener, nearListenerId, bloomBits);
+         boolean success = false;
+         try {
+            Channel channel = registerPrimaryListeners(listener, nearListenerId, bloomBits);
+            if (channel != null && hasActivePrimaryListeners()) {
+               success = true;
+               return channel;
+            }
+            log.warn("No primary listeners could be established; falling back to cluster-wide listener");
+         } catch (Throwable t) {
+            log.warn("Failed to register primary listeners; falling back to cluster-wide listener", t);
+         }
+         if (!success) {
+            cleanupPrimaryMode();
+         }
       }
       ClientListenerOperation op = getOperationsFactory().newAddNearCacheListenerOperation(listener,
             bloomBits);
@@ -578,17 +616,29 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
          return null;
       }
       List<CompletableFuture<Channel>> stages = new ArrayList<>();
+      Map<SocketAddress, CompletableFuture<Channel>> serverStages = new HashMap<>();
       for (SocketAddress server : primarySegments.keySet()) {
-         stages.add(registerPrimaryListenerOnServer(server, listener, listenerId, bloomBits).toCompletableFuture());
+         CompletableFuture<Channel> stage = registerPrimaryListenerOnServer(server, listener, listenerId, bloomBits).toCompletableFuture();
+         serverStages.put(server, stage);
+         stages.add(stage);
       }
-      return dispatcher.await(CompletableFutures.sequence(stages).thenApply(list -> {
-         for (Channel c : list) {
-            if (c != null) {
-               return c;
+      CompletableFuture<Void> allSettled = CompletableFuture.allOf(
+            stages.stream().map(f -> f.exceptionally(t -> null)).toArray(CompletableFuture[]::new)
+      );
+      dispatcher.await(allSettled);
+
+      Channel firstActiveChannel = null;
+      for (Map.Entry<SocketAddress, CompletableFuture<Channel>> entry : serverStages.entrySet()) {
+         CompletableFuture<Channel> stage = entry.getValue();
+         if (!stage.isCompletedExceptionally() && stage.join() != null) {
+            if (firstActiveChannel == null) {
+               firstActiveChannel = stage.join();
             }
+         } else {
+            getDispatcher().getClientListenerNotifier().scheduleReconnect(listenerId, entry.getKey());
          }
-         return null;
-      }));
+      }
+      return firstActiveChannel;
    }
 
    private CompletionStage<Channel> registerPrimaryListenerOnServer(SocketAddress server, Object listener, byte[] listenerId, int bloomBits) {
@@ -668,7 +718,12 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
                   }
                }
                for (SocketAddress server : primarySegments.keySet()) {
-                  registerPrimaryListenerOnServer(server, listener, listenerId, nearBloomBits);
+                  registerPrimaryListenerOnServer(server, listener, listenerId, nearBloomBits)
+                        .whenComplete((ch, t) -> {
+                           if (t != null) {
+                              getDispatcher().getClientListenerNotifier().scheduleReconnect(listenerId, server);
+                           }
+                        });
                }
             }
          }

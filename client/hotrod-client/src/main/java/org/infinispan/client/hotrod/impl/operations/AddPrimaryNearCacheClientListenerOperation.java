@@ -53,4 +53,9 @@ public class AddPrimaryNearCacheClientListenerOperation extends ClientListenerOp
    public int getBloomFilterBits() {
       return bloomFilterBits;
    }
+
+   @Override
+   public boolean supportRetry() {
+      return false;
+   }
 }
