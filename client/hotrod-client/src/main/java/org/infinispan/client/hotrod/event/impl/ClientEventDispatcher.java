@@ -137,13 +137,18 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
 
    @Override
    public CompletableFuture<Void> executeFailover() {
+      return executeFailover(address());
+   }
+
+   @Override
+   public CompletableFuture<Void> executeFailover(SocketAddress failedAddress) {
       if (op instanceof AddPrimaryNearCacheClientListenerOperation) {
          if (remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
             Map<SocketAddress, Set<Integer>> primarySegments = inrc.getDispatcher().getPrimarySegmentsByAddress(remoteCache.getName());
             boolean isPrimary = false;
             if (primarySegments != null) {
                for (SocketAddress s : primarySegments.keySet()) {
-                  if (InvalidatedNearRemoteCache.sameAddress(s, address)) {
+                  if (InvalidatedNearRemoteCache.sameAddress(s, failedAddress)) {
                      isPrimary = true;
                      break;
                   }
@@ -155,7 +160,7 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
             }
          }
          OperationDispatcher dispatcher = remoteCache.getDispatcher();
-         return dispatcher.executeAddListener(op.copy(), address)
+         return dispatcher.executeAddListener(op.copy(), failedAddress)
                .thenCompose(channel -> {
                   if (remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
                      if (inrc.getNearCacheConfiguration().bloomFilter()) {
@@ -163,10 +168,10 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
                         if (bloomBits != null) {
                            HotRodOperation<Void> updateOp = inrc.getOperationsFactory().newUpdateBloomFilterOperation(bloomBits);
                            return dispatcher.executeOnSingleAddress(updateOp, ChannelRecord.of(channel))
-                                 .thenRun(() -> inrc.setServerListenerActive(address, true));
+                                 .thenRun(() -> inrc.setServerListenerActive(failedAddress, true));
                         }
                      }
-                     inrc.setServerListenerActive(address, true);
+                     inrc.setServerListenerActive(failedAddress, true);
                   }
                   return CompletableFuture.completedFuture(null);
                })
@@ -186,9 +191,14 @@ public final class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
 
    @Override
    protected void invokeFailoverEvent() {
+      invokeFailoverEvent(address());
+   }
+
+   @Override
+   protected void invokeFailoverEvent(SocketAddress failedAddress) {
       if (op instanceof AddPrimaryNearCacheClientListenerOperation) {
          if (remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
-            inrc.handlePrimaryListenerDisconnected(address);
+            inrc.handlePrimaryListenerDisconnected(failedAddress);
          }
          return;
       }

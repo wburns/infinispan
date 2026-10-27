@@ -277,8 +277,7 @@ public class OperationDispatcher {
             SocketAddress unresolvedAddress = ChannelRecord.of(channel);
             if (unresolvedAddress != target) {
                // we have to reinstall the dispatcher with the correct address
-               clientListenerNotifier.addDispatcher(ClientEventDispatcher.create(operation,
-                     unresolvedAddress, () -> {/* TODO s*/}, operation.getRemoteCache()));
+               clientListenerNotifier.replaceAddress(operation.listenerId, target, unresolvedAddress);
             }
             addListener(unresolvedAddress, operation.listenerId);
             clientListenerNotifier.startClientListener(operation.listenerId);
@@ -941,6 +940,9 @@ public class OperationDispatcher {
          SocketAddress sa = balancer.nextServer(op.getFailedServers());
          if (connectionFailedServers.contains(sa)) {
             sa = balancer.nextServer(op.getFailedServers());
+         }
+         for (SocketAddress failed : op.getFailedServers()) {
+            clientListenerNotifier.removeAddress(aclo.listenerId, failed);
          }
          // This will replace the prior dispatcher from the previous attempt failure
          clientListenerNotifier.addDispatcher(ClientEventDispatcher.create(aclo,
