@@ -23,6 +23,7 @@ import java.util.function.BiConsumer;
 import org.infinispan.client.hotrod.MetadataValue;
 import org.infinispan.client.hotrod.configuration.NearCacheConfiguration;
 import org.infinispan.client.hotrod.event.impl.ClientListenerNotifier;
+import org.infinispan.client.hotrod.event.impl.PrimaryNearCacheEventDispatcher;
 import org.infinispan.client.hotrod.impl.consistenthash.ConsistentHash;
 import org.infinispan.client.hotrod.impl.consistenthash.SegmentConsistentHash;
 import org.infinispan.client.hotrod.impl.operations.CacheOperationsFactory;
@@ -582,6 +583,9 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       this.nearBloomBits = bloomBits;
       if (isPrimaryMode()) {
          this.nearListenerId = ClientListenerOperation.generateListenerId();
+         PrimaryNearCacheEventDispatcher nearDispatcher = PrimaryNearCacheEventDispatcher.create(
+               getOperationsFactory().newAddPrimaryNearCacheListenerOperation(listener, nearListenerId, bloomBits), this);
+         getDispatcher().getClientListenerNotifier().addDispatcher(nearDispatcher);
          getDispatcher().addTopologyListener(getName(), topologyListener);
          boolean success = false;
          try {

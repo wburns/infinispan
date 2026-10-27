@@ -27,7 +27,6 @@ import org.infinispan.client.hotrod.event.ClientCacheFailoverEvent;
 import org.infinispan.client.hotrod.event.ClientEvent;
 import org.infinispan.client.hotrod.impl.InternalRemoteCache;
 import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
-import org.infinispan.client.hotrod.impl.operations.AddPrimaryNearCacheClientListenerOperation;
 import org.infinispan.client.hotrod.impl.operations.ClientListenerOperation;
 import org.infinispan.client.hotrod.impl.transport.netty.OperationDispatcher;
 import org.infinispan.commons.util.ReflectionUtil;
@@ -64,9 +63,6 @@ public class ClientEventDispatcher extends EventDispatcher<ClientEvent> {
 
    public static ClientEventDispatcher create(ClientListenerOperation op, SocketAddress address, Runnable cleanup,
                                               InternalRemoteCache<?, ?> remoteCache) {
-      if (op instanceof AddPrimaryNearCacheClientListenerOperation primaryOp && remoteCache instanceof InvalidatedNearRemoteCache<?, ?> inrc) {
-         return PrimaryNearCacheEventDispatcher.create(primaryOp, address, cleanup, inrc);
-      }
       Map<Class<? extends Annotation>, List<ClientEventDispatcher.ClientListenerInvocation>> invocables = findMethods(op.listener);
       return new ClientEventDispatcher(op, address, invocables, remoteCache.getName(), cleanup, remoteCache);
    }

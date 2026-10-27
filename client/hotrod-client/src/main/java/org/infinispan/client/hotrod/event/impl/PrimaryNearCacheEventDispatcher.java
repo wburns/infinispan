@@ -9,6 +9,7 @@ import java.util.concurrent.CompletableFuture;
 
 import org.infinispan.client.hotrod.impl.InvalidatedNearRemoteCache;
 import org.infinispan.client.hotrod.impl.operations.AddPrimaryNearCacheClientListenerOperation;
+import org.infinispan.client.hotrod.impl.operations.ClientListenerOperation;
 import org.infinispan.client.hotrod.impl.operations.HotRodOperation;
 import org.infinispan.client.hotrod.impl.transport.netty.ChannelRecord;
 import org.infinispan.client.hotrod.impl.transport.netty.OperationDispatcher;
@@ -37,6 +38,16 @@ public final class PrimaryNearCacheEventDispatcher extends ClientEventDispatcher
       return create(op, null, cleanup, (InvalidatedNearRemoteCache<?, ?>) op.getRemoteCache());
    }
 
+   public static PrimaryNearCacheEventDispatcher create(AddPrimaryNearCacheClientListenerOperation op,
+                                                        InvalidatedNearRemoteCache<?, ?> inrc) {
+      return create(op, null, null, inrc);
+   }
+
+   public static PrimaryNearCacheEventDispatcher create(ClientListenerOperation op,
+                                                        InvalidatedNearRemoteCache<?, ?> inrc) {
+      return create((AddPrimaryNearCacheClientListenerOperation) op, inrc);
+   }
+
    @Override
    public CompletableFuture<Void> executeFailover(SocketAddress failedAddress) {
       Map<SocketAddress, Set<Integer>> primarySegments = inrc.getDispatcher().getPrimarySegmentsByAddress(inrc.getName());
@@ -54,6 +65,7 @@ public final class PrimaryNearCacheEventDispatcher extends ClientEventDispatcher
          return CompletableFuture.completedFuture(null);
       }
 
+      inrc.getDispatcher().getClientListenerNotifier().addDispatcher(this);
       OperationDispatcher dispatcher = inrc.getDispatcher();
       return dispatcher.executeAddListener(primaryOp.copy(), failedAddress)
             .thenCompose(channel -> {
