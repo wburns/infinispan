@@ -188,7 +188,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
 
    public SocketAddress getPrimaryOwner(Object key) {
       ConsistentHash ch = getDispatcher().getConsistentHash(getName());
-      return ch != null ? ch.getServer(key) : null;
+      return ch != null ? ch.getServer(keyToBytes(key)) : null;
    }
 
    public static boolean sameAddress(SocketAddress a1, SocketAddress a2) {
@@ -609,7 +609,7 @@ public class InvalidatedNearRemoteCache<K, V> extends DelegatingRemoteCache<K, V
       OperationDispatcher dispatcher = getDispatcher();
       ConsistentHash ch = dispatcher.getConsistentHash(getName());
       if (ch instanceof SegmentConsistentHash sch) {
-         nearcache.setSegmentFunction(sch::getSegment, sch.getNumSegments());
+         nearcache.setSegmentFunction(k -> sch.getSegment(keyToBytes(k)), sch.getNumSegments());
       }
       Map<SocketAddress, Set<Integer>> primarySegments = dispatcher.getPrimarySegmentsByAddress(getName());
       if (primarySegments == null || primarySegments.isEmpty()) {

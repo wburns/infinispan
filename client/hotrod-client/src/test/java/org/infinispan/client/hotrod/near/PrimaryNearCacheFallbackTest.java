@@ -2,7 +2,6 @@ package org.infinispan.client.hotrod.near;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.infinispan.server.hotrod.test.HotRodTestingUtil.hotRodCacheConfiguration;
-import static org.infinispan.test.TestingUtil.blockUntilViewReceived;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -17,7 +16,9 @@ import org.infinispan.client.hotrod.test.MultiHotRodServersTest;
 import org.infinispan.configuration.cache.CacheMode;
 import org.infinispan.configuration.cache.ConfigurationBuilder;
 import org.infinispan.configuration.global.GlobalConfigurationBuilder;
+import org.infinispan.configuration.internal.PrivateGlobalConfigurationBuilder;
 import org.infinispan.manager.EmbeddedCacheManager;
+import org.infinispan.server.core.admin.embeddedserver.EmbeddedServerAdminOperationHandler;
 import org.infinispan.server.core.test.ServerTestingUtil;
 import org.infinispan.server.hotrod.HotRodServer;
 import org.infinispan.server.hotrod.configuration.HotRodServerConfigurationBuilder;
@@ -34,22 +35,21 @@ public class PrimaryNearCacheFallbackTest extends MultiHotRodServersTest {
       ConfigurationBuilder cacheConfig = getDefaultClusteredCacheConfig(CacheMode.DIST_SYNC, false);
       cacheConfig.clustering().hash().numOwners(1);
 
-      for (int i = 0; i < 2; i++) {
-         GlobalConfigurationBuilder globalBuilder = defaultGlobalConfigurationBuilder();
-         EmbeddedCacheManager cm = addClusterEnabledCacheManager(globalBuilder, hotRodCacheConfiguration(cacheConfig));
-         HotRodServerConfigurationBuilder serverBuilder = new HotRodServerConfigurationBuilder();
-         HotRodServer server;
-         if (i == 1) {
-            int serverPort = ServerTestingUtil.findFreePort();
-            int unreachableProxyPort = serverPort + 1000;
-            serverBuilder.proxyHost("127.0.0.1").proxyPort(unreachableProxyPort);
-            server = HotRodClientTestingUtil.startHotRodServer(cm, serverPort, serverBuilder);
-         } else {
-            server = HotRodClientTestingUtil.startHotRodServer(cm, serverBuilder);
-         }
-         servers.add(server);
-      }
-      blockUntilViewReceived(manager(0).getCache(), 2);
+      addHotRodServer(hotRodCacheConfiguration(cacheConfig));
+
+      GlobalConfigurationBuilder globalBuilder = defaultGlobalConfigurationBuilder();
+      globalBuilder.addModule(PrivateGlobalConfigurationBuilder.class).serverMode(true);
+      modifyGlobalConfiguration(globalBuilder);
+      EmbeddedCacheManager cm = addClusterEnabledCacheManager(globalBuilder, hotRodCacheConfiguration(cacheConfig));
+      HotRodServerConfigurationBuilder serverBuilder = new HotRodServerConfigurationBuilder();
+      serverBuilder.adminOperationsHandler(new EmbeddedServerAdminOperationHandler());
+      int serverPort = ServerTestingUtil.findFreePort();
+      int unreachableProxyPort = 1;
+      serverBuilder.proxyHost("127.0.0.1").proxyPort(unreachableProxyPort);
+      HotRodServer server = HotRodClientTestingUtil.startHotRodServer(cm, serverPort, serverBuilder);
+      servers.add(server);
+
+      waitForClusterToForm();
    }
 
    @AfterClass(alwaysRun = true)
@@ -60,14 +60,11 @@ public class PrimaryNearCacheFallbackTest extends MultiHotRodServersTest {
       super.destroy();
    }
 
-   private java.net.SocketAddress serverSocketAddress(int serverIndex) {
-      org.infinispan.server.hotrod.ServerAddress address = server(serverIndex).getAddress();
-      return new java.net.InetSocketAddress(address.getHost(null), address.getPort());
-   }
-
-   private Integer findKeyForServer(InvalidatedNearRemoteCache<Integer, String> inrc, java.net.SocketAddress targetServer) {
+   private Integer findKeyForServer(InvalidatedNearRemoteCache<Integer, String> inrc, int serverIndex) {
+      HotRodServer targetServer = server(serverIndex);
+      java.net.SocketAddress targetAddress = new java.net.InetSocketAddress("127.0.0.1", targetServer.getAddress().getPort());
       for (int i = 0; i < 10000; i++) {
-         if (InvalidatedNearRemoteCache.sameAddress(inrc.getPrimaryOwner(i), targetServer)) {
+         if (InvalidatedNearRemoteCache.sameAddress(inrc.getPrimaryOwner(i), targetAddress)) {
             return i;
          }
       }
@@ -90,8 +87,8 @@ public class PrimaryNearCacheFallbackTest extends MultiHotRodServersTest {
       assertThat(clientCache).isInstanceOf(InvalidatedNearRemoteCache.class);
       InvalidatedNearRemoteCache<Integer, String> inrc = (InvalidatedNearRemoteCache<Integer, String>) clientCache;
 
-      Integer key0 = findKeyForServer(inrc, serverSocketAddress(0));
-      Integer key1 = findKeyForServer(inrc, serverSocketAddress(1));
+      Integer key0 = findKeyForServer(inrc, 0);
+      Integer key1 = findKeyForServer(inrc, 1);
 
       // Operations on key0 (primary on reachable server 0) should be cached in near cache
       clientCache.put(key0, "val0");
@@ -102,8 +99,18 @@ public class PrimaryNearCacheFallbackTest extends MultiHotRodServersTest {
       assertThat(clientCache.get(key0)).isEqualTo("val0");
       assertThat(inrc.getNearCacheService().get(key0)).isNotNull();
 
-      // Invalidation works for key0
-      server(0).getCacheManager().getCache().put(key0, "val0-updated");
+      // Invalidation works for key0 via another client
+      org.infinispan.client.hotrod.configuration.ConfigurationBuilder updatingClientBuilder =
+            HotRodClientTestingUtil.newRemoteConfigurationBuilder();
+      updatingClientBuilder.addServer().host("127.0.0.1").port(server(0).getPort());
+      updatingClientBuilder.clientIntelligence(ClientIntelligence.BASIC);
+
+      RemoteCacheManager updatingClient = new RemoteCacheManager(updatingClientBuilder.build());
+      try {
+         updatingClient.getCache().put(key0, "val0-updated");
+      } finally {
+         updatingClient.stop();
+      }
       eventually(() -> inrc.getNearCacheService().get(key0) == null);
       assertThat(clientCache.get(key0)).isEqualTo("val0-updated");
 

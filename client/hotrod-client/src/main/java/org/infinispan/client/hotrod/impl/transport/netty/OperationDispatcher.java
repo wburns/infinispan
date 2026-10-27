@@ -346,7 +346,7 @@ public class OperationDispatcher {
    public <E> CompletionStage<E> executeOnSingleAddress(HotRodOperation<E> operation, SocketAddress socketAddress) {
       // We do an empty check, as contains will perform hashCode on the socketAddress creating a String object
       if (!connectionFailedServers.isEmpty() && connectionFailedServers.contains(socketAddress)) {
-         if (!operation.supportRetry()) {
+         if (operation instanceof org.infinispan.client.hotrod.impl.operations.AddPrimaryNearCacheClientListenerOperation) {
             operation.asCompletableFuture().completeExceptionally(
                   new org.infinispan.client.hotrod.exceptions.TransportException("Server " + socketAddress + " is marked as failed", socketAddress));
             return operation.asCompletableFuture();
