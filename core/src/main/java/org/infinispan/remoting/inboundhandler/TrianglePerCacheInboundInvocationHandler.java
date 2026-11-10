@@ -5,9 +5,6 @@ import static org.infinispan.context.impl.FlagBitSets.FORCE_ASYNCHRONOUS;
 import static org.infinispan.context.impl.FlagBitSets.FORCE_SYNCHRONOUS;
 import static org.infinispan.remoting.inboundhandler.DeliverOrder.NONE_NO_FC;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
-
 import org.infinispan.commands.CommandInvocationId;
 import org.infinispan.commands.CommandsFactory;
 import org.infinispan.commands.ReplicableCommand;
@@ -166,15 +163,6 @@ public class TrianglePerCacheInboundInvocationHandler extends BasePerCacheInboun
          }
 
          @Override
-         protected CompletionStage<CacheNotFoundResponse> beforeInvoke() {
-            if (handler.isStopped()) {
-               // Do not ack a write that was not applied, the originator retries in the next topology
-               return CompletableFuture.failedFuture(OutdatedTopologyException.RETRY_NEXT_TOPOLOGY);
-            }
-            return super.beforeInvoke();
-         }
-
-         @Override
          protected void onException(Throwable throwable) {
             super.onException(throwable);
             onBackupException((BackupWriteCommand) command, throwable, readyAction);
@@ -183,10 +171,15 @@ public class TrianglePerCacheInboundInvocationHandler extends BasePerCacheInboun
          @Override
          protected void afterInvoke() {
             super.afterInvoke();
-            readyAction.onFinally();
             BackupWriteCommand backupCommand = (BackupWriteCommand) command;
-            sendBackupAck(backupCommand.getCommandInvocationId(), commandTopologyId, backupCommand.getSegmentId(),
-                  backupCommand.getFlags());
+            if (response == CacheNotFoundResponse.INSTANCE) {
+               // The write was not applied, so the originator must retry in the next topology.
+               onBackupException(backupCommand, OutdatedTopologyException.RETRY_NEXT_TOPOLOGY, readyAction);
+            } else {
+               readyAction.onFinally();
+               sendBackupAck(backupCommand.getCommandInvocationId(), commandTopologyId, backupCommand.getSegmentId(),
+                     backupCommand.getFlags());
+            }
          }
       };
    }
