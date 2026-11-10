@@ -4,6 +4,7 @@ import static org.infinispan.util.logging.Log.CONFIG;
 
 import java.lang.invoke.MethodHandles;
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
@@ -125,6 +126,8 @@ public class GlobalConfigurationManagerImpl implements GlobalConfigurationManage
       Map<String, Configuration> persistedTemplates = localConfigurationManager.loadAllTemplates();
       Map<String, Configuration> persistedCaches = localConfigurationManager.loadAllCaches();
 
+      Set<String> processedTemplates = new HashSet<>();
+      Set<String> processedCaches = new HashSet<>();
       getStateCache().forEach((key, v) -> {
          String scope = key.getScope();
          if (isKnownScope(scope)) {
@@ -135,6 +138,8 @@ public class GlobalConfigurationManagerImpl implements GlobalConfigurationManage
             ensureClusterCompatibility(name, state, map);
             CompletionStage<Void> future = cacheScope ? createCacheLocally(name, state) : createTemplateLocally(name, state);
             CompletionStages.join(future);
+            // Only skip later writes once local creation has completed successfully.
+            (cacheScope ? processedCaches : processedTemplates).add(name);
          }
       });
 
@@ -143,11 +148,7 @@ public class GlobalConfigurationManagerImpl implements GlobalConfigurationManage
       // Create the templates
       persistedTemplates.forEach((name, configuration) -> {
          ensurePersistenceCompatibility(name, configuration);
-         // The template was permanent, it still needs to be
-         ScopedState templateKey = new ScopedState(TEMPLATE_SCOPE, name);
-         // Skip putIfAbsentAsync RPC if the entry already exists from state transfer
-         if (getStateCache().containsKey(templateKey)) {
-            // Entry already exists in state cache, no need for RPC
+         if (processedTemplates.contains(name)) {
             return;
          }
          CompletionStages.join(getOrCreateTemplate(name, configuration, adminFlags));
@@ -156,11 +157,7 @@ public class GlobalConfigurationManagerImpl implements GlobalConfigurationManage
       // Create the caches
       persistedCaches.forEach((name, configuration) -> {
          ensurePersistenceCompatibility(name, configuration);
-         // The cache configuration was permanent, it still needs to be
-         ScopedState cacheKey = new ScopedState(CACHE_SCOPE, name);
-         // Skip putIfAbsentAsync RPC if the entry already exists from state transfer
-         if (getStateCache().containsKey(cacheKey)) {
-            // Entry already exists in state cache, no need for RPC
+         if (processedCaches.contains(name)) {
             return;
          }
          CompletionStages.join(createCacheInternal(name, null, configuration, adminFlags)
